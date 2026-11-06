@@ -55,4 +55,24 @@ export const KV = {
   feishu: { chats: record<Record<string, boolean>>('feishu-chats'), history: family<string, [chat: string]>('feishu-history:'),
     topics: family<Record<string, string>, [chat: string]>('feishu-history-threads:'),
     seen: family<string[], [thread: string]>('thread-seen:'), initialized: family<boolean, [thread: string]>('thread-initialized:') },
+  /**
+   * Hosting Source, per instance: notification cursor; per-Issue/PR read cursor, CI fingerprint and revision (`revision` counts
+   * reported CI changes so each produces a distinct Trigger ID), and default-branch CI state; and the tracked work items.
+   */
+  hosting: { cursor: family<string, [instance: string]>('hosting-cursor:'),
+    notes: family<string, [instance: string, number: number]>('hosting-notes:'),
+    ci: family<{ fingerprint: string; revision: number }, [instance: string, number: number]>('hosting-ci:'),
+    branchCi: family<{ branch?: string; failures?: string[]; revision: number }, [instance: string]>('hosting-branch-ci:'),
+    tracked: family<string[], [instance: string]>('hosting-tracked:') },
+  /**
+   * Chat Source, per instance: delivered message IDs; per-chat history cursor and active topics mapped from topic ID to
+   * last-seen timestamp; and per-polled-thread seen message IDs.
+   */
+  chat: { delivered: family<string[], [instance: string]>('chat-delivered:'),
+    history: family<string, [instance: string, chat: string]>('chat-history:'),
+    seen: family<string[], [instance: string, thread: string]>('chat-seen:'),
+    topics: family<Record<string, string>, [instance: string, chat: string]>('chat-topics:') },
+  /** Work Source, per instance: notification cursor and the per-key read cursor of its notes. */
+  work: { cursor: family<string, [instance: string]>('work-cursor:'),
+    notes: family<string, [instance: string, key: string]>('work-notes:') },
 }
