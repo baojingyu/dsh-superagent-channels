@@ -1,4 +1,7 @@
 /** Several instances of one Source kind: each with its own configuration, its own outbound host, and its own health. */
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { SettingsSchema } from '../src/policy.ts'
@@ -11,6 +14,9 @@ import { sourceContextOf, type SourceContextDeps } from '../src/app/source-conte
 import { feishuKind } from '../src/sources/feishu.ts'
 import { githubKind } from '../src/sources/github.ts'
 import { policyOf } from '../src/app/views/settings.ts'
+import { sourcesStatus } from '../src/app/views/sources.ts'
+import { Store } from '../src/app/store.ts'
+import type { ChannelRef } from '../src/core/index.ts'
 import { testDeployment } from './fixtures/deployment.ts'
 
 /** A minimal kind whose Channel records the host it receives and whose link reads the instance's configuration. */
@@ -102,5 +108,41 @@ describe('Policy blocks per instance', () => {
     const legacySources = new SourceRegistry(() => legacy)
     legacySources.register(feishuKind)
     expect(policyOf(legacy, legacySources, 'feishu', {})).toEqual(policyOf(settings, sources, 'feishu-hr', {}))
+  })
+})
+
+/** A kind whose schema requires a field, so `schema.parse({})` cannot fill a default. */
+const requiredKind: SourceKind<{ key: string }> = {
+  kind: 'strict', title: { zh: '必填', en: 'Strict' }, description: { zh: '', en: '' }, health: ['strict'],
+  schema: z.object({ key: z.string().min(1) }).strict(), fields: [],
+}
+
+describe('Unconfigured required kinds', () => {
+  it('returns a disabled default instance instead of throwing when a defaulted-free schema needs a field', () => {
+    const sources = new SourceRegistry(() => SettingsSchema.parse({}))
+    sources.register(requiredKind)
+    expect(() => sources.instances()).not.toThrow()
+    expect(sources.instances()).toEqual([{ id: 'strict', kind: 'strict', enabled: false, config: {}, installed: true }])
+    expect(sources.instance('strict')).toEqual({ id: 'strict', kind: 'strict', enabled: false, config: {} })
+    // A kind whose schema fills its defaults keeps the old behaviour: a default instance that stays enabled.
+    const defaults = new SourceRegistry(() => SettingsSchema.parse({}))
+    defaults.register(githubKind)
+    expect(defaults.instances()).toMatchObject([{ id: 'github', kind: 'github', enabled: true, installed: true }])
+  })
+
+  it('shows the unconfigured kind as an off row in the panel instead of throwing', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'dsh-registry-instances-'))
+    const store = new Store(join(directory, 'orchestrator.sqlite'))
+    try {
+      store.saveSettings(SettingsSchema.parse({}))
+      const sources = new SourceRegistry(() => store.settings())
+      sources.register(requiredKind)
+      const links = (channel: ChannelRef) => ({ url: '', label: { zh: channel.source, en: channel.source } })
+      const rows = sourcesStatus({ store, sources, links }, {}, {})
+      expect(rows.map(row => [row.id, row.enabled, row.state])).toEqual([['strict', false, 'off']])
+    } finally {
+      store.close()
+      rmSync(directory, { recursive: true, force: true })
+    }
   })
 })
