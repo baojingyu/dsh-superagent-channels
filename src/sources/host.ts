@@ -20,6 +20,8 @@ export type Health = { state: 'starting' | 'ready' | 'paused' | 'error'; detail:
 export function health(state: Health['state'], code: HealthCode, values: Record<string, string> = {}): Health {
   return { state, detail: fill(HEALTH_TEXT[code], values), code, ...Object.keys(values).length ? { values } : {} }
 }
+/** Board entry of one health entry a Source instance reports: its instance ID prefixes the entry name its kind declares. */
+export const healthEntry = (instance: string, name: string): string => `${instance}:${name}`
 export interface SourceHost {
   readonly sources: SourceRegistry
   /** Returns the context for one Source kind; its `report` writes only the health entries declared by the kind. */
