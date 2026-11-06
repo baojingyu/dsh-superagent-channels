@@ -358,7 +358,10 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/infra/paths.ts` | The package's root, where packaged files are |
 | `src/infra/text.ts` | Word counts and the chat message limit, `fill` and `sameName` |
 | `src/infra/health.ts` | The `HealthBoard`, every part's health entry, each claimed by its one writer |
+| `src/infra/hosting-api.ts` | The code-hosting HTTP client: `HostingApi` and `createHostingApi`, a token read from its `0600` file, `PRIVATE-TOKEN`, an allowlisted `/projects` path and a 30-second timeout |
+| `src/infra/yunxiao-api.ts` | The Yunxiao HTTP client: `YunxiaoApi`, `createYunxiaoApi` and `YunxiaoHttpError`, its token file read on every call, the `/oapi/v1/` path limit and the organization allowlist |
 | `src/sources/kind.ts` | The `SourceKind` protocol |
+| `src/sources/instance.ts` | Instance id normalization: `instanceId`, `kindOf` and `storesKind` |
 | `src/sources/registry.ts` | `SourceRegistry` |
 | `src/sources/host.ts` | `SourceHost`, `SourceContext`, `Health`, `health` and the fixed health texts |
 | `src/sources/poll.ts` | What GitHub and Feishu polling share: `POLL_HORIZON_MS`, `polled`, `cursorAt`, and `pollThreads`, which keeps a failure on its Thread as `pollError` |
@@ -396,6 +399,34 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/client/marks.ts` | The marks of the states the views classify: a Ticket's or a Thread's stage, a Source's state and a Decision's outcome, each as a dot, an icon, a tone and a label |
 | `src/client/locales.ts` | All copy in both languages, and the glossary of [001 Domain model](001-domain.md) |
 | `src/client/client.css`, `css.d.ts` | The panel's stylesheet, loaded as text |
+| `src/sources/chat/port.ts` | The chat port: `ChatEvent`, `InboundTransport` and `ChatAdapter`, the interface a chat backend implements |
+| `src/sources/chat/dedupe.ts` | `DeliveredRing`, the transport's bounded ring of delivered message IDs, which drops redeliveries |
+| `src/sources/chat/kind.ts` | `chatKind`, the factory that turns a `ChatAdapter` into a chat `SourceKind` |
+| `src/sources/chat/weixin/backend.ts` | `BridgeEndpoints` and the `WxRoom`/`WxPerson` types: the bridge client's constants and types |
+| `src/sources/chat/weixin/bridge.ts` | `createBridgeClient`, the sidecar bridge's HTTP client: health, status, rooms, members, messages and send, with its token file, timeouts and retryable failures |
+| `src/sources/chat/weixin/kind.ts` | `weixinKind` / `createWeixinKind`, the Weixin chat `SourceKind`: its schema and fields, the structured `@` scope rule, the bridge-backed Channel and its environment |
+| `src/sources/hosting/port.ts` | The code-hosting port: `HostAdapter`, `ChangeRequest` and `ChangeNote` |
+| `src/sources/hosting/kind.ts` | `hostingKind`, the factory that turns a `HostAdapter` into a hosting `SourceKind` |
+| `src/sources/hosting/gitlab/adapter.ts` | The GitLab `HostAdapter`: `createGitlabAdapter`, the mapping of a merge request, note and pipeline, and its CI snapshots |
+| `src/sources/hosting/gitlab/kind.ts` | `gitlabKind`, the GitLab hosting `SourceKind` on the GitLab adapter, with `organizationId`, `hostUrl` and its environment |
+| `src/sources/work/port.ts` | The work-item port: `WorkAdapter` and `WorkItem` |
+| `src/sources/work/kind.ts` | `workKind`, the factory that turns a `WorkAdapter` into a work `SourceKind` |
+| `src/sources/work/projex/adapter.ts` | The Projex `WorkAdapter`: `createProjexAdapter`, work items and notes by category with `nextToken` paging, and its marker-idempotent replies |
+| `src/sources/work/projex/kind.ts` | `projexKind`, the Yunxiao Projex work `SourceKind` on the Projex adapter, with `organizationId` and its environment |
+| `src/sources/hosting/stream.ts` | `pollHosting`, the hosting polling round: the cursor, the changed change requests, their notes and CI, and the overflow count |
+| `src/sources/work/stream.ts` | `pollWorkItems` and `workTrigger`, the work-item polling round over the configured categories |
+| `src/sources/chat/dingtalk/adapter.ts` | The DingTalk adapter: `parseStreamEvent` and `sendMessage` over the sessionWebhook and oapi paths, with its idempotency marker |
+| `src/sources/chat/dingtalk/stream.ts` | `startStream` and `createLongPollingStream`: consume the injected event stream, report its health and reconnect until aborted |
+| `src/sources/chat/dingtalk/kind.ts` | `dingtalkKind` / `createDingTalkKind`, the DingTalk chat `SourceKind`: its schema and fields, the `@`-based scope and the stream-backed Channel |
+| `src/sources/chat/wecom/crypto.ts` | WeCom callback crypto: `signatureOf`/`verifySignature`, and `encrypt`/`decrypt` of the AES-256-CBC payload |
+| `src/sources/chat/wecom/adapter.ts` | The WeCom callback adapter: `parseXml`, and `createWecomSender` with its cached `access_token` and the message send |
+| `src/sources/chat/wecom/webhook.ts` | `handleWebhook`, the pure callback handler: verify, decrypt, parse, dedupe, and the URL-verification echo |
+| `src/sources/chat/wecom/kind.ts` | `wecomKind` / `createWecomKind`, the WeCom chat `SourceKind`: its schema and fields, the `@`-based scope, the callback Channel and its facts |
+| `src/sources/dingtalk-watch.ts` | The DingTalk plugin entry, exported as `./dingtalk-watch`: registers the DingTalk kind and runs its injected stream |
+| `src/sources/wecom-watch.ts` | The WeCom plugin entry, exported as `./wecom-watch`: registers the WeCom callback kind |
+| `src/sources/weixin-watch.ts` | The Weixin plugin entry, exported as `./weixin-watch`: registers the Weixin kind and polls its sidecar bridge for new messages in the configured chats |
+| `src/sources/gitlab-watch.ts` | The GitLab plugin entry, exported as `./gitlab-watch`: registers the GitLab kind whose note channel posts through the instance's bound adapter |
+| `src/sources/projex-watch.ts` | The Projex plugin entry, exported as `./projex-watch`: registers the Projex kind whose comment channel posts through the instance's bound adapter |
 
 `src/sources/github.ts` and `src/sources/feishu.ts` are also the entries of the two Source plugins, built by `tsdown.config.ts` and exported in `package.json` as `./github-watch` and `./feishu-watch`. The bundle's `cordis.patch.yml` inserts the three plugins, with Feishu disabled.
 
@@ -407,6 +438,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/stage.spec.ts` | The Ticket stages, row by row |
 | `tests/policy.spec.ts` | Source scope, the gate, the admission table, Mandate revalidation, the Policy version, settings migrations and assessment outcomes |
 | `tests/registry.spec.ts` | `SourceRegistry`: instances, validation, Policy parts, Channels and Thread context |
+| `tests/instance.spec.ts` | Instance ids: `instanceId`, `kindOf` and `storesKind`, and the Source instance settings with and without a `kind` |
 | `tests/sources.spec.ts` | The Feishu and GitHub Sources on a `SourceContext`: translation, polls and read positions, the pull request rules, health |
 | `tests/commands.spec.ts` | CLI calls as the deployment's accounts, the Channels' answers, and repository-scoped GitHub calls |
 | `tests/feishu-read.spec.ts`, `tests/github-read.spec.ts` | Feishu and GitHub reads |
@@ -444,6 +476,24 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/locales.spec.ts`, `tests/styles.spec.ts` | The copy in both languages, the stylesheet |
 | `tests/class-docs.spec.ts` | Every class in `src` has a JSDoc block before it |
 | `tests/docs.spec.ts` | Numbered documents link only to earlier ones, every local link resolves, no document has merge conflict markers, and this document's tables list every module and every test |
+| `tests/kv-instances.spec.ts` | The instance dimension of the KV families and health keys: one logical key per instance in its own store key, and `healthEntry`'s `实例:条目` form |
+| `tests/registry-instances.spec.ts` | Several instances of one kind resolved from one settings map, each with its own health entries and its own outbound `ChannelHost` |
+| `tests/hosting-port.spec.ts` | `hostingKind`'s schema, `scope` and channel capabilities over a stub `HostAdapter` |
+| `tests/chat-dedupe.spec.ts` | `DeliveredRing`'s bounded deduplication, and the `chatKind` built on a stub `InboundTransport` |
+| `tests/work-port.spec.ts` | `workKind`'s category-to-row mapping and its outbound replies over a stub `WorkAdapter` |
+| `tests/weixin-bridge.spec.ts` | The Weixin bridge client over a stub `fetch`: its six endpoints, the bearer token file's mode, the event mapping, the idempotency key and the failure codes |
+| `tests/weixin-kind.spec.ts` | The Weixin `SourceKind`: its schema and fields, the structured `@` scope rule, the Channel and policy, the environment and its facts |
+| `tests/hosting-gitlab.spec.ts` | The GitLab adapter and the hosting HTTP client: the merge request, note and pipeline mappings, paging, idempotent replies, and the token and path checks |
+| `tests/hosting-gitlab-kind.spec.ts` | The GitLab hosting `SourceKind`: its identity, schema and fields, its environment and its scope rows |
+| `tests/work-projex.spec.ts` | The Projex adapter: work items and notes by category, `nextToken` paging, idempotent replies, and the Yunxiao client's checks |
+| `tests/work-projex-kind.spec.ts` | The Projex work `SourceKind`: its identity and fields, its schema, its scope rows, its environment and Channel capabilities |
+| `tests/dingtalk-adapter.spec.ts` | The DingTalk adapter over injected `fetch`/`connect`: the stream-event parse, the sessionWebhook and oapi sends, the idempotency marker, the failure codes and the stream's abort |
+| `tests/dingtalk-kind.spec.ts` | The DingTalk `SourceKind`: its identity and schema, its fields, its policy, its capabilities and its `@`-based scope |
+| `tests/wecom-crypto.spec.ts` | The WeCom callback crypto: the sorted signature, key validation without naming the key, and the encrypt/decrypt round trip |
+| `tests/wecom-webhook.spec.ts` | The WeCom callback handler and sender: the XML parse, the URL verification, signed events, dedupe and the cached access token |
+| `tests/wecom-kind.spec.ts` | The WeCom `SourceKind`: its identity and schema, its fields, its two-branch scope, its at-least-once capabilities and facts |
+| `tests/hosting-stream.spec.ts` | `pollHosting` on a real Store and a stub adapter: the cursor, the changed change requests and CI, the overflow and a failed change |
+| `tests/work-stream.spec.ts` | `pollWorkItems` on a real Store and a stub adapter: the initialized cursor, the three categories, idempotency, aborts and a failed category |
 
 `tests/fixtures/` holds what several tests share: `host.ts`, a simulated DeepSeek Harness host; `panel-server.ts` and `panel.tsx`, the fake management API and the panel around a page; `deployment.ts`, a resolved deployment; `git.ts`, the environment of every git the tests start, which names no repository; and `async.ts`.
 
