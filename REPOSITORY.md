@@ -86,7 +86,9 @@ fetches from it is still an independent repository.
 3. **No machine-specific paths in source.** Paths that only exist on one machine belong in flags or
    environment variables, not in a default. The sidecar's `--venv` / `WXBRIDGE_VENV` discovery is the
    pattern to copy.
-4. **Topic branches, `--no-ff` merges.** `main` stays reviewable; a branch name says what it was for.
+4. **Commit straight to `main`.** No branch per change: each commit is self-contained, says what it
+   changed and why, and the suite is green before it is pushed. A branch is opened only when work must
+   stay off `main` while it is incomplete, and it disappears once merged.
 5. **The README is part of the change.** A commit that changes behaviour updates the documentation in
    the same commit, in both languages.
 
@@ -96,6 +98,6 @@ Two things to re-check first, because they cannot be undone by editing:
 
 - **History.** A rewrite before the first public push is cheap; after it, other clones and caches may
   keep the old objects. Run the placeholder check over every commit, not just the tip.
-- **The sidecar directory.** It lives outside this repository (a sibling `open-dsh-superagent-ext/`)
+- **The sidecar directory.** It lives outside this repository (a sibling `dsh-superagent-channels-ext/`)
   and is not covered by this repository's history rules. It holds the sidecar, the probe and the
   contract; treat it with the same rules if it is ever published.

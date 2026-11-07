@@ -1,6 +1,6 @@
 /**
  * Host-independent port of a code-hosting adapter (GitLab, Codeup, and later hosts): change requests, notes, and CI,
- * normalized to the vocabulary of docs 2026-11-06-open-dsh-superagent-扩展方案 §5.3 before any vendor call exists.
+ * normalized to one vocabulary — change requests, notes and CI, the terms §5.3 of the extension design fixed — before any vendor call exists.
  * This module is types only; a host implementation lives with the kind that owns it.
  */
 import type { Commands } from '../../infra/commands.ts'
