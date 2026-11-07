@@ -1,4 +1,4 @@
-# dsh-superagent · 多通道版
+# open-dsh-superagent · 多通道版
 
 [English](README.md) · **简体中文**
 

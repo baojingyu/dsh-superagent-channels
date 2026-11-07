@@ -27,7 +27,7 @@
 | remote 配置 | `origin` fetch/push 均指向上面这一个 URL；**没有 `upstream` 等第二 remote**（要吸上游修复时再加，且只 fetch 不 push） |
 | 主分支 | `main` = v3 落地提交（`feat/win11-portability` 以 `--no-ff` 合并） |
 | 主分支近期提交 | `b7bb154`（README 改写为仓库首页）→ `692e6b1`（`merge: self-hosted sources ...`，`--no-ff` 合并提交）→ `4b7a7f8`（v2 本文档）→ `f2891e8`（v2 文档变更记录） |
-| 备查分支 | `feat/multi-instance-sources` = `dc614f6`（内容与 `main` 一致，仅无 merge 提交；**保留，不删**） |
+| 备查分支 | 无。`feat/multi-instance-sources` 曾被保留备查，但它没有任何 `main` 里没有的提交（`git log main..<branch>` 为空），已删除；需要时按 SHA `dc614f6` 从历史里取 |
 | 工作树 | 干净（`git status --porcelain` 为空） |
 | 分支拓扑 | `8c32a9d`（上游原型）→ 7 个功能提交 → `692e6b1` merge → `b7bb154` README → `4b7a7f8` v2 文档 → `f2891e8` → v3 移植提交 |
 | 默认启用状态 | 五个新插件在 `cordis.patch.yml` 里全部 `disabled: true` |
@@ -43,7 +43,7 @@ git branch -vv
 ```
 
 预期：`origin` 只有一行 fetch、一行 push，URL 均为 `baojingyu/open-dsh-superagent`；
-`HEAD -> main` 指向 `4b7a7f8`；`git status` 无输出；`feat/multi-instance-sources` 与 `main` 内容一致。
+`HEAD -> main` 指向最新提交；`git status` 无输出；只有 `main` 一个分支（主题分支合并后即删）。
 
 ---
 
@@ -519,7 +519,8 @@ C:\Users\Administrator\Documents\xwechat_files\<account>_<hash>\db_storage\
 
 1. **先复跑、再动手。** 到岗后第一件事是按 §3.4 跑完五条检查，把结果填进 §2 的表格。任何一条与基线不一致，先解决环境，不要开始改代码。**v3 已经把 Win11 上的 64 个失败清零**，所以现在的基线是「Windows 上也是 0 failed」；再出现红，先怀疑是本地状态而不是已知问题。
 2. **只推 `origin`。** `git remote -v` 里应当只有 `baojingyu/open-dsh-superagent` 一个 remote；**不要**添加任何指向官方/上游仓库的 remote，也不要向其它仓库推送。
-3. **不改名、不回退。** 仓库名与 main 历史均保持现状；`feat/multi-instance-sources` 保留备查，不删。
+3. **不改名、不回退。** 仓库名与 main 历史均保持现状。**分支只留 `main`**：主题分支合并后即删（`git push origin --delete <branch>`），
+   需要回看某个改动时用提交 SHA，不要用长期存活的分支代替历史。
 4. **不要在 `main` 上做实验。** 起 `feat/<topic>` 分支，`--no-ff` 合并回 `main`，保持提交可回溯。
 5. **必须等外部输入才能推进的项**（不要靠猜）：
    - 微信群 `@` → **v3 已有定论：L0 拿不到**（§4.1）。要真群 `@` 只能等 L2 的 pad 服务，或批准 L1 的 DB 读取器（§4.2）
