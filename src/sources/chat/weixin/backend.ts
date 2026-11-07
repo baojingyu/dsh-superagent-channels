@@ -5,5 +5,5 @@ export interface WxPerson { id: string; name: string }
 /** A group the sidecar can listen to; `id` is the stable chatroom ID, never the display name. */
 export interface WxRoom { id: string; name: string }
 
-/** Paths of the frozen sidecar contract (dsh-superagent-channels-ext/sidecar/wxauto-bridge/contract.md §1). */
+/** Paths of the frozen sidecar contract (sidecar/wxauto-bridge/contract.md §1). */
 export const BridgeEndpoints = { health: '/health', status: '/status', rooms: '/rooms', members: '/members', messages: '/messages', send: '/send', listen: '/listen' } as const

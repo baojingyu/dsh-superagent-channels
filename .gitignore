@@ -9,3 +9,12 @@ coverage/
 package-lock.json
 # Written by the wxauto library into whatever directory a process starts in, so a run of the live suite leaves one behind.
 wxauto_logs/
+# The sidecar writes these next to itself at run time. They hold chat content and message text,
+# so they stay out of history.
+bridge.log
+sidecar*.log
+poc/probe-report.json
+__pycache__/
+*.pyc
+# Never commit a bearer token.
+secrets/

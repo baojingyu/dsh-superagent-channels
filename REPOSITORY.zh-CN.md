@@ -91,5 +91,5 @@ git log --oneline upstream/main ^main     # 上游有、你没有的
 
 - **历史。** 首次公开之前重写很便宜；公开之后，别人的克隆和缓存可能留住旧对象。
   占位符检查要跑遍**每一个提交**，不只是 tip。
-- **sidecar 目录。** 它在仓库之外（同级 `dsh-superagent-channels-ext/`），不受本仓库的历史规则约束。
-  里面是 sidecar、探针和契约；如果要发布，同样按上面这套规矩处理。
+- **sidecar 属于本仓库**（`sidecar/wxauto-bridge/`），所以上面这些规矩同样管它：不放个人数据、
+  不放机器专属路径、不放任何规避授权检查的手段。

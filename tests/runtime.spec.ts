@@ -35,6 +35,13 @@ import { preview, readable } from '../src/app/views/text.ts'
 import { decisionList, search, threadDetail, threadList } from '../src/app/views/threads.ts'
 import { executorLoad, ticketDetail, ticketList } from '../src/app/views/tickets.ts'
 
+/**
+ * The environment this suite inherits. A DSH host that is already running this bundle exports the
+ * agent's variables to every child process, so "restored" means "back to this", not "unset"; asserting
+ * `undefined` would be testing the host rather than the runtime's cleanup.
+ */
+const INHERITED_GIT_CONFIG_GLOBAL = process.env.GIT_CONFIG_GLOBAL
+
 let runtime: Runtime
 const viewsOf = (value: Runtime) => ({ store: value.store, sources: value.sources, links: value.links() })
 const overviewOf = (value: Runtime) => overview(viewsOf(value), value.health, policyVersion(value.store.settings()), executorLoad(value.store, value.executor.activeCount()), value.setupProblem ?? value.feishuProblem)
@@ -972,7 +979,7 @@ it('runs setup again while the Feishu bot check failed, and restores the process
   const broken = await restart()
   await broken.ready
   expect(broken.setupProblem).toMatchObject({ place: 'deployment', code: 'gitTooOld' })
-  expect(process.env.GIT_CONFIG_GLOBAL).toBeUndefined()
+  expect(process.env.GIT_CONFIG_GLOBAL).toBe(INHERITED_GIT_CONFIG_GLOBAL)
   expect(process.env.PATH?.split(delimiter)).not.toContain(join(directory, 'worker-bin'))
 })
 
@@ -992,7 +999,7 @@ it('writes worker shims and the agent environment from the configuration only, a
   expect(process.env.GIT_AUTHOR_NAME).toBeUndefined()
   expect(process.env.PATH?.split(delimiter)[0]).toBe(bin)
   await next.stop()
-  expect(process.env.GIT_CONFIG_GLOBAL).toBeUndefined()
+  expect(process.env.GIT_CONFIG_GLOBAL).toBe(INHERITED_GIT_CONFIG_GLOBAL)
   expect(process.env.PATH?.split(delimiter)).not.toContain(bin)
 })
 
@@ -1167,6 +1174,7 @@ it('shows a failed reply as a problem with its attempts, an error of the reply e
   expect([outgoing(), runtime.health.reply, runtime.effects.pending('reply', 'stuck')])
     .toEqual([[], expect.objectContaining({ state: 'ready', detail: 'Nothing waiting' }), false])
 })
+
 
 describe('the order of a Ticket\'s messages to one conversation', () => {
   const sent: string[] = []

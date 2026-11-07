@@ -286,7 +286,7 @@ if self.config.AtMe in message.content: ...    # 3381 / 3405 / 3729 / 3748 行
 #### L1 可行性证据（已确认，未实施）
 
 ```
-C:\Users\Administrator\Documents\xwechat_files\<account>_<hash>\db_storage\
+%USERPROFILE%\Documents\xwechat_files\<account>_<hash>\db_storage\
   message\message_0.db   11,882,496 B   ← 群/单聊消息
   contact\contact.db     23,150,592 B   ← 联系人、群成员
   ...

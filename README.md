@@ -111,7 +111,7 @@ patterns strict but is not something a person can type.
 | `src/sources/instance.ts` | instance id vs channel id, and the compatibility rule |
 | `src/sources/{weixin,gitlab,projex,dingtalk,wecom}-watch.ts` | the five optional plugins |
 | `src/infra/{hosting-api,yunxiao-api,secret-file}.ts` | token-file HTTP clients, path allowlists, the owner-only rule |
-| `../dsh-superagent-channels-ext/sidecar/` | the WeChat sidecar and its contract (sibling directory; the live test resolves it there) |
+| `sidecar/wxauto-bridge/` | the WeChat sidecar and its frozen contract; the live test runs it |
 | `tests/live/*.live.spec.ts` | live suites, gated by `LIVE=1` |
 
 The bundle's own identifier stays `dsh-superagent`: it is what `cordis.patch.yml` inserts and what
