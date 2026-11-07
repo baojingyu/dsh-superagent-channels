@@ -5,16 +5,24 @@ import type { Commands } from '../../../infra/commands.ts'
 import type { ContextMessage, ContextPart, ContextPartName, ThreadContext } from '../../kind.ts'
 import type { BridgeClient } from './bridge.ts'
 import type { ChatMedia } from '../port.ts'
-import { imageIds, imageMarker, readWeixinImage } from './media.ts'
+import { imageIds, imageMarker, readWeixinImage, requireMessageImageCount, stripImageMarkers } from './media.ts'
 
 export { imageIds, imageMarker } from './media.ts'
 
 /** How many of a chat's recent messages one read returns when the caller gives no cursor. */
 const RECENT_MESSAGES = 50
 
-/** A message's text with one `[image:<id>]` marker per image it carries, so the model can ask for the bytes. */
+/**
+ * A message's text with one `[image:<id>]` marker per image the backend named, so the model can ask for the bytes. Markers
+ * already in the text are dropped first: the backend's media list is the only source of image IDs (IMG-4).
+ */
 const messageText = (text: string, media: ChatMedia[] | undefined): string =>
-  [text, ...(media ?? []).map(item => imageMarker(item.id))].filter(part => part !== '').join(' ')
+  [stripImageMarkers(text).trim(), ...(media ?? []).map(item => imageMarker(item.id))].filter(part => part !== '').join(' ')
+
+/** The images the backend named for the Trigger's own message; a Trigger whose message carried none has an empty list. */
+const triggerMedia = (trigger: Trigger): ChatMedia[] => Array.isArray(trigger.meta.media)
+  ? trigger.meta.media.filter((id): id is string => typeof id === 'string').map(id => ({ id, kind: 'image' as const }))
+  : []
 
 /** Builds the client for the instance whose configuration the caller reads with. */
 export type WeixinClientFor = (config: Record<string, unknown>) => BridgeClient
@@ -52,7 +60,9 @@ export function weixinThreadContext(client: BridgeClient | WeixinClientFor): Thr
       }))
       return { messages, ...(page.next ? { next: page.next } : {}), body: { room, part }, status: 'ok' }
     },
-    // The markers the reader appends are what `image` can download: one regular expression serves both sides.
+    // The markers the reader appends are what `image` can download: one regular expression serves both sides. Filtering
+    // them here would need the Trigger, which this signature does not carry; `image` is where a request would start, and
+    // it accepts only the IDs the backend named.
     images: (text: string) => imageIds(text),
     async image(agent: Agent, _commands: Commands, trigger: Trigger, message: { id: string; text: string }, key: string, stateDir: string,
       signal: AbortSignal): Promise<unknown> {
@@ -60,8 +70,16 @@ export function weixinThreadContext(client: BridgeClient | WeixinClientFor): Thr
       if (!bridge) throw new Error('Read the thread before its images: the bridge client is not known yet')
       const download = bridge.media
       if (!download) throw new Error('This bridge client cannot download images: it has no /media endpoint')
-      return readWeixinImage(agent, { media: id => download.call(bridge, id) }, { id: key, kind: 'image' }, message.id || nativeId(trigger),
-        stateDir, signal)
+      const id = message.id || nativeId(trigger)
+      // Only an ID the backend named may start a download. The Trigger's own text is the raw message text, so `meta.media`
+      // decides for it; any other message's text is what `read` rendered, whose markers all came from that message's media.
+      const media = id === nativeId(trigger)
+        ? triggerMedia(trigger)
+        : imageIds(message.text).map(mediaId => ({ id: mediaId, kind: 'image' as const }))
+      if (!media.some(item => item.id === key)) throw new Error(`The image ${key} is not one of the images of message ${id}`)
+      requireMessageImageCount(agent, media, id)
+      return readWeixinImage(agent, { media: (mediaId, maxBytes) => download.call(bridge, mediaId, maxBytes) },
+        { id: key, kind: 'image' }, id, stateDir, signal)
     },
   }
 }

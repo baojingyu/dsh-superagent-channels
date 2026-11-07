@@ -7,6 +7,7 @@ import { createHostingApi, type HostingApi } from '../src/infra/hosting-api.ts'
 import type { Commands } from '../src/infra/commands.ts'
 import { createGitlabAdapter, gitlabAdapter, mapMr, mapNote, mapPipeline,
   type GitlabJob, type GitlabMr, type GitlabNote } from '../src/sources/hosting/gitlab/adapter.ts'
+import { withPlatform } from './fixtures/platform.ts'
 
 const BASE = 'https://gitlab.example.com'
 const PROJECT = 'team/app'
@@ -246,7 +247,10 @@ describe('createHostingApi', () => {
 
   it('refuses a token file that is not mode 0600, without echoing the token', async () => {
     const api = createHostingApi({ baseUrl: BASE, tokenFile: tokenFile(0o644), projectWhitelist: [PROJECT], fetchFn: fakeFetch().fn })
-    const error = await api.get('/projects/team%2Fapp/merge_requests').then(() => undefined, (reason: unknown) => reason as Error)
+    // Windows synthesizes `st.mode` (0o666 for any writable file) and cannot tell 0644 from 0600, so the owner-only rule is
+    // judged as the POSIX rule it is; the file's real mode there is 0o666, which is what the stubbed branch refuses.
+    const error = await withPlatform('linux', () => api.get('/projects/team%2Fapp/merge_requests')
+      .then(() => undefined, (reason: unknown) => reason as Error))
     expect(error?.message).toMatch(/0600/)
     expect(error?.message).not.toContain('secret-token')
   })

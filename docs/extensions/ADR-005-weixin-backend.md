@@ -126,6 +126,69 @@ WeChat 客户端自动化跑在一台 **Windows 常驻机**上，以独立进程
 - 落地设计（待数据确认参数后实施）：`ChatEvent.media` + sidecar `GET /media/<nativeId>`（下载缓存 + TTL）
   + `weixinKind.threadContext.image()` 取图作为模型附件（复用 `feishu-image.ts` 的既有模式）；出站发图暂不做。
 
+### 2026-11-07 Q1 定论：L0（pc-uia）**没有**结构化 `@`，按 §4.1 不准入
+
+**环境**：Windows 11（session 1，console，Active）/ Python 3.12.10 / `wxautox4` 41.2.3 /
+微信 4.x（`C:\Program Files\Tencent\Weixin\Weixin.exe`，`Qt51514QWindowIcon`）/ 已登录账号 `<wxid>`。
+探针：`poc/win_diag.py` → `a WeChat window is visible in this session`；
+`poc/probe_wxauto.py --group "<群名>" --media` → `poc/probe-report.json`。
+
+**结论：`atListCandidates` 为空 → 后端按 §4.1 应切 L2（pad）；群 `@` 不得文本反解。**
+
+三条独立证据（任一条都足以否掉 L0 的结构化 `@`）：
+
+1. **UI 树是扁平叶子。** 消息控件 `mmui::ChatTextItemView`（`AutomationId`
+   `chat_message_list.qt_scrollarea_viewport.chat_bubble_item_view`）的 `childCount == 0`，
+   `TextPattern` / `ValuePattern` / `LegacyIAccessiblePattern` / `SelectionPattern` **全部不存在**。
+   `@昵称` 与正文是同一个 `Name` 字符串，客户端没有把 mention 渲染成独立元素。
+2. **消息对象没有 at 列表。** `FriendTextMessage` 的全部字段是
+   `id / content / hash_text / hash / sender / chat_info / type / attr`（`attr` 是 `friend|self|system` 来源标记）。
+3. **`FriendMessage.at` 是动作不是字段。** 它是 bound method，执行即「拍一拍」，返回
+   `WxResponse{"status":"成功"}`。把它当取值方法会**每轮询一次就拍群成员一次**——真实副作用。
+
+> 唯一带 `@` 的结构线索是正文里的 `U+2005`（四分宽空格）分隔符，例如 `@<成员>\u2005妈`。
+> 它是**文本**特征，可被复制粘贴伪造，因此只作为证据记录在报告的 `textSeparator`
+> （`textDerived: true, usable: false`），**不构成判定依据**（§2.3 硬规则 4）。
+
+**顺带查清的另外四个 L0 缺口**（同样进契约，避免以后被误判为 bug）：
+
+| 契约字段 | L0 实际情况 | 后果 |
+|---|---|---|
+| `room`（chatroomId） | 拿不到。`ChatInfo()` 只有 `chat_type/chat_name/group_member_count`；`SessionElement` 只有 `name/time/content/isnew/new_count/ismute` | `rooms[].id` 只能用显示名，而 Node schema 的 `^[A-Za-z0-9_-]+$` 会拒绝中文群名 → **配置层根本表达不了** |
+| `sender.id` | 只有显示名。`sender_info()` 的 `id` 是微信号（如 `<微信号>`）不是 `wxid_`，且**观测到滞后一条消息、有时返回 `null`** | Policy 的 wxid 名单在 L0 上不可执行 |
+| `at`（消息时间） | 普通消息无时间字段，只有 `TimeMessage` 分隔符带 `time` | 只能用服务端接收时间 |
+| `/members` | 无群成员 API（`_api` 只有 `add_group_members`） | 成员表退化为空 |
+
+**因此 L0 的准入门槛没有通过，而且不只是 `@` 一项**：即使只做单聊，身份与时序也达不到契约。
+Node 侧严格的 `WXID_PATTERN` 在这里不是缺陷而是**准入闸门**——它挡住了不达标的部署。
+
+**下一步（二选一，都要外部条件）**
+
+- **L2（pad）**：唯一能同时给出 chatroomId、wxid、结构化 `ats`、真实时间的路径。需要业务方提供
+  WeChatPadPro 一类的 iPad 协议服务（§6 前置 1 的另一面）。sidecar 的 `--backend pad` 已留桩：
+  `available:false` + 数据端点 `501`，切换只需改配置 + 重启，不动 Node 代码。
+- **L1（DB 读取器）**：本机已确认消息库位置与加密形态，是**不注入进程也能拿到全部结构化字段**的
+  唯一路线。证据与做法见下。
+
+#### L1 可行性证据（已确认，未实施）
+
+```
+C:\Users\Administrator\Documents\xwechat_files\<account>_<hash>\db_storage\
+  message\message_0.db   11,882,496 B   ← 群/单聊消息
+  contact\contact.db     23,150,592 B   ← 联系人、群成员
+  ...
+```
+
+`message_0.db` 前 64 字节是随机字节（`79 4b ad 98 12 22 ba 23 …`），**不是** `SQLite format 3`
+→ 确认 SQLCipher 加密（微信 4.x 用 SQLCipher v4：4096 字节页、AES-256-CBC、页尾 HMAC-SHA512）。
+文件在客户端运行时被独占打开，读取需 `FileShare.ReadWrite`。
+
+一旦拿到密钥，协议层自带的结构化字段即可直接映射契约：会话 `username`（= chatroomId）、
+发送者 `sender`（= wxid）、`create_time`（= 真实时间）、以及消息 proto 里的 at 列表
+（= `ats`）。**这一条同时解决 Q1 与 Q2**，也是唯一不违反「禁止文本反解」的 L0 替代方案。
+密钥需要从 `Weixin.exe` 进程内存取出（本机是管理员会话，具备条件），属于 L1 的
+「注入/内存读取」风险档，需业务方书面接受后才能做。
+
 ### 2026-11-07 群消息图片：已落地（commit cfa971e）
 
 链路（每一段都有测试）：sidecar `/messages` 只为**能下载**的构建列 `media:[{id:'<nativeId>#0',kind:'image'}]`

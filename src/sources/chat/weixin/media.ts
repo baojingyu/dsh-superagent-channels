@@ -1,10 +1,10 @@
 /** Downloads WeChat message images from the sidecar and commits them as model-visible attachments. */
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
+import type { ImageAttachmentLimits, ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import type { ChatMedia } from '../port.ts'
 
-/** The narrow client surface a media read needs: one image's bytes by its backend ID. */
-export interface BridgeMediaSource { media(id: string): Promise<{ bytes: Uint8Array; mime: string }> }
+/** The narrow client surface a media read needs: one image's bytes by its backend ID, read against a byte budget. */
+export interface BridgeMediaSource { media(id: string, maxBytes?: number): Promise<{ bytes: Uint8Array; mime: string }> }
 
 /** `\x89PNG\r\n\x1a\n`, the only header a PNG may have. */
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a] as const
@@ -46,26 +46,52 @@ export function imageIds(text: string): string[] {
   return [...new Set([...text.matchAll(IMAGE_MARKER)].map(match => match[1]!).filter(id => id !== ''))]
 }
 
+/**
+ * The message's text with every image marker removed. The thread reader appends its own marker for each image the backend
+ * named, so a marker a user typed is dropped instead of being offered to the assessment as an image (IMG-4).
+ */
+export const stripImageMarkers = (text: string): string => text.replace(IMAGE_MARKER, '')
+
+/**
+ * The byte budget of one image of a message: the deployment's per-image cap and its per-message cap, whichever is smaller.
+ * WeChat names a message's images but not their sizes, so a single read can only enforce the message cap as this budget;
+ * the count cap is `requireMessageImageCount`.
+ */
+const imageBudget = (limits: ImageAttachmentLimits): number => Math.min(limits.maxImageBytes, limits.maxMessageImageBytes)
+
 /** A display name that carries no path information and is stable for one message image. */
 const attachmentName = (messageId: string, mediaId: string, mediaType: ImageMediaType): string =>
   `${messageId}-${mediaId}.${EXTENSIONS[mediaType]}`.replace(/[^\w.-]+/g, '_')
 
 /**
+ * Refuses a message whose images outnumber what this deployment accepts, before any of them is downloaded: WeChat names
+ * the images of a message up front, so the count is known even though their bytes are not (IMG-1).
+ */
+export function requireMessageImageCount(agent: Agent, media: readonly ChatMedia[], messageId: string): void {
+  const attachments = agent.ctx.get('attachments')
+  if (!attachments) throw new Error('Image reading is unavailable: no attachment service is mounted')
+  const limit = attachments.imageLimits.maxImagesPerMessage
+  if (media.length > limit) throw new Error(`The message ${messageId} carries ${media.length} images, over the ${limit}-image limit`)
+}
+
+/**
  * Downloads one WeChat message image and commits it as an attachment the assessment model can see. The bytes are sniffed for
- * PNG/JPEG/WebP/GIF rather than trusted from the sidecar's Content-Type, must fit the deployment's `maxImageBytes`, and must
- * be a format the deployment accepts; anything else is refused before `saveImage`, so it never reaches storage. `stateDir` is
- * accepted for the shared reader signature: these bytes go straight into the attachment store and never touch the disk here.
+ * PNG/JPEG/WebP/GIF rather than trusted from the sidecar's Content-Type, must fit the deployment's image budget (the smaller
+ * of `maxImageBytes` and `maxMessageImageBytes`), and must be a format the deployment accepts; anything else is refused
+ * before `saveImage`, so it never reaches storage. `stateDir` is accepted for the shared reader signature: these bytes go
+ * straight into the attachment store and never touch the disk here.
  */
 export async function readWeixinImage(agent: Agent, client: BridgeMediaSource, ref: ChatMedia, messageId: string, stateDir: string,
   signal: AbortSignal): Promise<ImageAttachmentRef> {
   signal.throwIfAborted()
   const attachments = agent.ctx.get('attachments')
   if (!attachments) throw new Error('Image reading is unavailable: no attachment service is mounted')
-  const download = await client.media(ref.id)
+  // The budget is handed to the download as well, so the bridge stops reading an oversized body instead of buffering it.
+  const limit = imageBudget(attachments.imageLimits)
+  const download = await client.media(ref.id, limit)
   signal.throwIfAborted()
   const mediaType = sniffImageMediaType(download.bytes)
   if (!mediaType) throw new Error(`The image ${ref.id} of message ${messageId} is not a PNG/JPEG/WebP/GIF image`)
-  const limit = attachments.imageLimits.maxImageBytes
   if (download.bytes.byteLength > limit) {
     throw new Error(`The image ${ref.id} of message ${messageId} is ${download.bytes.byteLength} bytes, over the ${limit}-byte limit`)
   }

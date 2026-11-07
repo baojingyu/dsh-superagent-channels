@@ -8,6 +8,7 @@ import { createYunxiaoApi, YunxiaoHttpError, type YunxiaoApi, type YunxiaoQuery,
   from '../src/infra/yunxiao-api.ts'
 import { categoryOf, createProjexAdapter, isoFromMs, mapNote, mapWorkItem, projexAdapter, projexPage }
   from '../src/sources/work/projex/adapter.ts'
+import { withPlatform } from './fixtures/platform.ts'
 import type { WorkItem } from '../src/sources/work/port.ts'
 import { testDeployment } from './fixtures/deployment.ts'
 
@@ -195,7 +196,9 @@ describe('Yunxiao client', () => {
   })
   it('refuses a token file whose mode is not 0600', async () => {
     const api = createYunxiaoApi({ tokenFile: tokenFile('tok', 0o644), orgWhitelist: ['org-1'], fetchFn: captureFetch(200, '').fetchFn })
-    await expect(api.get(workPath)).rejects.toThrow(/0600/)
+    // Windows synthesizes `st.mode` (0o666 for any writable file) and cannot tell 0644 from 0600, so the owner-only rule is
+    // judged as the POSIX rule it is; the file's real mode there is 0o666, which is what the stubbed branch refuses.
+    await withPlatform('linux', () => expect(api.get(workPath)).rejects.toThrow(/0600/))
   })
   it('confines paths to /oapi/v1/ and organizations to the whitelist', async () => {
     const api = createYunxiaoApi({ tokenFile: tokenFile('tok'), orgWhitelist: ['org-1'], fetchFn: captureFetch(200, '').fetchFn })

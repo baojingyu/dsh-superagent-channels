@@ -1,7 +1,7 @@
 import { execFile, spawn } from 'node:child_process'
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join, sep } from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SENSITIVE_ENV_PATTERN, type SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
@@ -15,6 +15,23 @@ import { gitEnv } from './fixtures/git.ts'
 vi.setConfig({ testTimeout: 30_000 })
 const exec = promisify(execFile)
 let dir: string
+/**
+ * The POSIX shell that reads the shims this suite runs. `writeEnvironment` writes `#!/bin/sh` shims, which is the right
+ * implementation on POSIX and stays as it is; Windows starts only PE images, so there a shim has to be handed to a shell
+ * explicitly instead of being executed. Git for Windows ships that shell beside `git.exe`, and the repository requires Git.
+ */
+const SHELL = ((): string | undefined => {
+  if (process.platform !== 'win32') return 'sh'
+  const besideGit = (process.env.PATH ?? '').split(delimiter)
+    .flatMap(entry => [join(entry, '..', 'usr', 'bin', 'sh.exe'), join(entry, '..', 'bin', 'bash.exe')])
+  return [...besideGit, join(process.env.ProgramFiles ?? 'C:\\Program Files', 'Git', 'usr', 'bin', 'sh.exe')]
+    .find(candidate => existsSync(candidate))
+})()
+/** Runs a generated `#!/bin/sh` shim the way a worker's shell would; only the tests that need `SHELL` call this. */
+const shim = (script: string, args: string[] = [], options: { env?: Record<string, string>; timeout?: number } = {}) =>
+  exec(SHELL ?? 'sh', [script, ...args], options)
+/** A test that hands a shim to a shell: with no POSIX shell on the machine the shim cannot run at all. */
+const shelled = it.skipIf(!SHELL)
 const program = (path: string, body: string): string => { writeFileSync(path, `#!/bin/sh\n${body}\n`); chmodSync(path, 0o755); return path }
 /** Worker shell environment after DSH strips credential-shaped variables. */
 const workerEnv = (env: Record<string, string | undefined>): Record<string, string> =>
@@ -29,21 +46,33 @@ describe('worker shims', () => {
     await writeEnvironment(testDeployment({ stateDir: dir, github: { ...testDeployment().github, cli: wrapper }, feishu: undefined }), [])
     const bin = workerBin(dir)
     const path = [bin, join(dir, 'venv'), join(dir, 'real'), '/usr/bin', '/bin'].join(':')
-    const { stdout } = await exec('gh', ['api', 'user'], { env: { PATH: path }, timeout: 10_000 })
+    if (process.platform === 'win32') {
+      // The shim is a POSIX script, so Windows hands it to a shell; the one Git ships there reports PATH in its own
+      // `/c/...` form, which never equals the shim's `self` (a Windows path), so the strip cannot run end to end on this
+      // platform. What is asserted instead is the shim `writeEnvironment` generated: the strip loop and the exec of this
+      // very CLI. The shims themselves are still executed, through a shell, by the two tests below.
+      const text = readFileSync(join(bin, 'gh'), 'utf8')
+      expect(text).toContain(`self='${bin}'`)
+      expect(text).toContain('for entry in $PATH; do [ "$entry" = "$self" ]')
+      expect(text).toContain(`exec '${wrapper}' "$@"`)
+      return
+    }
+    // `gh` is named, not pathed: the shim has to strip its own directory and let the shell find the real CLI.
+    const { stdout } = await exec('sh', ['-c', 'gh api user'], { env: { PATH: path }, timeout: 10_000 })
     expect(JSON.parse(stdout)).toEqual({ login: 'agent-bot', config: `${dir}/agent-config`, path: [join(dir, 'venv'), join(dir, 'real'), '/usr/bin', '/bin'].join(':') })
   })
-  it('make `lark-cli` fail without a Feishu bot and each blocked command fail with the agent\'s login', async () => {
+  shelled('make `lark-cli` fail without a Feishu bot and each blocked command fail with the agent\'s login', async () => {
     await writeEnvironment(testDeployment({ stateDir: dir, feishu: undefined }), ['personal-gh'])
     const bin = workerBin(dir)
-    await expect(exec(join(bin, 'lark-cli'), ['im', '+chat-list'])).rejects.toMatchObject({ code: 1, stderr: 'lark-cli is unavailable: this installation has no Feishu bot.\n' })
-    await expect(exec(join(bin, 'personal-gh'), [])).rejects.toMatchObject({ code: 1, stderr: 'personal-gh is blocked in this installation; use gh, which acts as agent-bot.\n' })
+    await expect(shim(join(bin, 'lark-cli'), ['im', '+chat-list'])).rejects.toMatchObject({ code: 1, stderr: 'lark-cli is unavailable: this installation has no Feishu bot.\n' })
+    await expect(shim(join(bin, 'personal-gh'), [])).rejects.toMatchObject({ code: 1, stderr: 'personal-gh is blocked in this installation; use gh, which acts as agent-bot.\n' })
   })
-  it('keep `gh` and `lark-cli` working, and shim no `git`, when the blocked commands name the commands workers need', async () => {
+  shelled('keep `gh` and `lark-cli` working, and shim no `git`, when the blocked commands name the commands workers need', async () => {
     const gh = program(join(dir, 'gh-agent'), 'echo gh "$@"'), lark = program(join(dir, 'lark-bot'), 'echo lark "$@"')
     const base = testDeployment()
     await writeEnvironment(testDeployment({ stateDir: dir, github: { ...base.github, cli: gh }, feishu: { ...base.feishu!, cli: lark } }), ['gh', 'git', 'lark-cli'])
     const bin = workerBin(dir)
-    expect([(await exec(join(bin, 'gh'), ['api', 'user'])).stdout, (await exec(join(bin, 'lark-cli'), ['im'])).stdout]).toEqual(['gh api user\n', 'lark im\n'])
+    expect([(await shim(join(bin, 'gh'), ['api', 'user'])).stdout, (await shim(join(bin, 'lark-cli'), ['im'])).stdout]).toEqual(['gh api user\n', 'lark im\n'])
     expect(readdirSync(bin)).not.toContain('git')
   })
   it('replace only what dsh-superagent wrote and refuse anything else in its places', async () => {
@@ -84,7 +113,11 @@ describe('agent git configuration', () => {
     await git('init', '-q', 'repo')
     await exec('git', ['-C', 'repo', 'remote', 'add', 'origin', 'git@github.com:acme/widgets.git'], { cwd: dir, env })
     expect(await git('-C', 'repo', 'remote', 'get-url', '--push', 'origin')).toBe('https://github.com/acme/widgets.git')
-    expect(await git('config', '--show-origin', '--get-all', 'credential.https://github.com.helper')).toBe(`file:${workerGitConfig(dir)}\t${credentialHelper('/opt/agent tools/gh')}`)
+    // Read with `-z`, as `verifyGitCredentialHelper` reads it: without `-z`, git for Windows C-quotes an origin path that
+    // contains backslashes (`file:"C:\\..."`), so a plain `--show-origin` comparison would report a product bug that is
+    // not there. The product is right; only this assertion has to ask git for the unquoted form.
+    expect((await git('config', '-z', '--show-origin', '--get-all', 'credential.https://github.com.helper')).split('\0').slice(0, 2))
+      .toEqual([`file:${workerGitConfig(dir)}`, credentialHelper('/opt/agent tools/gh')])
     expect(await git('config', '--get-all', 'credential.helper')).toBe('')
     await expect(git('config', 'commit.gpgsign')).rejects.toThrow()
     await expect(git('config', 'core.abbrev')).rejects.toThrow()
@@ -115,7 +148,9 @@ it('removes every spelling of a directory from PATH and keeps the other entries'
   mkdirSync(join(dir, 'state', 'worker-bin'), { recursive: true })
   symlinkSync(join(dir, 'state'), join(dir, 'link'))
   const bin = join(dir, 'state', 'worker-bin')
-  expect(withoutDirectory([`${bin}/`, join(dir, 'link', 'worker-bin'), '/usr/bin', 'node_modules/.bin'].join(':'), bin)).toBe('/usr/bin:node_modules/.bin')
+  // A PATH is joined and split with the platform's delimiter, and one entry keeps its trailing separator.
+  const entries = [`${bin}${sep}`, join(dir, 'link', 'worker-bin'), '/usr/bin', 'node_modules/.bin']
+  expect(withoutDirectory(entries.join(delimiter), bin)).toBe(['/usr/bin', 'node_modules/.bin'].join(delimiter))
 })
 
 /** Minimal SubprocessRuntime backed by child_process.spawn with an isolated global git config. */
@@ -153,8 +188,9 @@ describe('ticket directory check', () => {
     writeFileSync(join(dir, 'repo', '.git', 'config'), '[core\n')
     await expect(check('repo')).rejects.toThrow(/bad config/)
   })
-  it('reports a failed command\'s exit status', async () => {
-    const failing = ['sh', '-c', 'echo nope >&2; exit 3']
+  shelled('reports a failed command\'s exit status', async () => {
+    // A command that writes diagnostics and exits non-zero: `sh` is POSIX, and on Windows it comes with Git.
+    const failing = [SHELL ?? 'sh', '-c', 'echo nope >&2; exit 3']
     const error = await runAsWorker(subprocess(join(dir, 'global')), failing, dir, signal).catch((e: unknown) => e)
     expect(error).toBeInstanceOf(CliError)
     expect(error).toMatchObject({ message: 'nope', exitCode: 3 })
