@@ -2,9 +2,9 @@
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { z } from 'zod'
 import type { OutboundMessage, ScopeResult, Trigger } from '../core/index.ts'
-import type { Deployment } from '../deployment.ts'
+import type { Deployment, FeishuBot } from '../deployment.ts'
 import type { Commands } from '../infra/commands.ts'
-import type { SourceContext, SourceHost } from './host.ts'
+import type { SourceHost } from './host.ts'
 
 export interface Localized { zh: string; en: string }
 /** `advanced` folds a rarely changed field (such as a polling tunable) behind the card's Advanced section. */
@@ -41,18 +41,31 @@ export interface SourcePolicyPart<P extends Record<string, unknown>> {
 }
 /** UI link for a channel address; `triggerId` names the Trigger whose own deep link is preferred when available. */
 export interface ChannelLink { url: string; label: Localized; triggerId?: string }
-export type ChannelLinks = Partial<Pick<Deployment, 'repository' | 'feishu'>>
+/**
+ * Deployment facts a Channel's link may use (the repository and the Feishu bot), assembled by the Registry for each
+ * instance; a field is absent while setup has not resolved it.
+ */
+export type ChannelLinks = { repository?: string; feishu?: FeishuBot }
+/** What an outbound message may use: the commands, the resolved deployment, and the configuration and ID of the instance that sends it. */
+export interface ChannelHost {
+  readonly commands: Commands
+  readonly deployment: Deployment
+  readonly config: Record<string, unknown>
+  readonly instance: string
+}
 /** Outbound messaging adapter for a source kind's threads. */
 export interface SourceChannel<C> {
   /** Whether a reply may still go to `address`; without it, every address may receive replies. */
   allowed?(address: Record<string, string>, config: C): boolean
+  /** What the channel can carry: message length, Markdown, how a retried message stays idempotent, and whether it may open a conversation. */
+  capabilities?: { maxChars?: number; markdown?: boolean; idempotency: 'keyed' | 'marker' | 'echo' | 'none'; proactive?: boolean }
   /**
    * Sends a message idempotently by ID; returns `'gone'` when the target conversation no longer accepts replies.
    * @throws when delivery failed but may succeed on a later retry.
    */
-  send(host: Pick<SourceContext, 'commands'>, message: OutboundMessage): Promise<'sent' | 'gone'>
+  send(host: ChannelHost, message: OutboundMessage): Promise<'sent' | 'gone'>
   /** Returns the URL and label for `address`; `url` is empty when `links` lack the required deployment info. */
-  link(address: Record<string, string>, links: ChannelLinks): ChannelLink
+  link(address: Record<string, string>, links: ChannelLinks, config?: C): ChannelLink
 }
 /** Normalized message returned by thread context readers; `bot` marks a non-human sender whose message can never authorize work on its own (at most an inferred candidate). */
 export interface ContextMessage {
