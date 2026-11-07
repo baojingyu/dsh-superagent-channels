@@ -21,7 +21,7 @@ import { withPlatform } from '../fixtures/platform.ts'
 
 const LIVE = process.env.LIVE === '1'
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
-const SIDECAR = resolve(REPO, '..', 'dsh-superagent-channels-ext', 'sidecar', 'wxauto-bridge', 'server.py')
+const SIDECAR = resolve(REPO, 'sidecar', 'wxauto-bridge', 'server.py')
 /**
  * The interpreter that starts the sidecar. On Windows `python3` is the Microsoft Store alias, which fails instead of
  * running anything, while the installed interpreter is `python`; `PYTHON` overrides both when the box differs.

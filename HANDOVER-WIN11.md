@@ -130,22 +130,21 @@ git branch -vv
 
 ```
 C:\dev\
-  dsh-superagent-channels\            ← 本仓库（clone 到这里）
-  dsh-superagent-channels-ext\        ← 设计/验收文档 + sidecar + 探针（同级目录）
-    sidecar\wxauto-bridge\server.py       ← 契约实现（fake / pc-uia / pad）
-    sidecar\wxauto-bridge\contract.md     ← 冻结契约（bridge.ts 引用的就是它）
-    poc\win_diag.py                       ← 会话/窗口/代际诊断
-    poc\probe_wxauto.py                   ← Q1/Q2/Q4 探针，产出 probe-report.json
-    verify\live-contract.mjs              ← 用真实 bridge.ts 跑契约断言
-    verify\signal-check.py                ← 停机 / 零字节 / 绑定 / 只读性断言
+  dsh-superagent-channels\            ← 本仓库（clone 到这里），全部资产都在里面
+    sidecar\wxauto-bridge\server.py     ← 契约实现（fake / pc-uia / pad）
+    sidecar\wxauto-bridge\contract.md   ← 冻结契约（bridge.ts 引用的就是它）
+    sidecar\start-wxbridge.cmd          ← Windows 启动器（路径按本机改）
+    poc\win_diag.py                     ← 会话/窗口/代际诊断
+    poc\probe_wxauto.py                 ← Q1/Q2/Q4 探针，产出 probe-report.json
+    verify\live-contract.mjs            ← 用真实 bridge.ts 跑契约断言
+    verify\signal-check.py              ← 停机 / 零字节 / 绑定 / 只读性断言
 ```
 
-原因：`tests/live/weixin-bridge.live.spec.ts` 用
-`resolve(REPO, '..', 'dsh-superagent-channels-ext', 'sidecar', 'wxauto-bridge', 'server.py')`
-定位 sidecar。**只 clone 主仓库，第 4 条检查必失败**（`sidecar server.py 不存在`）。
-把 `dsh-superagent-channels-ext` 放在主仓库同级目录即可；也可放在别处并改那一行常量（需同步改测试）。
+`tests/live/weixin-bridge.live.spec.ts` 用 `resolve(REPO, 'sidecar', 'wxauto-bridge', 'server.py')`
+定位 sidecar——**它就在仓库里**，所以 `git clone` 之后第 4 条检查直接能跑，不需要任何同级目录。
 
-> v3 之前 `dsh-superagent-channels-ext` 不在版本库里，本机是按契约重新实现的。它现在的结构就是上面这张表；
+> 早期版本把 sidecar 放在仓库外的同级目录里，理由是「客户端自动化与 Agent 运行时故障域隔离」；
+> 但那样它就不受版本控制、也无法随仓库分发。现在它进了仓库，故障域仍然是两个进程，只是代码在一起。
 > 契约的权威定义是 `contract.md`，Node 侧的权威消费者是 `src/sources/chat/weixin/bridge.ts`，
 > 两者必须逐字段一致（`verify/live-contract.mjs` 就是拿真实客户端跑这份一致性）。
 
@@ -155,7 +154,7 @@ git clone https://github.com/baojingyu/dsh-superagent-channels.git
 cd dsh-superagent-channels
 git checkout main
 git pull --ff-only
-# 把 dsh-superagent-channels-ext 整个目录拷到 C:\dev\ 下（可从原开发机复制）
+# sidecar / 探针 / 契约自测都在仓库里，不需要额外拷贝任何目录
 ```
 
 ### 3.3 安装依赖（不要用 pnpm）
@@ -222,7 +221,7 @@ Remove-Item Env:\LIVE
 手工验证 sidecar 能单独启动（可选，但排障时很有用）：
 
 ```powershell
-cd C:\dev\dsh-superagent-channels-ext\sidecar\wxauto-bridge
+cd C:\dev\dsh-superagent-channels\sidecar\wxauto-bridge
 python server.py --backend fake --port 8787 --token dev-only
 # 另一个窗口：
 curl.exe -s -H "Authorization: Bearer dev-only" 127.0.0.1:8787/health
@@ -289,16 +288,14 @@ icacls C:\secrets\gitlab.token /inheritance:r /grant:r "%USERNAME%:R"
 **v3 已跑通，并且已经得出结论（见 §4.1）：L0 拿不到结构化 `@`。** 这里只留操作方式。
 
 ```powershell
-cd C:\dev\dsh-superagent-channels-ext\poc
+cd C:\dev\dsh-superagent-channels\poc
 # 用装了 wxautox4 的那个解释器；本机是：
-# `$WX` 是「装了 wxautox4 的那个目录」：它下面有 `.venv\`，`wx_license_bypass.py` 通常也在这一层。
-# 这个名字只是本机的目录名，**不进版本库**；换成你自己的路径即可。
+# `$WX` 是「装了 wxautox4 的那个目录」：它下面有 `.venv\`。这只是本机的目录名，**不进版本库**。
 $WX = '<装了 wxautox4 的目录>'
 $PY = "$WX\.venv\Scripts\python.exe"
 & $PY win_diag.py                 # 会话 + 窗口 + 代际 + 建议装哪个包
 & $PY probe_wxauto.py --selftest  # 不碰微信，只验证报告链路
-& $PY probe_wxauto.py --group "<群名>" --media `
-      --bypass-dir "$WX"
+& $PY probe_wxauto.py --group "<群名>" --media
 ```
 
 - `win_diag.py` 必须输出 `"conclusion": "a WeChat window is visible in this session"`；
@@ -313,9 +310,9 @@ $PY = "$WX\.venv\Scripts\python.exe"
 - 客户端若是 4.x（`Weixin.exe` / `Qt51514QWindowIcon`），必须用 `wxauto4`/`wxautox4`；
   3.9.x 才用 `wxauto`。分类错误的典型报错是
   `the wxauto 3.9 accessibility tree was not found`。
-- `wxautox4` 是商业版，构造 `WeChat()` 时检查授权。`--bypass-dir` 指向含
-  `wx_license_bypass.py` 的目录即可在本进程内存里放行（**不改磁盘上的 pyd**，
-  进程退出即失效）；不传则按未授权处理，探针照样出报告。
+- `wxautox4` 是商业库，构造 `WeChat()` 时检查授权，**授权由部署方自行提供**。本仓库不含
+  任何规避该检查的代码；没有有效授权时构造会失败，探针把原因写进报告、sidecar 报
+  `available:false`，进程都不会崩。
 - **`GetAllMessage()` 只覆盖当前窗口已渲染的消息**，而 `ChatWith()` 在目标已是当前会话时
   不会重绘、返回空列表。探针的做法是「先切到 `--away`（默认 `文件传输助手`）再切回来 + 轮询」，
   sidecar 轮询必须复用同一策略，否则会周期性读到 0 条。
@@ -478,7 +475,7 @@ POST /listen
 本机已确认消息库位置与加密形态，这是**不注入进程也能拿到全部结构化字段**的唯一路线：
 
 ```
-C:\Users\Administrator\Documents\xwechat_files\<account>_<hash>\db_storage\
+%USERPROFILE%\Documents\xwechat_files\<account>_<hash>\db_storage\
   message\message_0.db   11,882,496 B   ← 群/单聊消息
   contact\contact.db     23,150,592 B   ← 联系人、群成员
 ```
@@ -560,28 +557,25 @@ $env:LIVE='1'; .\node_modules\.bin\vitest.cmd run tests/live; Remove-Item Env:\L
 .\node_modules\.bin\vitest.cmd run tests/docs.spec.ts
 
 # sidecar（排障）
-cd C:\dev\dsh-superagent-channels-ext\sidecar\wxauto-bridge
+cd C:\dev\dsh-superagent-channels\sidecar\wxauto-bridge
 python server.py --backend fake --port 8787 --token dev-only
 
 # sidecar（真机；--listen 已不再需要，群从面板的 POST /listen 下发）
-# `$WX` 是「装了 wxautox4 的那个目录」：它下面有 `.venv\`，`wx_license_bypass.py` 通常也在这一层。
-# 这个名字只是本机的目录名，**不进版本库**；换成你自己的路径即可。
+# `$WX` 是「装了 wxautox4 的那个目录」：它下面有 `.venv\`。这只是本机的目录名，**不进版本库**。
 $WX = '<装了 wxautox4 的目录>'
 $PY = "$WX\.venv\Scripts\python.exe"
 & $PY server.py --backend pc-uia --port 8787 --token <TOKEN> `
-    --bypass-dir "$WX" `
     --self-name-ttl 60          # 群 @ 判据名的重读间隔（秒）
 # 验证：curl -H "Authorization: Bearer <TOKEN>" 127.0.0.1:8787/health
 #       detail 里能看到 `群 @ 判据：@<本账号显示名>`
 
 # 微信真机探针
-cd C:\dev\dsh-superagent-channels-ext\poc
+cd C:\dev\dsh-superagent-channels\poc
 python win_diag.py                                   # 会话/窗口/代际
 python probe_wxauto.py --selftest                    # 不碰微信，只验证报告链路
-python probe_wxauto.py --group "<群名>" --media --bypass-dir "$WX"
 
 # sidecar 契约自测（不依赖微信）
-cd C:\dev\dsh-superagent-channels-ext\verify
+cd C:\dev\dsh-superagent-channels\verify
 node --experimental-strip-types --no-warnings live-contract.mjs
 python signal-check.py
 

@@ -98,6 +98,5 @@ Two things to re-check first, because they cannot be undone by editing:
 
 - **History.** A rewrite before the first public push is cheap; after it, other clones and caches may
   keep the old objects. Run the placeholder check over every commit, not just the tip.
-- **The sidecar directory.** It lives outside this repository (a sibling `dsh-superagent-channels-ext/`)
-  and is not covered by this repository's history rules. It holds the sidecar, the probe and the
-  contract; treat it with the same rules if it is ever published.
+- **The sidecar is part of this repository** (`sidecar/wxauto-bridge/`), so these rules cover it: no
+  personal data, no machine paths, and nothing that circumvents a licence check.
