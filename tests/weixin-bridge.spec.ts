@@ -63,14 +63,21 @@ describe('createBridgeClient', () => {
 
   it('maps the backend capability report, and leaves it absent for a sidecar that does not report one', async () => {
     const capable = stubFetch({ '/health': () => reply({ ok: true, available: true,
-      capabilities: { mentions: false, members: false, media: true } }) })
+      capabilities: { mentions: 'markup', members: 'observed', media: false } }) })
     await expect(client(capable.fetchFn).health()).resolves
-      .toMatchObject({ capabilities: { mentions: false, members: false, media: true } })
+      .toMatchObject({ capabilities: { mentions: 'markup', members: 'observed', media: false } })
 
     // A partial report is read as capable in the fields it omits, so a backend need only name what it cannot do.
-    const partial = stubFetch({ '/health': () => reply({ ok: true, available: true, capabilities: { mentions: false } }) })
+    const partial = stubFetch({ '/health': () => reply({ ok: true, available: true, capabilities: { mentions: 'none' } }) })
     await expect(client(partial.fetchFn).health()).resolves
-      .toMatchObject({ capabilities: { mentions: false, members: true, media: true } })
+      .toMatchObject({ capabilities: { mentions: 'none', members: 'full', media: true } })
+
+    // A sidecar written before the report grew its states sends booleans; `true` is the best a field can be, so a first
+    // generation sidecar keeps working instead of losing every capability it did have.
+    const firstGeneration = stubFetch({ '/health': () => reply({ ok: true, available: true,
+      capabilities: { mentions: true, members: false, media: true } }) })
+    await expect(client(firstGeneration.fetchFn).health()).resolves
+      .toMatchObject({ capabilities: { mentions: 'structured', members: 'none', media: true } })
 
     // "Did not report" stays undefined: an older sidecar must not look like a backend that claimed every capability.
     const older = stubFetch({ '/health': () => reply({ ok: true, available: true }) })
