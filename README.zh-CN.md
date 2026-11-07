@@ -38,9 +38,25 @@ LIVE=1 vitest run tests/live      # 对真实服务：13 passed + 1 skipped
 真实企微/钉钉/云效的鉴权失败被映射成可诊断错误；以及面板数据层（同 kind 两实例、删除一个、
 无 `kind` 的旧设置）。
 
-**不作声称的部分**：微信真机（是否存在结构化 `@` 列表仍在探测，且它决定后端选型）、对真实代码托管/
-工作项的任何写操作、企微回调走公网反代、钉钉 Stream 未植 SDK、像素级 GUI 验收、企微/钉钉的消息图片
-（只实现了微信这条路径）。
+**微信真机：已实测。** sidecar 的 `pc-uia` 后端通过 `wxautox4` 以**监听模式**
+（`AddListenChat` + `StartListening`）驱动微信 4.x，消息是**推送**来的，不是从窗口当前渲染的内容里刮的。
+本机已验证：真实群消息与私聊、本账号身份、图片下载。
+
+这个后端**能证明什么、不能证明什么**按实例发布为 `capabilities`，不用猜：
+
+| 能力 | `pc-uia` | 含义 |
+| --- | --- | --- |
+| `mentions` | `markup` | 群 `@` 读的是客户端自己的 mention 标记（`@名字` + `U+2005`），不是手打的 `@名字`；本账号改名即失效，粘贴分隔符可伪造 |
+| `members` | `observed` | 只有已观测到的发送人，没有完整成员表 |
+| `media` | 视构建 | Plus 构建有 `download()`，免费构建没有 |
+
+**诚实的缺口**：微信 4.x 上**没有**结构化 mention 列表——消息气泡是扁平叶子
+（`childCount == 0`，无 text/value/legacy pattern），所以 `ats` 只能做到 `markup` 档。
+声明 `mentions: none` 的后端仍可用于单聊，其群聊则只靠 Policy 规则判定。
+
+**不作声称的部分**：对真实代码托管/工作项的任何写操作、企微回调走公网反代、钉钉 Stream 未植 SDK、
+像素级 GUI 验收、微信上的稳定会话 ID 与发送人 `wxid`（两者都是显示名，命名空间化为
+`wxname_<hash>`）、企微/钉钉的消息图片（只实现了微信这条路径）。
 
 ## 快速开始
 
@@ -77,8 +93,11 @@ npm install --ignore-scripts --legacy-peer-deps     # 本机 pnpm 11 会卡在 E
 
 ## 改代码时要守的约定
 
-- **`@` 绝不按文本判定。** 群 `scope` 只读结构化 mention 列表；机器人改昵称必须仍然生效；
-  给不出这种列表的后端就不合格。
+- **`@` 绝不按文本判定。** 群 `scope` 只读 `ats`，绝不取正文子串。`ats` 可以由客户端自己的
+  mention 标记得出，但**强度必须声明**在 `capabilities.mentions`
+  （`structured` / `markup` / `none`）里，让人看得出一个群 `@` 是证据还是线索。
+- **后端差异留在 sidecar。** 没有稳定 ID 的后端把会话与人命名为 `wxname_<hash>`，由
+  `refreshLabels` 解析回显示名；设置里的 id 正则因此保持严格，不为迁就显示名而放宽。
 - **一份状态一个写者。** Source 只能经 `SourceContext.tickets` 改工单；健康条目按实例 claim；
   回执只由 Outbox 写。
 - **幂等是声明的。** `capabilities.idempotency` 取 `keyed` / `marker` / `none`，面板显示代码的

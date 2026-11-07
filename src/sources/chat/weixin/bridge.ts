@@ -13,8 +13,17 @@ export interface BridgeOptions {
   /** Transport seam: `fetch` when omitted, so tests inject a stub and no test touches the network. */
   fetchFn?: typeof fetch
 }
+/**
+ * How well a backend can prove that a message addresses this account. `structured` is the client's own mention list;
+ * `markup` is the client's own mention markup (a name followed by the separator the client inserts) resolved against this
+ * account, which a person cannot produce by typing `@name` but could paste, and which breaks if the account is renamed;
+ * `none` means the backend cannot tell at all.
+ */
+export type MentionCapability = 'structured' | 'markup' | 'none'
+/** How much of a chat's member list a backend can supply: all of it, only the senders it has seen, or nothing. */
+export type MemberCapability = 'full' | 'observed' | 'none'
 /** What this backend can actually do; absent means an older sidecar, which is read as capable on every count. */
-export interface BridgeCapabilities { mentions: boolean; members: boolean; media: boolean }
+export interface BridgeCapabilities { mentions: MentionCapability; members: MemberCapability; media: boolean }
 /** `/health`: whether the sidecar and its backend are usable; `detail` explains an unavailable backend. */
 export interface BridgeHealth {
   ok: boolean
@@ -147,18 +156,32 @@ async function readCapped(response: Response, cap: number, path: string): Promis
 }
 
 /**
- * Reads the capability report of a backend. A field is taken only when it is a boolean and the rest stay `true`, so a
- * sidecar that reports one limitation need not repeat what it always could do; a missing report stays missing rather than
- * becoming an all-`true` object, because "did not say" and "said it can" are different facts.
+ * Reads the capability report of a backend. A field is taken only when it is a value this contract knows, and the rest stay
+ * at their most capable setting, so a sidecar that reports one limitation need not repeat what it always could do; a
+ * missing report stays missing rather than becoming an all-capable object, because "did not say" and "said it can" are
+ * different facts. Booleans are accepted and widened (`true` is the best a field can be), so a sidecar written before the
+ * report grew its states keeps working.
  */
 function toCapabilities(raw: unknown): BridgeCapabilities | undefined {
   if (typeof raw !== 'object' || raw === null) return undefined
   const value = record(raw)
   return {
-    mentions: typeof value.mentions === 'boolean' ? value.mentions : true,
-    members: typeof value.members === 'boolean' ? value.members : true,
+    mentions: toMentionCapability(value.mentions),
+    members: toMemberCapability(value.members),
     media: typeof value.media === 'boolean' ? value.media : true,
   }
+}
+
+/** Reads one mention capability, widening the boolean a first-generation sidecar reports. */
+function toMentionCapability(raw: unknown): MentionCapability {
+  if (raw === false) return 'none'
+  return raw === 'markup' || raw === 'none' ? raw : 'structured'
+}
+
+/** Reads one member capability, widening the boolean a first-generation sidecar reports. */
+function toMemberCapability(raw: unknown): MemberCapability {
+  if (raw === false) return 'none'
+  return raw === 'observed' || raw === 'none' ? raw : 'full'
 }
 
 /**

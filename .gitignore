@@ -7,3 +7,5 @@ coverage/
 # fails there on unapproved build scripts, so an npm lockfile is a local artifact and must not become a second source of
 # truth for dependency resolution.
 package-lock.json
+# Written by the wxauto library into whatever directory a process starts in, so a run of the live suite leaves one behind.
+wxauto_logs/

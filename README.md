@@ -24,14 +24,18 @@ Five new plugins ship with the bundle and are **disabled by default** in `cordis
 
 ## Status
 
-Verified on `main` (node 22.23.2):
+Verified on `main`, on both platforms:
 
-```bash
-tsc --noEmit                      # 0
-vitest run --maxWorkers=2         # 83 files (80 passed + 3 skipped) / 1435 tests (1421 passed + 14 skipped), 0 failed
-tsdown                            # build complete, 8 entries: index + 7 watch plugins
-LIVE=1 vitest run tests/live      # 13 passed + 1 skipped against real services
-```
+| | macOS arm64 / node 22.23.2 | Windows 11 / node 22.21.1 |
+| --- | --- | --- |
+| `tsc --noEmit` | 0 | 0 |
+| `vitest run --maxWorkers=2` | 83 files, 1435 tests, 1421 passed, 14 skipped, 0 failed | 84 files, 1456 tests, 1421 passed, 35 skipped, 0 failed |
+| `tsdown` | build complete, 8 entries: index + 7 watch plugins | same |
+| `LIVE=1 vitest run tests/live` | 13 passed + 1 skipped | 13 passed + 1 skipped |
+
+The 21 extra Windows skips are recorded per file in [HANDOVER-WIN11.md](HANDOVER-WIN11.md) §2: the
+POSIX service manager (`scripts/dsh-superagent`) and the Feishu stub that needs a live child
+process. Nothing was skipped to make a failure disappear.
 
 Verified against real things, not only mocks: a real sidecar process over loopback (six endpoints,
 idempotent send, `0600` token, image bytes); the real `gitlab.com` public API (MR mapping, a bogus
@@ -39,10 +43,29 @@ token mapped to 401 without echoing it); real WeCom / DingTalk / Yunxiao authent
 surfaced as diagnosable errors; and the panel data layer (two instances of one kind, deleting one,
 legacy settings without `kind`).
 
-**Not claimed:** WeChat against a real client (whether a structured `@` mention list exists is still
-being probed, and it decides the backend), any write against a real code host or work item, the
-WeCom callback over a public reverse proxy, DingTalk Stream without its SDK, pixel-level GUI
-acceptance, and message images for WeCom/DingTalk (only the WeChat path exists).
+**WeChat against a real client, measured:** the sidecar's `pc-uia` backend drives WeChat 4.x through
+`wxautox4` in **listener mode** (`AddListenChat` + `StartListening`), so messages arrive by push
+instead of being scraped from whatever the window happens to have rendered. Verified on this
+machine: real group and direct messages, the account's own identity, and image download.
+
+What that backend can and cannot prove is published per instance as `capabilities`, so nobody has
+to guess:
+
+| capability | `pc-uia` | meaning |
+| --- | --- | --- |
+| `mentions` | `markup` | group `@` is read from the client's own mention markup (`@name` + `U+2005`), not from a typed `@name`; a renamed account breaks it and a pasted separator can forge it |
+| `members` | `observed` | only the senders seen so far, never the full roster |
+| `media` | per build | the Plus build has `download()`; the free one does not |
+
+The honest gap: there is **no structured mention list** on WeChat 4.x. The message bubble is a flat
+accessibility leaf (`childCount == 0`, no text/value/legacy pattern), so `ats` can only be
+`markup`-grade. A backend that reports `mentions: none` is still usable for direct messages, and
+its group chats are then judged by the Policy's rules alone.
+
+**Not claimed:** any write against a real code host or work item, the WeCom callback over a public
+reverse proxy, DingTalk Stream without its SDK, pixel-level GUI acceptance, a stable chat id or
+sender `wxid` on WeChat (both are display names, namespaced as `wxname_<hash>`), and message
+images for WeCom/DingTalk (only the WeChat path exists).
 
 ## Quick start
 
@@ -80,8 +103,13 @@ it per call, and refuses anything that is not a `0600` regular file.
 
 ## Conventions to keep
 
-- **Never key `@` on text.** Group scope reads a structured mention list; a renamed bot must keep
-  working. A backend that cannot expose one is not eligible.
+- **Never key `@` on text.** Group scope reads `ats`, never a substring of the body. `ats` may
+  come from the client's own mention markup, but the strength must be declared in
+  `capabilities.mentions` (`structured` / `markup` / `none`) so a person can see whether a
+  group `@` is proof or a hint.
+- **Backend differences stay in the sidecar.** A backend without stable IDs names chats and people
+  `wxname_<hash>` and lets `refreshLabels` resolve them, so the id patterns in settings stay
+  strict instead of being widened to fit a display name.
 - **One writer per state.** Sources change a Ticket only through `SourceContext.tickets`; health
   entries are claimed per instance; the outbox alone writes receipts.
 - **Idempotency is declared.** `capabilities.idempotency` is `keyed` / `marker` / `none`, and the
