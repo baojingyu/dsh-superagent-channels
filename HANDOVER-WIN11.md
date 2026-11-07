@@ -123,7 +123,7 @@ git branch -vv
 
 > Python 用哪个解释器很重要：`python3` 在本机是 Microsoft Store 的占位程序（执行即
 > `Python was not found`）。真实解释器是 `python`（3.12.10）。要跑 `wxautox4` 时用装了它的那个
-> 解释器，本机是 `D:\<wxauto4-env>\<wxbot-dir>\.venv\Scripts\python.exe`；
+> 解释器，本机是 `$WX\.venv\Scripts\python.exe`，其中 `$WX` 是那个目录：
 > 只跑 sidecar 的 `fake` 后端和探针的 `--selftest` 时，系统 `python` 就够。
 
 ### 3.2 目录约定（**目录名必须这样，live 测试写死了相对路径**）
@@ -291,7 +291,9 @@ icacls C:\secrets\gitlab.token /inheritance:r /grant:r "%USERNAME%:R"
 ```powershell
 cd C:\dev\open-dsh-superagent-ext\poc
 # 用装了 wxautox4 的那个解释器；本机是：
-$PY = "D:\<wxauto4-env>\<wxbot-dir>\.venv\Scripts\python.exe"
+# 这个名字只是本机的目录名，**不进版本库**；换成你自己的路径即可。
+$WX = '<装了 wxautox4 的目录>'
+$PY = "$WX\.venv\Scripts\python.exe"
 & $PY win_diag.py                 # 会话 + 窗口 + 代际 + 建议装哪个包
 & $PY probe_wxauto.py --selftest  # 不碰微信，只验证报告链路
 & $PY probe_wxauto.py --group "<群名>" --media `
@@ -302,6 +304,10 @@ $PY = "D:\<wxauto4-env>\<wxbot-dir>\.venv\Scripts\python.exe"
   它同时打印每个微信窗口的 `session` 和 `visible`，以及客户端进程的会话。
 - 报告路径会打印成绝对路径：`[probe] report written: ...\probe-report.json`。
   **报告一定写**：`--selftest` 与异常路径都会写，这是 v3 的硬要求（旧版「跑完没有报告」无从排查）。
+- **`probe-report.json` 里是真实聊天内容**（消息正文、群名、成员显示名、账号昵称）。它只用于本地取证：
+  **不要提交**，也不要把它的片段贴进任何会进仓库的文档或 issue。本仓的历史里曾经出现过这类样本，
+  已整体清洗（`<wxid>` / `<昵称>` / `<群名>` / `<成员>` / `<显示名>` 占位符就是这么来的）。
+  引用结论时只写「形状」，不写「是谁」。
 - 客户端若是 4.x（`Weixin.exe` / `Qt51514QWindowIcon`），必须用 `wxauto4`/`wxautox4`；
   3.9.x 才用 `wxauto`。分类错误的典型报错是
   `the wxauto 3.9 accessibility tree was not found`。
@@ -328,7 +334,7 @@ $PY = "D:\<wxauto4-env>\<wxbot-dir>\.venv\Scripts\python.exe"
 `GetAllMessage()` 只返回当前窗口**已渲染**的消息，而 `ChatWith()` 在目标已是当前会话时不会重绘，
 于是周期性读到 0 条。我把这个现象当成了「L0 收不到群消息」。
 
-本机有一个能跑的生产实现 `D:\<wxauto4-env>\<wxbot-dir>\wxbot_core.py`
+本机有一个能跑的生产实现 `$WX\wxbot_core.py`
 （owner 确认它能收群消息、私聊并自动回复），它收消息用的是**监听模式**：
 
 ```python
@@ -552,7 +558,9 @@ cd C:\dev\open-dsh-superagent-ext\sidecar\wxauto-bridge
 python server.py --backend fake --port 8787 --token dev-only
 
 # sidecar（真机；--listen 已不再需要，群从面板的 POST /listen 下发）
-$PY = "D:\<wxauto4-env>\<wxbot-dir>\.venv\Scripts\python.exe"
+# 这个名字只是本机的目录名，**不进版本库**；换成你自己的路径即可。
+$WX = '<装了 wxautox4 的目录>'
+$PY = "$WX\.venv\Scripts\python.exe"
 & $PY server.py --backend pc-uia --port 8787 --token <TOKEN> `
     --self-name-ttl 60          # 群 @ 判据名的重读间隔（秒）
 # 验证：curl -H "Authorization: Bearer <TOKEN>" 127.0.0.1:8787/health

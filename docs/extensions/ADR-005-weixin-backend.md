@@ -140,6 +140,10 @@ WeChat 客户端自动化跑在一台 **Windows 常驻机**上，以独立进程
 探针：`poc/win_diag.py` → `a WeChat window is visible in this session`；
 `poc/probe_wxauto.py --group "<群名>" --media` → `poc/probe-report.json`。
 
+> **隐私**：`probe-report.json` 与消息 dump 里是**真实聊天内容**。它们只用于本地取证，不提交、
+> 不进文档。本文引用的一律是**值的形状**（`<wxid>`、`<昵称>`、`<群名>`、`<成员>`、`<显示名>`、
+> `<微信号>`），不是具体是谁。
+
 **结论：`atListCandidates` 为空 → 后端按 §4.1 应切 L2（pad）；群 `@` 不得文本反解。**
 
 三条独立证据（任一条都足以否掉 L0 的结构化 `@`）：
