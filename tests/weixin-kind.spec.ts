@@ -60,6 +60,22 @@ describe('weixinKind scope', () => {
     expect(scope({ meta: {} }, config)).toEqual({ listened: true, observed: false, row: 'directMessages' })
     expect(scope({ meta: { room: '', ats: ['wxid_b'] } }, config)).toEqual({ listened: true, observed: false, row: 'directMessages' })
   })
+
+  it('records that a backend without structured mentions cannot judge group @s, not that none were found', () => {
+    // `group_ambient` would claim the agent looked and saw no `@`; `mentions_unsupported` says it could not look at all,
+    // which is the difference between "nobody mentioned you" and "this backend cannot tell".
+    const limited = createWeixinKind({ capabilities: () => ({ mentions: false, members: false, media: true }) }).scope!
+    expect(limited({ meta: { room: 'room-1', ats: ['wxid_self'] } }, config))
+      .toEqual({ listened: false, reason: 'mentions_unsupported', observed: true, row: 'groupAmbient' })
+  })
+
+  it('receives group messages from such a backend once atOnly is off, leaving admission to the rules', () => {
+    const limited = createWeixinKind({ capabilities: () => ({ mentions: false, members: false, media: true }) }).scope!
+    expect(limited({ meta: { room: 'room-1' } }, { ...config, atOnly: false }))
+      .toEqual({ listened: true, observed: true, row: 'groupAmbient' })
+    // A direct message is unaffected: it needs no mention to be addressed to the agent.
+    expect(limited({ meta: {} }, config)).toEqual({ listened: true, observed: false, row: 'directMessages' })
+  })
 })
 
 describe('weixinKind channel', () => {
@@ -113,14 +129,35 @@ describe('weixinKind environment and facts', () => {
   })
 
   it('reports the account facts from the bridge status, and Not connected when there is none', () => {
+    const capable = { zh: '群 @ 按结构化列表判定', en: 'Group @s are judged on the structured list' }
     const connected = createWeixinKind({ status: () => ({ loggedIn: true, wxid: 'wxid_self', name: '智能助手' }) })
-    expect(connected.facts!(undefined)).toEqual({ account: { zh: '已登录：智能助手', en: 'Signed in as 智能助手' } })
+    expect(connected.facts!(undefined)).toEqual({ account: { zh: '已登录：智能助手', en: 'Signed in as 智能助手' }, mentions: capable })
     const silent = createWeixinKind({ status: () => undefined })
-    expect(silent.facts!(undefined)).toEqual({ account: { zh: '未连接', en: 'Not connected' } })
+    expect(silent.facts!(undefined)).toEqual({ account: { zh: '未连接', en: 'Not connected' }, mentions: capable })
 
     rememberWeixinStatus({ loggedIn: true, wxid: 'wxid_self', name: '助手' })
-    expect(weixinKind.facts!(undefined)).toEqual({ account: { zh: '已登录：助手', en: 'Signed in as 助手' } })
+    expect(weixinKind.facts!(undefined)).toEqual({ account: { zh: '已登录：助手', en: 'Signed in as 助手' }, mentions: capable })
     rememberWeixinStatus({ loggedIn: false, wxid: 'wxid_self', name: '助手' })
-    expect(weixinKind.facts!(undefined)).toEqual({ account: { zh: '未连接', en: 'Not connected' } })
+    expect(weixinKind.facts!(undefined)).toEqual({ account: { zh: '未连接', en: 'Not connected' }, mentions: capable })
+  })
+
+  it('states the mention limitation a backend reported, instead of claiming group @s were checked', () => {
+    // pc-uia on WeChat 4.x: the message bubble is a flat accessibility leaf, so no backend can produce `ats` there.
+    const limited = createWeixinKind({
+      status: () => ({ loggedIn: true, wxid: 'wxid_self', name: '智能助手' }),
+      capabilities: () => ({ mentions: false, members: false, media: true }),
+    })
+    expect(limited.facts!(undefined)).toEqual({
+      account: { zh: '已登录：智能助手', en: 'Signed in as 智能助手' },
+      mentions: { zh: '该后端无法判定群 @：群消息只按规则推断，不按 @ 判定', en: 'This backend cannot detect group @s: group messages are judged by the rules, never by mentions' },
+    })
+  })
+
+  it('carries the capabilities a status read recorded, and drops them when a later read omits them', () => {
+    rememberWeixinStatus({ loggedIn: true, wxid: 'wxid_self', name: '助手' }, { mentions: false, members: false, media: true })
+    expect(weixinKind.facts!(undefined).mentions).toMatchObject({ zh: '该后端无法判定群 @：群消息只按规则推断，不按 @ 判定' })
+    // A sidecar that stops reporting capabilities is read as capable again: "did not say" is not "said it cannot".
+    rememberWeixinStatus({ loggedIn: true, wxid: 'wxid_self', name: '助手' })
+    expect(weixinKind.facts!(undefined).mentions).toMatchObject({ zh: '群 @ 按结构化列表判定' })
   })
 })

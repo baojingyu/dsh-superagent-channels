@@ -7,6 +7,7 @@ import type { Health } from '../src/sources/host.ts'
 import type { ChatEvent } from '../src/sources/chat/port.ts'
 import { parseStreamEvent, sendMessage } from '../src/sources/chat/dingtalk/adapter.ts'
 import { createLongPollingStream, startStream } from '../src/sources/chat/dingtalk/stream.ts'
+import { withPlatform } from './fixtures/platform.ts'
 
 const config = { clientId: 'app-key', clientSecret: 'app-secret', robotCode: 'robot-1' }
 const at = 1_760_000_000_000
@@ -235,7 +236,10 @@ describe('sendMessage secret files', () => {
     try {
       let calls = 0
       const fetchFn = (async () => { calls++; return reply({ errcode: 0 }) }) as unknown as typeof fetch
-      await expect(sendMessage({ fetchFn }, oapi(dir, 'file-secret', 0o644), { conversationId: 'cid-1' }, 'hi', 'out-c')).rejects.toThrow(/0600/)
+      // Windows synthesizes `st.mode` (0o666 for any writable file) and cannot tell 0644 from 0600, so the owner-only rule is
+      // judged as the POSIX rule it is; the file's real mode there is 0o666, which is what the stubbed branch refuses.
+      await withPlatform('linux', () => expect(sendMessage({ fetchFn }, oapi(dir, 'file-secret', 0o644), { conversationId: 'cid-1' }, 'hi', 'out-c'))
+        .rejects.toThrow(/0600/))
       expect(calls).toBe(0)
     } finally { rmSync(dir, { recursive: true, force: true }) }
   })

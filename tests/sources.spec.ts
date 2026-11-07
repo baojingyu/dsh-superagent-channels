@@ -1032,6 +1032,13 @@ describe('feishu event consumer', () => {
   let running: Promise<unknown> | undefined
   // The fake CLI is a real process, which starts slower while the whole suite runs.
   const until = { timeout: 10_000 }
+  /**
+   * A test that needs the bot CLI as a live child process. The stand-in below is a script, and Windows starts only PE
+   * images: `spawn` answers ENOENT for a `#!` file and Node refuses a `.cmd` shim without a shell. The real `lark-cli` is
+   * a native binary this suite does not ship, so these cases are skipped there; the consumer's process handling (ready
+   * line, warning, restart, stop, 45-second timeout) is therefore not exercised on Windows.
+   */
+  const live = it.skipIf(process.platform === 'win32')
   beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'feishu-consumer-')); controller = new AbortController() })
   afterEach(async () => {
     controller.abort()
@@ -1086,7 +1093,7 @@ describe('feishu event consumer', () => {
   const event = (id: string, chat: string, type: 'group' | 'p2p') => JSON.stringify({ message_id: id, chat_id: chat, chat_type: type,
     sender_id: 'ou_alice', sender_type: 'user', content: 'fix it', create_time: String(Date.now()),
     ...type === 'group' ? { mentions: [{ id: 'ou_bot', name: 'Bot' }] } : {} })
-  it('takes in the event lines it reads, records each chat as direct or not, and reports a malformed line without stopping', async () => {
+  live('takes in the event lines it reads, records each chat as direct or not, and reports a malformed line without stopping', async () => {
     writeFileSync(join(dir, 'events'), [event('om_1', 'oc_group', 'group'), event('om_2', 'oc_dm', 'p2p'), 'not json',
       event('om_3', 'oc_group', 'group')].join('\n') + '\n')
     const { ctx, health, store } = consumerSource(cli('events'))
@@ -1097,7 +1104,7 @@ describe('feishu event consumer', () => {
     expect(health.feishu).toMatchObject({ state: 'error', detail: expect.stringContaining('JSON') })
     controller.abort(); await running; store.close()
   }, 20_000)
-  it('drops the events it reads once the Source is off', async () => {
+  live('drops the events it reads once the Source is off', async () => {
     writeFileSync(join(dir, 'events'), event('om_9', 'oc_group', 'group') + '\n')
     const { ctx, health, store, turnOff } = consumerSource(cli('late'))
     running = runFeishu(ctx, controller.signal)
@@ -1143,7 +1150,7 @@ describe('feishu event consumer', () => {
     expect(off.chats).toEqual(['oc_a', 'oc_b'])
     expect(off.cursors.oc_dm).toBe(hour)
   }, 20_000)
-  it('reports an error when the consumer is not ready within 45 seconds', async () => {
+  live('reports an error when the consumer is not ready within 45 seconds', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     const { ctx, health, store } = consumerSource(cli('never'))
     running = runFeishu(ctx, controller.signal)
@@ -1155,13 +1162,13 @@ describe('feishu event consumer', () => {
     expect(alive(pid)).toBe(false)
     controller.abort(); await running; store.close()
   }, 20_000)
-  it('reports a warning the consumer prints as an error', async () => {
+  live('reports a warning the consumer prints as an error', async () => {
     const { ctx, health, store } = consumerSource(cli('warn'))
     running = runFeishu(ctx, controller.signal)
     await vi.waitFor(() => expect(health.feishu).toMatchObject({ state: 'error', detail: 'WARN the connection was reset' }), until)
     controller.abort(); await running; store.close()
   }, 20_000)
-  it('stops the consumer within five seconds once the Source is off', async () => {
+  live('stops the consumer within five seconds once the Source is off', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
     const { ctx, health, store, turnOff } = consumerSource(cli('ready'))
     running = runFeishu(ctx, controller.signal)
@@ -1173,7 +1180,7 @@ describe('feishu event consumer', () => {
     expect(alive(pid)).toBe(false)
     controller.abort(); await running; store.close()
   }, 20_000)
-  it('starts the consumer again after it exits, and is ready once the next run listens', async () => {
+  live('starts the consumer again after it exits, and is ready once the next run listens', async () => {
     const { ctx, health, store } = consumerSource(cli('flaky'))
     running = runFeishu(ctx, controller.signal)
     const exited = { state: 'error', detail: expect.stringContaining('exited (1, ready=true)') }

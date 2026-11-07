@@ -3,3 +3,7 @@ lib/
 .artifacts/
 .env
 coverage/
+# The canonical lockfile is pnpm-lock.yaml (`packageManager: pnpm@11.7.0`). npm is only used on Windows because pnpm 11
+# fails there on unapproved build scripts, so an npm lockfile is a local artifact and must not become a second source of
+# truth for dependency resolution.
+package-lock.json
