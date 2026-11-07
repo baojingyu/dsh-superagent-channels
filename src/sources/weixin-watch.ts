@@ -69,7 +69,11 @@ async function pollChat(ctx: SourceContext, bridge: BridgeClient, instance: stri
 async function pollRound(ctx: SourceContext, config: WeixinConfig, signal: AbortSignal): Promise<number> {
   const instance = SOURCE
   const bridge = createBridgeClient({ baseUrl: config.baseUrl, tokenFile: config.tokenFile })
-  rememberWeixinStatus(await bridge.status())
+  // `/health` carries what the backend can actually do, and `scope` must answer synchronously, so it is read once per round
+  // and remembered beside the status. It is a loopback call, and reading it every round is what lets a backend swap be
+  // noticed without restarting this plugin.
+  const health = await bridge.health()
+  rememberWeixinStatus(await bridge.status(), health.capabilities)
   let received = 0
   for (const room of config.rooms) {
     signal.throwIfAborted()

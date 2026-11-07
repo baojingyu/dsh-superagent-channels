@@ -358,6 +358,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/infra/paths.ts` | The package's root, where packaged files are |
 | `src/infra/text.ts` | Word counts and the chat message limit, `fill` and `sameName` |
 | `src/infra/health.ts` | The `HealthBoard`, every part's health entry, each claimed by its one writer |
+| `src/infra/secret-file.ts` | The one owner-only rule for a secret file: `readSecretFile` and `requireOwnerOnly`, which hold the `0600` check where the platform has POSIX bits, name the mode a refused file actually had, and leave Windows to its ACL |
 | `src/infra/hosting-api.ts` | The code-hosting HTTP client: `HostingApi` and `createHostingApi`, a token read from its `0600` file, `PRIVATE-TOKEN`, an allowlisted `/projects` path and a 30-second timeout |
 | `src/infra/yunxiao-api.ts` | The Yunxiao HTTP client: `YunxiaoApi`, `createYunxiaoApi` and `YunxiaoHttpError`, its token file read on every call, the `/oapi/v1/` path limit and the organization allowlist |
 | `src/sources/kind.ts` | The `SourceKind` protocol |
@@ -466,6 +467,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/timeline.spec.ts` | A Thread's pages and a Trigger's neighbours by time and then id, with every received Trigger's time in one form |
 | `tests/migration.spec.ts` | The schema 11 migration: every stored record in its current shape, and the refusal of older schemas |
 | `tests/store.spec.ts` | Repositories and their working sets, in SQLite as in memory, the kv area, with every key of `KV` spelled only in `src/kv.ts` and the migration, settings history and queries |
+| `tests/secret-file.spec.ts` | The secret-file rule on both platforms: a POSIX file refused with the mode it had, a missing or empty one always refused, and Windows accepting what it cannot express |
 | `tests/prompts.spec.ts` | Prompt validation, assembly and versions |
 | `tests/cards.spec.ts` | The rules the built-in text must state, file by file |
 | `tests/model-surface.spec.ts` | Everything models read: tools, prompts, skills and inputs, checked against the tool schemas, the execution environment and the glossary, within a size budget per role |

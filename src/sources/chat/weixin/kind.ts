@@ -2,7 +2,7 @@
 import { z } from 'zod'
 import type { OutboundMessage } from '../../../core/index.ts'
 import type { ChannelHost, FieldSpec, SourceChannel, SourceKind, SourcePolicyPart } from '../../kind.ts'
-import type { BridgeClient, BridgeStatus } from './bridge.ts'
+import type { BridgeCapabilities, BridgeClient, BridgeStatus } from './bridge.ts'
 import { createBridgeClient } from './bridge.ts'
 import { weixinThreadContext } from './thread.ts'
 
@@ -44,7 +44,7 @@ const Fields: FieldSpec[] = [
       { key: 'name', type: 'text', label: { zh: '名字', en: 'Name' }, optional: true },
     ] },
   { key: 'atOnly', type: 'switch', label: { zh: '仅接收 @ 的消息', en: 'Receive only @s' },
-    hint: { zh: '开启时只接收 @ 机器人的群消息；关闭时也接收其余消息，交评估按规则推断。', en: 'On receives only messages that mention the bot; off also receives the rest, from which Eval may infer work under the rules.' } },
+    hint: { zh: '开启时只接收 @ 机器人的群消息；关闭时也接收其余消息，交评估按规则推断。后端不支持判定群 @ 时（如 pc-uia），开启会让群消息全部被过滤，此时应关闭并靠规则与名单准入。', en: 'On receives only messages that mention the bot; off also receives the rest, from which Eval may infer work under the rules. A backend that cannot detect mentions (such as pc-uia) filters every group message while this is on, so turn it off and rely on the rules and the sender list.' } },
   { key: 'pollSeconds', type: 'number', advanced: true, min: 5, max: 3600, label: { zh: '轮询间隔 / 秒', en: 'Poll interval / s' },
     hint: { zh: '轮询传输向桥询问新消息的间隔。', en: 'How often the polling transport asks the bridge for new messages.' } },
 ]
@@ -59,14 +59,24 @@ const WeixinPolicySchema = z.object({
 export interface WeixinKindHooks {
   /** Reads the bridge status for `facts`, which cannot await; the polling loop records what it last saw. */
   status?(): BridgeStatus | undefined
+  /**
+   * Reads what the backend reported it can do, for `scope` and `facts`, which cannot await. A backend that cannot report
+   * structured mentions cannot prove a group message addresses the agent, and saying "ambient" would claim we looked.
+   */
+  capabilities?(): BridgeCapabilities | undefined
   /** Builds the bridge client used by `channel.send`; tests inject a fake so nothing reaches the network. */
   client?(config: WeixinConfig): BridgeClient
 }
 
-/** Last status a bridge read reported, kept module-wide because `SourceKind.facts` must answer synchronously. */
-let rememberedStatus: BridgeStatus | undefined
-/** Records the status a bridge read just returned, so the next `facts` render shows the account it belongs to. */
-export function rememberWeixinStatus(status: BridgeStatus): void { rememberedStatus = status }
+/** What the last bridge read reported: the account status and, when the sidecar said, its capability report. */
+let remembered: { status: BridgeStatus; capabilities?: BridgeCapabilities } | undefined
+/**
+ * Records what a bridge read just returned, so the next `facts` render shows the account it belongs to. `capabilities` is
+ * optional because a sidecar older than the capability report is read as capable on every count.
+ */
+export function rememberWeixinStatus(status: BridgeStatus, capabilities?: BridgeCapabilities): void {
+  remembered = { status, ...(capabilities ? { capabilities } : {}) }
+}
 
 /** Reception result of the weixin kind: ambient group messages stay observable for Thread context even when not listened. */
 type WeixinScopeResult =
@@ -77,6 +87,8 @@ type WeixinScopeResult =
 export function createWeixinKind(hooks: WeixinKindHooks = {}): SourceKind<WeixinConfig> {
   const bridgeFor = (config: WeixinConfig): BridgeClient =>
     hooks.client?.(config) ?? createBridgeClient({ baseUrl: config.baseUrl, tokenFile: config.tokenFile })
+  /** What the backend last reported it can do; `undefined` while nothing has been read, which reads as capable. */
+  const capabilitiesOf = (): BridgeCapabilities | undefined => hooks.capabilities ? hooks.capabilities() : remembered?.capabilities
   const policy: SourcePolicyPart<Record<string, unknown> & { allowed: { id: string; name?: string }[] }> = {
     unnamed: { person: { zh: '微信用户', en: 'WeChat user' }, bot: { zh: '微信机器人', en: 'WeChat bot' } },
     schema: WeixinPolicySchema,
@@ -116,9 +128,18 @@ export function createWeixinKind(hooks: WeixinKindHooks = {}): SourceKind<Weixin
     health: ['weixin'],
     // Reception is decided on the structured `ats` list, never by matching `@nickname` in the text. An ambient group message
     // is filtered but still observed, so it remains Thread-context material; `reason` is what Intake records for the filter.
+    // A backend that reports it cannot produce `ats` at all (the pc-uia one on WeChat 4.x: the message bubble is a flat
+    // accessibility leaf with no mention element) can never prove a group message addresses the agent. Recording
+    // `group_ambient` there would claim we looked and found no `@`; the honest reason is that we cannot look, which also
+    // tells an operator that the Policy's mention row is unavailable rather than simply unmatched.
     scope({ meta }, config): WeixinScopeResult {
       const room = typeof meta.room === 'string' ? meta.room : ''
       if (!room) return { listened: true, observed: false, row: 'directMessages' }
+      if (capabilitiesOf()?.mentions === false) {
+        return config.atOnly
+          ? { listened: false, reason: 'mentions_unsupported', observed: true, row: 'groupAmbient' }
+          : { listened: true, observed: true, row: 'groupAmbient' }
+      }
       const ats = Array.isArray(meta.ats) ? meta.ats.filter((id): id is string => typeof id === 'string') : []
       const addressed = ats.includes(config.selfWxid)
       const row = addressed ? 'groupAddressed' : 'groupAmbient'
@@ -142,10 +163,15 @@ export function createWeixinKind(hooks: WeixinKindHooks = {}): SourceKind<Weixin
       }),
     },
     // `facts` is synchronous: it reports the status the polling loop last recorded, and "Not connected" until there is one.
+    // The second fact states a backend limitation rather than hiding it: a Source whose backend cannot see structured `@`s
+    // still receives direct messages, but its group chats can only be judged by the Policy's rules.
     facts: () => {
-      const status = hooks.status ? hooks.status() : rememberedStatus
+      const status = hooks.status ? hooks.status() : remembered?.status
       const account = status?.loggedIn ? { zh: `已登录：${status.name || status.wxid}`, en: `Signed in as ${status.name || status.wxid}` } : { zh: '未连接', en: 'Not connected' }
-      return { account }
+      const mentions = capabilitiesOf()?.mentions === false
+        ? { zh: '该后端无法判定群 @：群消息只按规则推断，不按 @ 判定', en: 'This backend cannot detect group @s: group messages are judged by the rules, never by mentions' }
+        : { zh: '群 @ 按结构化列表判定', en: 'Group @s are judged on the structured list' }
+      return { account, mentions }
     },
   }
 }

@@ -1,5 +1,5 @@
 /** HTTP client of the wxauto-bridge sidecar: reads its bearer token, calls the six frozen endpoints, and normalizes replies. */
-import { readFileSync, statSync } from 'node:fs'
+import { readSecretFile } from '../../../infra/secret-file.ts'
 import type { ChatEvent } from '../port.ts'
 import { BridgeEndpoints } from './backend.ts'
 import type { WxPerson, WxRoom } from './backend.ts'
@@ -13,6 +13,8 @@ export interface BridgeOptions {
   /** Transport seam: `fetch` when omitted, so tests inject a stub and no test touches the network. */
   fetchFn?: typeof fetch
 }
+/** What this backend can actually do; absent means an older sidecar, which is read as capable on every count. */
+export interface BridgeCapabilities { mentions: boolean; members: boolean; media: boolean }
 /** `/health`: whether the sidecar and its backend are usable; `detail` explains an unavailable backend. */
 export interface BridgeHealth {
   ok: boolean
@@ -22,6 +24,7 @@ export interface BridgeHealth {
   backend?: string
   detail?: string
   uptimeSec?: number
+  capabilities?: BridgeCapabilities
 }
 /** `/status`: the account's sign-in state; `wxid` is the authoritative `@` basis and `lastEventAt` feeds the stale check. */
 export interface BridgeStatus {
@@ -54,9 +57,10 @@ export interface BridgeClient {
   send(message: BridgeSend): Promise<BridgeSendResult>
   /**
    * Downloads the bytes of one message image (`GET /media/<id>`); optional on the seam so a test double without the endpoint
-   * still satisfies the client, while every real client implements it.
+   * still satisfies the client, while every real client implements it. `maxBytes` caps what is read: the caller passes the
+   * deployment's image budget, and `DEFAULT_MEDIA_BYTES` bounds a caller that names none.
    */
-  media?(id: string): Promise<BridgeMedia>
+  media?(id: string, maxBytes?: number): Promise<BridgeMedia>
 }
 
 /** Request options whose headers stay a plain record, so the bearer and idempotency headers can be merged safely. */
@@ -65,6 +69,8 @@ const IDENTITY_TTL_MS = 60_000
 const DEFAULT_TIMEOUT_MS = 15_000
 const DEFAULT_PAGE_SIZE = 50
 const MAX_PAGE_SIZE = 200
+/** Ceiling for one image body when the caller names no budget: a WeChat picture is never this large, so a body that is must be a mistake. */
+const DEFAULT_MEDIA_BYTES = 8 * 1024 * 1024
 /** `GET /media/<id>` is not in the shared `BridgeEndpoints` table yet, so the reader names it here. */
 const MEDIA_PATH = '/media'
 
@@ -103,6 +109,59 @@ function toChatEvent(raw: unknown, selfWxid: string): ChatEvent {
 }
 
 /**
+ * Reads a response body with a byte ceiling, so an image is never buffered whole before its size is known: a declared
+ * `Content-Length` over the cap is refused before the body is touched, and the body is then consumed chunk by chunk,
+ * cancelling the stream the moment the running total passes the cap.
+ */
+async function readCapped(response: Response, cap: number, path: string): Promise<Uint8Array> {
+  const declared = Number(response.headers.get('content-length') ?? '')
+  if (Number.isFinite(declared) && declared > cap) {
+    await response.body?.cancel().catch(() => undefined)
+    throw new Error(`The bridge declared ${declared} bytes for ${path}, over the ${cap}-byte limit`)
+  }
+  if (!response.body) return new Uint8Array()
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      total += value.byteLength
+      if (total > cap) {
+        await reader.cancel().catch(() => undefined)
+        throw new Error(`The bridge served an image of more than ${cap} bytes for ${path}, over the ${cap}-byte limit`)
+      }
+      chunks.push(value)
+    }
+  } finally {
+    reader.releaseLock()
+  }
+  const bytes = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return bytes
+}
+
+/**
+ * Reads the capability report of a backend. A field is taken only when it is a boolean and the rest stay `true`, so a
+ * sidecar that reports one limitation need not repeat what it always could do; a missing report stays missing rather than
+ * becoming an all-`true` object, because "did not say" and "said it can" are different facts.
+ */
+function toCapabilities(raw: unknown): BridgeCapabilities | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined
+  const value = record(raw)
+  return {
+    mentions: typeof value.mentions === 'boolean' ? value.mentions : true,
+    members: typeof value.members === 'boolean' ? value.members : true,
+    media: typeof value.media === 'boolean' ? value.media : true,
+  }
+}
+
+/**
  * Creates the client of one wxauto-bridge sidecar. Every call rereads the token file (it may rotate) and refuses a file that
  * others can read; a 401 becomes `unauthorized`, a 502 a retryable error, and a 409 `gone` a `'gone'` send result.
  */
@@ -113,16 +172,7 @@ export function createBridgeClient(options: BridgeOptions): BridgeClient {
   let identity: { at: number; wxid: string } | undefined
 
   function token(): string {
-    let mode: number
-    try {
-      mode = statSync(options.tokenFile).mode & 0o777
-    } catch {
-      throw new Error(`The bridge token file ${options.tokenFile} is missing; write the sidecar's token there with mode 0600`)
-    }
-    if (mode !== 0o600) throw new Error(`The bridge token file ${options.tokenFile} must have mode 0600, not ${mode.toString(8).padStart(3, '0')}`)
-    const value = readFileSync(options.tokenFile, 'utf8').trim()
-    if (!value) throw new Error(`The bridge token file ${options.tokenFile} is empty`)
-    return value
+    return readSecretFile(options.tokenFile, 'bridge token file')
   }
 
   /** Calls one endpoint with the bearer token, aborting after `timeoutMs`; returns the status and the parsed body. */
@@ -184,6 +234,7 @@ export function createBridgeClient(options: BridgeOptions): BridgeClient {
       const answer = await call(BridgeEndpoints.health)
       if (answer.status !== 200) throw failure(answer.status, answer.body, `GET ${BridgeEndpoints.health}`)
       const state = record(answer.body)
+      const capabilities = toCapabilities(state.capabilities)
       return {
         ok: state.ok === true,
         available: state.available === true,
@@ -192,6 +243,7 @@ export function createBridgeClient(options: BridgeOptions): BridgeClient {
         backend: text(state.backend) || undefined,
         detail: text(state.detail) || undefined,
         uptimeSec: typeof state.uptimeSec === 'number' ? state.uptimeSec : undefined,
+        ...capabilities ? { capabilities } : {},
       }
     },
     status,
@@ -233,7 +285,7 @@ export function createBridgeClient(options: BridgeOptions): BridgeClient {
       if (answer.status === 409 && text(body.error) === 'gone') return 'gone'
       throw failure(answer.status, answer.body, `POST ${BridgeEndpoints.send}`)
     },
-    async media(id: string): Promise<BridgeMedia> {
+    async media(id: string, maxBytes?: number): Promise<BridgeMedia> {
       const path = `${MEDIA_PATH}/${encodeURIComponent(id)}`
       const controller = new AbortController()
       const timer = setTimeout(() => controller.abort(), timeoutMs)
@@ -253,7 +305,9 @@ export function createBridgeClient(options: BridgeOptions): BridgeClient {
       if (!response.ok) throw new Error(`GET ${path} failed with ${response.status}`)
       const mime = (response.headers.get('content-type') ?? '').split(';')[0]!.trim().toLowerCase()
       if (!mime.startsWith('image/')) throw new Error(`The bridge answered ${path} with ${mime || 'no content type'}, not an image`)
-      return { bytes: new Uint8Array(await response.arrayBuffer()), mime }
+      // The body is read against the cap rather than buffered first: a sidecar that streams an oversized image must not be
+      // able to make this process hold it (IMG-2).
+      return { bytes: await readCapped(response, maxBytes ?? DEFAULT_MEDIA_BYTES, path), mime }
     },
   }
 }

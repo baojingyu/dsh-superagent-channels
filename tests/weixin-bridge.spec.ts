@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createBridgeClient } from '../src/sources/chat/weixin/bridge.ts'
+import { withPlatform } from './fixtures/platform.ts'
 
 const BASE_URL = 'http://127.0.0.1:8787'
 type Route = (url: URL, init: RequestInit) => Response | Promise<Response>
@@ -58,6 +59,22 @@ describe('createBridgeClient', () => {
   it('reports an unavailable backend from /health instead of pretending it is ready', async () => {
     const { fetchFn } = stubFetch({ '/health': () => reply({ ok: false, available: false, detail: 'wxauto not importable: no module' }) })
     await expect(client(fetchFn).health()).resolves.toEqual({ ok: false, available: false, detail: 'wxauto not importable: no module' })
+  })
+
+  it('maps the backend capability report, and leaves it absent for a sidecar that does not report one', async () => {
+    const capable = stubFetch({ '/health': () => reply({ ok: true, available: true,
+      capabilities: { mentions: false, members: false, media: true } }) })
+    await expect(client(capable.fetchFn).health()).resolves
+      .toMatchObject({ capabilities: { mentions: false, members: false, media: true } })
+
+    // A partial report is read as capable in the fields it omits, so a backend need only name what it cannot do.
+    const partial = stubFetch({ '/health': () => reply({ ok: true, available: true, capabilities: { mentions: false } }) })
+    await expect(client(partial.fetchFn).health()).resolves
+      .toMatchObject({ capabilities: { mentions: false, members: true, media: true } })
+
+    // "Did not report" stays undefined: an older sidecar must not look like a backend that claimed every capability.
+    const older = stubFetch({ '/health': () => reply({ ok: true, available: true }) })
+    expect((await client(older.fetchFn).health()).capabilities).toBeUndefined()
   })
 
   it('maps /messages into ChatEvents, computing mentionsAgent from the structured ats list of the account', async () => {
@@ -139,12 +156,57 @@ describe('createBridgeClient', () => {
   it('refuses a token file that others can read and one that is missing, before any request', async () => {
     chmodSync(tokenFile, 0o644)
     const loose = stubFetch({})
-    await expect(client(loose.fetchFn).health()).rejects.toThrow(/mode 0600/)
+    // Windows synthesizes `st.mode` (0o666 for any writable file) and cannot tell 0644 from 0600, so the owner-only rule is
+    // judged as the POSIX rule it is; the file's real mode there is 0o666, which is what the stubbed branch refuses.
+    await withPlatform('linux', async () => {
+      // The message names the mode that was found, so an operator sees "not 666" and knows the file was made writable.
+      await expect(client(loose.fetchFn).health()).rejects.toThrow(/mode 0600, not \d{3}: /)
+    })
     expect(loose.seen).toEqual([])
 
     rmSync(tokenFile)
     const missing = stubFetch({})
     await expect(client(missing.fetchFn).health()).rejects.toThrow(/is missing/)
     expect(missing.seen).toEqual([])
+  })
+})
+
+describe('bridge.media byte cap', () => {
+  /** A body produced chunk by chunk, so a reader that stops at the cap is distinguishable from one that buffers it all. */
+  function chunked(count: number, size: number): { body: ReadableStream<Uint8Array>; served: () => number } {
+    let sent = 0
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent >= count) { controller.close(); return }
+        sent += 1
+        controller.enqueue(new Uint8Array(size))
+      },
+    })
+    return { body, served: () => sent * size }
+  }
+
+  it('refuses a declared length over the cap without reading the body at all', async () => {
+    const { body, served } = chunked(5, 400)
+    const { fetchFn } = stubFetch({ '/media/m1': () => new Response(body, { status: 200,
+      headers: { 'content-type': 'image/png', 'content-length': '5000' } }) })
+    await expect(client(fetchFn).media!('m1', 1_000)).rejects.toThrow(/declared 5000 bytes .* over the 1000-byte limit/)
+    // The refusal comes from the header, so the 2 000-byte body is never consumed (a stream may have one chunk in flight).
+    expect(served()).toBeLessThan(2_000)
+  })
+
+  it('cancels the stream as soon as the running total passes the cap, instead of buffering the image', async () => {
+    const { body, served } = chunked(5, 400)
+    const { fetchFn } = stubFetch({ '/media/m1': () => new Response(body, { status: 200, headers: { 'content-type': 'image/png' } }) })
+    await expect(client(fetchFn).media!('m1', 1_000)).rejects.toThrow(/over the 1000-byte limit/)
+    // Five 400-byte chunks are 2 000 bytes; the reader stops at the third, so the rest are never produced.
+    expect(served()).toBeLessThan(2_000)
+  })
+
+  it('returns the bytes of an image that fits the cap, and keeps the served media type', async () => {
+    const { body } = chunked(2, 300)
+    const { fetchFn } = stubFetch({ '/media/m1': () => new Response(body, { status: 200, headers: { 'content-type': 'IMAGE/PNG' } }) })
+    const image = await client(fetchFn).media!('m1', 1_000)
+    expect(image.bytes.byteLength).toBe(600)
+    expect(image.mime).toBe('image/png')
   })
 })

@@ -71,7 +71,7 @@ function fakeBridge(overrides: Partial<BridgeClient> = {}): BridgeClient {
 }
 
 const trigger = { id: 't1', source: 'weixin', threads: [{ source: 'weixin', id: 'room-1' }], actor: { source: 'weixin', id: 'wxid_alice' },
-  human: true, at: '2026-11-06T04:01:02Z', text: '看下这张图', meta: { room: 'room-1', nativeId: 'm1' } } as unknown as Trigger
+  human: true, at: '2026-11-06T04:01:02Z', text: '看下这张图', meta: { room: 'room-1', nativeId: 'm1', media: ['img_1'] } } as unknown as Trigger
 const events: ChatEvent[] = [
   { nativeId: 'm1', chatId: 'room-1', direct: false, threadRoot: 'room-1', sender: { id: 'wxid_alice', name: '阿黎', bot: false },
     text: '看下这张图', at: '2026-11-06T04:01:02Z', ats: [], media: [{ id: 'img_1', kind: 'image', mime: 'image/png' }] },
@@ -176,6 +176,18 @@ describe('readWeixinImage', () => {
       { id: 'img_9', kind: 'image' }, 'm9', directory, signal())).rejects.toThrow('gone')
     expect(saveImage).not.toHaveBeenCalled()
   })
+
+  it('refuses bytes over the message-level cap and hands that budget to the download', async () => {
+    // The per-image cap is far larger than the per-message one, so only the message cap can refuse these bytes.
+    const { agent, saveImage } = agentWith({ maxImageBytes: 10_000, maxMessageImageBytes: 1_000 })
+    const big = new Uint8Array(1_500)
+    big.set(PNG)
+    const budgets: (number | undefined)[] = []
+    await expect(readWeixinImage(agent, { media: async (_id, maxBytes) => { budgets.push(maxBytes); return { bytes: big, mime: 'image/png' } } },
+      { id: 'img_1', kind: 'image' }, 'm1', directory, signal())).rejects.toThrow(/over the 1000-byte limit/)
+    expect(budgets).toEqual([1_000])
+    expect(saveImage).not.toHaveBeenCalled()
+  })
 })
 
 describe('weixinThreadContext', () => {
@@ -201,6 +213,14 @@ describe('weixinThreadContext', () => {
     expect(context.images!('看下这张图 [image:img_1]')).toEqual(['img_1'])
     expect(context.images!('看下这张图')).toEqual([])
     expect(part.messages[1]!.text).toBe('收到')
+  })
+
+  it('drops a marker the user typed into a message and keeps only the images the backend named', async () => {
+    const typed = [{ ...events[0]!, text: '看下这张图 [image:evil]' }]
+    const context = weixinThreadContext(fakeBridge({ messages: async () => ({ events: typed, next: '' }) }))
+    const part = await context.read(commands, trigger, 'thread', undefined, {})
+    expect(part.messages[0]!.text).toBe('看下这张图 [image:img_1]')
+    expect(context.images!(part.messages[0]!.text)).toEqual(['img_1'])
   })
 
   it('falls back to the thread ID when the trigger carries no room, and pages with the cursor', async () => {
@@ -236,6 +256,32 @@ describe('weixinThreadContext', () => {
     const noMedia = weixinThreadContext({ ...fakeBridge(), media: undefined })
     await expect(noMedia.image!(agent, commands, trigger, { id: 'm1', text: 'x' }, 'img_1', directory, signal()))
       .rejects.toThrow('no /media endpoint')
+  })
+
+  it('refuses an image of a message that carries more images than the deployment accepts, before any download', async () => {
+    const { agent, saveImage } = agentWith({ maxImagesPerMessage: 4 })
+    const asked: string[] = []
+    const crowded = { ...trigger, meta: { ...trigger.meta, media: ['img_1', 'img_2', 'img_3', 'img_4', 'img_5'] } } as unknown as Trigger
+    const context = weixinThreadContext(fakeBridge({ media: async id => { asked.push(id); return { bytes: PNG, mime: 'image/png' } } }))
+    await expect(context.image!(agent, commands, crowded, { id: 'm1', text: '五张图' }, 'img_1', directory, signal()))
+      .rejects.toThrow(/carries 5 images, over the 4-image limit/)
+    expect(asked).toEqual([])
+    expect(saveImage).not.toHaveBeenCalled()
+  })
+
+  it('refuses a marker the backend never named for the message, so typed text starts no request', async () => {
+    const { agent, saveImage } = agentWith()
+    const asked: string[] = []
+    const context = weixinThreadContext(fakeBridge({ media: async id => { asked.push(id); return { bytes: PNG, mime: 'image/png' } } }))
+    // The Trigger's own text is the raw message text: a marker typed into it must not become a download.
+    await expect(context.image!(agent, commands, trigger, { id: 'm1', text: '看图 [image:evil]' }, 'evil', directory, signal()))
+      .rejects.toThrow('The image evil is not one of the images of message m1')
+    expect(asked).toEqual([])
+    expect(saveImage).not.toHaveBeenCalled()
+    // The ID the backend did name still reads.
+    await expect(context.image!(agent, commands, trigger, { id: 'm1', text: '看图 [image:evil]' }, 'img_1', directory, signal()))
+      .resolves.toBeDefined()
+    expect(asked).toEqual(['img_1'])
   })
 
 })

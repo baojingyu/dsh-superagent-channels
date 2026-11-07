@@ -1,5 +1,6 @@
 /** Minimal Aliyun Yunxiao (Projex) OpenAPI client: token-file auth, organization whitelist, and path confinement. */
 import { readFileSync, statSync } from 'node:fs'
+import { requireOwnerOnly } from './secret-file.ts'
 
 /** Response of one Yunxiao OpenAPI call; `body` is the decoded JSON (or raw text when the payload is not JSON). */
 export interface YunxiaoResult { status: number; body: any }
@@ -83,15 +84,18 @@ export function createYunxiaoApi(options: YunxiaoApiOptions): YunxiaoApi {
   return { get: (path, query) => send('GET', path, query), post: (path, body) => send('POST', path, undefined, body) }
 }
 
-/** Reads the token file on each call and refuses any permission other than 0600 (the token never leaves this file otherwise). */
+/**
+ * Reads the token file on each call and refuses any permission other than 0600 (the token never leaves this file
+ * otherwise); on Windows the owner-only bit test is skipped, because the synthesized mode carries no ACL information.
+ */
 function readToken(file: string): string {
   let mode: number
   try {
-    mode = statSync(file).mode & 0o777
+    mode = statSync(file).mode
   } catch (error) {
     throw new Error(`Yunxiao token file is not readable: ${file}: ${messageOf(error)}`)
   }
-  if (mode !== 0o600) throw new Error(`Yunxiao token file must have mode 0600: ${file}`)
+  requireOwnerOnly(mode, file, 'Yunxiao token file')
   let token: string
   try {
     token = readFileSync(file, 'utf8').trim()
