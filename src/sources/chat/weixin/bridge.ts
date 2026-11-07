@@ -56,6 +56,17 @@ export interface BridgeSend {
 export type BridgeSendResult = { msgId: string; deduped: boolean } | 'gone'
 /** Bytes of one message image and the media type the sidecar served them with. */
 export interface BridgeMedia { bytes: Uint8Array; mime: string }
+/**
+ * `POST /listen` outcome: the chats the backend is now actually watching, what this call changed, and the entries it could
+ * not resolve. A partial failure is still a success, because the chats it could add are watching; only an unusable backend
+ * fails the call.
+ */
+export interface BridgeListenResult {
+  listening: WxRoom[]
+  added: string[]
+  removed: string[]
+  failed: { room: string; detail?: string }[]
+}
 /** The client the weixin adapter uses to read events and send through one sidecar. */
 export interface BridgeClient {
   health(): Promise<BridgeHealth>
@@ -70,6 +81,12 @@ export interface BridgeClient {
    * deployment's image budget, and `DEFAULT_MEDIA_BYTES` bounds a caller that names none.
    */
   media?(id: string, maxBytes?: number): Promise<BridgeMedia>
+  /**
+   * Sets the chats the backend watches (`POST /listen`), replacing the previous set. Optional on the seam for the same
+   * reason as `media`: a backend that cannot change its listen set at runtime still satisfies the client, and the polling
+   * loop then simply does not ask it to.
+   */
+  listen?(rooms: readonly string[]): Promise<BridgeListenResult>
 }
 
 /** Request options whose headers stay a plain record, so the bearer and idempotency headers can be merged safely. */
@@ -307,6 +324,29 @@ export function createBridgeClient(options: BridgeOptions): BridgeClient {
       if (answer.status === 200) return { msgId: text(body.msgId), deduped: body.deduped === true }
       if (answer.status === 409 && text(body.error) === 'gone') return 'gone'
       throw failure(answer.status, answer.body, `POST ${BridgeEndpoints.send}`)
+    },
+    // The set is replaced, not merged: a chat removed from the configuration must stop being watched, or the backend keeps
+    // driving the client's UI for a Source that no longer reads it. Names and ids are both accepted by the sidecar, so the
+    // caller sends whatever the configuration holds without having to know which kind of backend it reached.
+    async listen(rooms: readonly string[]): Promise<BridgeListenResult> {
+      const answer = await call(BridgeEndpoints.listen, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ rooms: [...rooms] }),
+      })
+      if (answer.status !== 200) throw failure(answer.status, answer.body, `POST ${BridgeEndpoints.listen}`)
+      const body = record(answer.body)
+      const list = (value: unknown): string[] => (Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [])
+      return {
+        listening: (Array.isArray(body.listening) ? body.listening : [])
+          .map(room => ({ id: text(record(room).id), name: text(record(room).name) }))
+          .filter(room => room.id !== ''),
+        added: list(body.added),
+        removed: list(body.removed),
+        failed: (Array.isArray(body.failed) ? body.failed : [])
+          .map(entry => ({ room: text(record(entry).room), ...(text(record(entry).detail) ? { detail: text(record(entry).detail) } : {}) }))
+          .filter(entry => entry.room !== ''),
+      }
     },
     async media(id: string, maxBytes?: number): Promise<BridgeMedia> {
       const path = `${MEDIA_PATH}/${encodeURIComponent(id)}`
