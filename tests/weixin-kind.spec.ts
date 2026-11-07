@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import type { OutboundMessage } from '../src/core/index.ts'
 import type { ChannelHost } from '../src/sources/kind.ts'
+import type { SourceHost } from '../src/sources/host.ts'
 import type { BridgeClient } from '../src/sources/chat/weixin/bridge.ts'
 import { WeixinConfigSchema, createWeixinKind, rememberWeixinStatus, weixinKind } from '../src/sources/chat/weixin/kind.ts'
 import type { WeixinConfig } from '../src/sources/chat/weixin/kind.ts'
@@ -64,17 +65,27 @@ describe('weixinKind scope', () => {
   it('records that a backend without structured mentions cannot judge group @s, not that none were found', () => {
     // `group_ambient` would claim the agent looked and saw no `@`; `mentions_unsupported` says it could not look at all,
     // which is the difference between "nobody mentioned you" and "this backend cannot tell".
-    const limited = createWeixinKind({ capabilities: () => ({ mentions: false, members: false, media: true }) }).scope!
+    const limited = createWeixinKind({ capabilities: () => ({ mentions: 'none', members: 'none', media: true }) }).scope!
     expect(limited({ meta: { room: 'room-1', ats: ['wxid_self'] } }, config))
       .toEqual({ listened: false, reason: 'mentions_unsupported', observed: true, row: 'groupAmbient' })
   })
 
   it('receives group messages from such a backend once atOnly is off, leaving admission to the rules', () => {
-    const limited = createWeixinKind({ capabilities: () => ({ mentions: false, members: false, media: true }) }).scope!
+    const limited = createWeixinKind({ capabilities: () => ({ mentions: 'none', members: 'none', media: true }) }).scope!
     expect(limited({ meta: { room: 'room-1' } }, { ...config, atOnly: false }))
       .toEqual({ listened: true, observed: true, row: 'groupAmbient' })
     // A direct message is unaffected: it needs no mention to be addressed to the agent.
     expect(limited({ meta: {} }, config)).toEqual({ listened: true, observed: false, row: 'directMessages' })
+  })
+
+  it('judges a markup backend on its ats list exactly as a structured one, and says so in the facts', () => {
+    // `markup` backends do produce `ats`, so reception is identical; only the strength of the proof differs, and that is a
+    // fact for a person, not a branch in the scope rule.
+    const marked = createWeixinKind({ capabilities: () => ({ mentions: 'markup', members: 'observed', media: true }) })
+    expect(marked.scope!({ meta: { room: 'room-1', ats: ['wxid_self'] } }, config))
+      .toEqual({ listened: true, observed: true, row: 'groupAddressed' })
+    expect(marked.scope!({ meta: { room: 'room-1', ats: [] } }, config))
+      .toEqual({ listened: false, reason: 'group_ambient', observed: true, row: 'groupAmbient' })
   })
 })
 
@@ -141,23 +152,56 @@ describe('weixinKind environment and facts', () => {
     expect(weixinKind.facts!(undefined)).toEqual({ account: { zh: '未连接', en: 'Not connected' }, mentions: capable })
   })
 
-  it('states the mention limitation a backend reported, instead of claiming group @s were checked', () => {
-    // pc-uia on WeChat 4.x: the message bubble is a flat accessibility leaf, so no backend can produce `ats` there.
-    const limited = createWeixinKind({
+  it('states how strong the mention proof is, per capability state', () => {
+    const factsOf = (mentions: 'structured' | 'markup' | 'none') => createWeixinKind({
       status: () => ({ loggedIn: true, wxid: 'wxid_self', name: '智能助手' }),
-      capabilities: () => ({ mentions: false, members: false, media: true }),
+      capabilities: () => ({ mentions, members: 'none', media: true }),
+    }).facts!(undefined).mentions
+    expect(factsOf('structured')).toEqual({ zh: '群 @ 按结构化列表判定', en: 'Group @s are judged on the structured list' })
+    // The middle state has to name its own weakness: a person reading "group @s are detected" would treat a forgeable
+    // signal as authorization.
+    expect(factsOf('markup')).toEqual({
+      zh: '群 @ 按客户端标记判定：改本账号昵称即失效，粘贴分隔符可伪造',
+      en: "Group @s are judged on the client's own mention markup: renaming this account breaks it, and a pasted separator can forge it",
     })
-    expect(limited.facts!(undefined)).toEqual({
-      account: { zh: '已登录：智能助手', en: 'Signed in as 智能助手' },
-      mentions: { zh: '该后端无法判定群 @：群消息只按规则推断，不按 @ 判定', en: 'This backend cannot detect group @s: group messages are judged by the rules, never by mentions' },
+    expect(factsOf('none')).toEqual({
+      zh: '该后端无法判定群 @：群消息只按规则推断，不按 @ 判定',
+      en: 'This backend cannot detect group @s: group messages are judged by the rules, never by mentions',
     })
   })
 
   it('carries the capabilities a status read recorded, and drops them when a later read omits them', () => {
-    rememberWeixinStatus({ loggedIn: true, wxid: 'wxid_self', name: '助手' }, { mentions: false, members: false, media: true })
+    rememberWeixinStatus({ loggedIn: true, wxid: 'wxid_self', name: '助手' }, { mentions: 'none', members: 'none', media: true })
     expect(weixinKind.facts!(undefined).mentions).toMatchObject({ zh: '该后端无法判定群 @：群消息只按规则推断，不按 @ 判定' })
     // A sidecar that stops reporting capabilities is read as capable again: "did not say" is not "said it cannot".
     rememberWeixinStatus({ loggedIn: true, wxid: 'wxid_self', name: '助手' })
     expect(weixinKind.facts!(undefined).mentions).toMatchObject({ zh: '群 @ 按结构化列表判定' })
+  })
+})
+
+describe('weixinKind labels', () => {
+  it('resolves the wxname ids a backend without chat IDs emits into display names, and stores them', async () => {
+    // A backend that has no chatroomId names its chats and people `wxname_<hash>` so the id patterns stay strict; without
+    // this the panel would show hashes where a person expects a group name.
+    const stored: Array<[string, unknown]> = []
+    const bridge: BridgeClient = {
+      ...fakeBridge([]),
+      async rooms() { return [{ id: 'wxname_aa', name: '<群名>' }] },
+      async members() { return [{ id: 'wxname_bb', name: '老婆' }] },
+    }
+    const host = {
+      context: () => ({ config: () => config, state: { set: (key: string, value: unknown) => { stored.push([key, value]) } } }),
+    } as unknown as SourceHost
+    const labels = await createWeixinKind({ client: () => bridge }).refreshLabels!(host)
+    expect(labels).toEqual({ wxname_aa: '<群名>', wxname_bb: '老婆' })
+    expect(stored).toHaveLength(1)
+    expect(stored[0]![1]).toEqual({ wxname_aa: '<群名>', wxname_bb: '老婆' })
+  })
+
+  it('answers nothing when the Source is off, so the stored labels are left alone', async () => {
+    const host = {
+      context: () => ({ config: () => undefined, state: { set: () => { throw new Error('must not write') } } }),
+    } as unknown as SourceHost
+    await expect(createWeixinKind({ client: () => fakeBridge([]) }).refreshLabels!(host)).resolves.toEqual({})
   })
 })

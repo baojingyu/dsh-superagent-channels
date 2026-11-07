@@ -317,78 +317,122 @@ $PY = "D:\<wxauto4-env>\<wxbot-dir>\.venv\Scripts\python.exe"
 
 ## 4. 微信集成测试的待办与阻塞项
 
-### 4.1 Q1 已有定论：**L0 拿不到结构化 `@`**（v3 结论，不再是待办）
+### 4.1 群 `@` 与收消息：**结论修正**（v3 的第一版判断错了）
 
-在真机上跑完了（Windows 11 session 1 console / Python 3.12.10 / `wxautox4` 41.2.3 /
-微信 4.x `Qt51514QWindowIcon` / 已登录 `<wxid>`）：
+先说结论，再说我错在哪，因为按错的结论会把一个能用的后端关掉。
 
-```powershell
-cd C:\dev\open-dsh-superagent-ext\poc
-python win_diag.py            # → conclusion: a WeChat window is visible in this session
-python probe_wxauto.py --group "<群名>" --media --bypass-dir "D:\...\<wxbot-dir>"
+**现在的事实**：`pc-uia` 可以收真实群消息与私聊，并且能判定群 `@`。判定强度是 `markup`
+（客户端自己的 mention 标记），不是 `structured`（结构化列表）。微信 4.x 上**确实没有**
+结构化列表，这一点原判断是对的；**错的是从它推出「后端不可用」**。
+
+#### 错误一：用 `GetAllMessage()` 轮询收消息
+
+`GetAllMessage()` 只返回当前窗口**已渲染**的消息，而 `ChatWith()` 在目标已是当前会话时不会重绘，
+于是周期性读到 0 条。我把这个现象当成了「L0 收不到群消息」。
+
+本机有一个能跑的生产实现 `D:\<wxauto4-env>\<wxbot-dir>\wxbot_core.py`
+（owner 确认它能收群消息、私聊并自动回复），它收消息用的是**监听模式**：
+
+```python
+self.wx.AddListenChat(nickname=..., callback=self.message_handle_callback)
+self.wx.StartListening()
 ```
 
-`probe-report.json` 的结果：**`atListCandidates` 为空 → `q1Verdict.verdict = "absent"`**。
+真机复测（只用「文件传输助手」自测）确认：`StartListening()` 之后 `SendMsg` 一条，回调**实时触发**，
+`chat` 给出 `{'who': '文件传输助手', 'chat_type': 'friend'}`。**推送式，不依赖窗口渲染。**
 
-三条独立证据（任一条都足以否掉）：
+> **坑（sidecar 已按此实现）**：微信 4.x 的监听**必须注册在主线程**，且此后任何跨线程的微信调用
+> 都会让回调彻底失效。三种组合实测：全主线程 ✅ / worker 线程 setup ❌ 0 次回调 /
+> 主线程 setup + worker 只 `SendMsg` ❌ 0 次。所以 HTTP 服务走后台线程、主线程归微信，
+> 所有微信调用经主线程执行器串行排队（顺带满足 UI 串行化）。
+> 主线程还必须**每 200ms 回到解释器循环**，否则收不到 `SIGBREAK`/`SIGINT`（阻塞在
+> `Event.wait()` 上时信号不被处理，停机变成「永不退出」）。
 
-1. **UI 树是扁平叶子**：消息控件 `mmui::ChatTextItemView`（`AutomationId`
-   `chat_message_list.qt_scrollarea_viewport.chat_bubble_item_view`）`childCount == 0`，
-   `TextPattern` / `ValuePattern` / `LegacyIAccessiblePattern` / `SelectionPattern` **全不存在**。
-   `@昵称` 和正文是同一个 `Name` 字符串。
-2. **消息对象没有 at 列表**：字段只有 `id / content / hash_text / hash / sender / chat_info / type / attr`
-   （`attr` 是 `friend|self|system` 来源标记）。
-3. **`FriendMessage.at` 是动作不是字段**：bound method，执行即「拍一拍」，返回 `WxResponse`。
-   把它当取值方法会**每轮询一次拍群成员一次**——真实副作用。（这条是本次踩到的坑，代码里已删除，
-   并加了只读性回归守卫。）
+#### 错误二：把「没有结构化列表」推成「不准入」
 
-唯一带 `@` 的结构线索是正文里的 `U+2005`（四分宽空格），例如 `@<成员>\u2005妈`。它是**文本**特征、
-可被复制粘贴伪造，所以只作为证据记录在报告的 `textSeparator`（`textDerived: true, usable: false`），
-**不构成判定依据**（§5 硬规则）。
+生产实现用的是文本子串匹配：
 
-按 §4.1 原分支表，`atListCandidates` 为空 → **后端落 L2（pad）**，群 `@` 不得文本反解。
-Node 侧结构不变：sidecar 统一改名/置空，`kind.ts` 只读 `meta.ats`。
+```python
+self.config.AtMe = "@" + self.wx.nickname      # wxbot_core.py:2714
+if self.config.AtMe in message.content: ...    # 3381 / 3405 / 3729 / 3748
+```
 
-### 4.2 后端能力自述：`/health.capabilities`（v3 新增）
+它确实工作。但子串匹配连「他刚才说了 `@<昵称>` 这句话」都会误判。**更好的判据是客户端自己的标记**：
+真的从 mention 列表里选人时，微信插入的是 `@<显示名>` + **`U+2005`（四分宽空格）**；人工手打是
+`U+0020`。真机 dump 的证据：
 
-既然 L0 只能拿到一部分能力，就必须让面板说实话，而不是让「没被 @」和「看不出有没有 @」长得一样。
+```
+"@<成员>\u2005一会儿带两个豆浆回来，我们吃过了"
+"@<成员>\u2005妈"
+```
 
-`/health` 增加一个可选字段：
+所以判据是「`@本账号显示名` + `U+2005`」或「以 `@本账号显示名` 结尾」，另外 `@所有人\u2005`
+也算对本账号说话。**这不是文本反解**——它要求客户端生成的标记，手打不出来。
+
+#### 三条代价，必须记住
+
+1. **改名即失效**：判据含本账号显示名，改昵称后要重启实例让它重读；
+2. **可伪造**：分隔符能被粘贴，所以它比子串匹配强，但**不是不可伪造**；
+3. 因此「群 `@` 可以当授权」这句话只在 `capabilities.mentions` 声明了强度之后才成立。
+
+Node 侧结构不变：`kind.ts` 只读 `meta.ats`，sidecar 决定怎么填。
+
+### 4.2 后端能力自述：`/health.capabilities`（v3 新增，本轮改为三态）
+
+面板必须说实话，而不是让「没被 @」和「看不出有没有 @」长得一样。
 
 ```json
-"capabilities": { "mentions": false, "members": false, "media": true }
+"capabilities": { "mentions": "markup", "members": "observed", "media": true }
 ```
 
 | 后端 | `mentions` | `members` | `media` |
 | --- | --- | --- | --- |
-| `fake`（契约参考实现） | `true` | `true` | `true` |
-| `pc-uia`（微信 4.x） | `false` | `false` | 取决于 Plus 构建的 `download()` |
-| `pad`（桩） | `false` | `false` | `false` |
+| `fake`（契约参考实现） | `structured` | `full` | `true` |
+| `pc-uia`（微信 4.x，监听模式） | `markup` | `observed` | 取决于 Plus 构建的 `download()` |
+| `pad`（桩） | `none` | `none` | `false` |
+
+`mentions` 三态：`structured`（客户端给的列表）/ `markup`（客户端标记 + 本账号显示名）/ `none`。
+`members` 三态：`full` / `observed`（只列已见过的发送人）/ `none`。
+`media` 保持布尔。**布尔仍被接受**（`true` → `structured`/`full`，`false` → `none`），老 sidecar 不会因此报错。
 
 Node 侧消费方式（已落地，有测试）：
 
-- `bridge.ts`：`BridgeCapabilities` + `health()` 逐字段解析；**缺失时该字段为 `undefined`**，
+- `bridge.ts`：`BridgeCapabilities` + `health()` 逐字段解析并归一布尔；**整体缺失时该字段为 `undefined`**，
   「没报告」和「报告了有能力」是两件事，不能混。
-- `kind.ts` 的 `scope()`：`mentions === false` 时，群消息记
+- `kind.ts` 的 `scope()`：只有 `mentions === 'none'` 才走「判不出」分支，记
   `reason: 'mentions_unsupported'`（而不是 `group_ambient`）。差别是：`group_ambient` 声称
   「看过了，没人 @ 你」，`mentions_unsupported` 说的是「这个后端根本看不出」。
-- `kind.ts` 的 `facts()`：面板显示「该后端无法判定群 @：群消息只按规则推断，不按 @ 判定」。
-- `weixin-watch.ts`：每轮读一次 `/health`（loopback，很便宜），这样换后端不用重启插件。
+  `markup` 与 `structured` 走同一条判定路径——都能产出 `ats`，差别只在证据强度。
+- `kind.ts` 的 `facts()`：按三态给出不同措辞。`markup` 明确写出「改本账号昵称即失效，粘贴分隔符可伪造」，
+  因为把可伪造的信号当授权是真实风险。
+- `kind.ts` 的 `refreshLabels()`：`wxname_<hash>` 解析回显示名，供面板行显示（复用 Feishu 那套机制）。
+- `weixin-watch.ts`：每轮读一次 `/health`（loopback，很便宜），换后端不用重启插件。
 
-**因此 `pc-uia` 的可用范围是明确的**：单聊收发可用；群聊只能在 `atOnly: false` 下作为
-「按规则推断」的素材，不能靠 `@` 准入。
+#### 身份：`wxname_<hash>` 命名空间，而不是放宽 id 正则
+
+L0 拿不到 chatroomId，也拿不到发送人 wxid（`sender_info()` 实测滞后一条消息、有时为 `null`）。
+Node 侧 `rooms[].id` / `policy.allowed[].id` 的 `^[A-Za-z0-9_-]+$` 会拒绝中文显示名——
+**这个严格性要保住**，因为它是准入闸门。所以身份归一做在 sidecar：
+
+- 会话与发送人：`wxname_<sha1(显示名)[:16]>`，`name` 字段带显示名；
+- `/send` 的 `room` 同时接受 `wxname_…` 与显示名；
+- `refreshLabels` 把 id 解析回显示名。
+
+代价同样要写明：**显示名改了 id 就变**，配置要跟着改。这是没有 chatroomId 的必然结果，不是 bug。
 
 #### L0 的另外四个契约缺口（同样是「已知缺口，不是 bug」）
 
 | 契约字段 | L0 实际情况 |
 | --- | --- |
-| `room`（chatroomId） | 拿不到。`ChatInfo()` 只有 `chat_type/chat_name/group_member_count`；`SessionElement` 只有 `name/time/content/isnew/new_count/ismute` |
-| `sender.id` | 只有显示名。`sender_info()` 的 `id` 是微信号（如 `<微信号>`）不是 `wxid_`，且**实测滞后一条消息、有时返回 `null`** |
+| `room`（chatroomId） | 拿不到。`ChatInfo()` 只有 `chat_type/chat_name/group_member_count`；`SessionElement` 只有 `name/time/content/isnew/new_count/ismute`；因此用 `wxname_<hash>` |
+| `sender.id` | 只有显示名。`sender_info()` 的 `id` 是微信号（如 `<微信号>`）不是 `wxid_`，且**实测滞后一条消息、有时返回 `null`**；因此用 `wxname_<hash>` |
 | `at`（消息时间） | 普通消息无时间字段，只有 `TimeMessage` 分隔符带 `time` → 只能用服务端接收时间 |
-| `/members` | 无群成员 API（`_api` 只有 `add_group_members`）→ 返回 `[]` |
+| `/members` | 无群成员 API（`_api` 只有 `add_group_members`）→ 能力为 `observed`：只列已见过的发送人，不是完整成员表 |
 
-注意 `rooms[].id` 的 schema 是 `^[A-Za-z0-9_-]+$`，中文群名过不了——**这不是缺陷，是准入闸门**：
-它挡住了把显示名当稳定 ID 的不达标部署。要接真群，必须先有 L2 或 L1。
+注意 `rooms[].id` 的 schema 是 `^[A-Za-z0-9_-]+$`，中文群名过不了——**这个严格性要保住**，
+它是准入闸门。真群的稳定 ID 要靠 `wxname_<hash>` 归一（见上）或 L2/L1。
+| `/members` | 无群成员 API（`_api` 只有 `add_group_members`）→ 能力为 `observed`：只列已见过的发送人，不是完整成员表 |
+
 
 #### L1（DB 读取器）的证据与下一步
 
