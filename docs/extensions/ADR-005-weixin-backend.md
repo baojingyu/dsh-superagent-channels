@@ -167,7 +167,7 @@ WeChat 客户端自动化跑在一台 **Windows 常驻机**上，以独立进程
 |---|---|---|
 | `room`（chatroomId） | 拿不到。`ChatInfo()` 只有 `chat_type/chat_name/group_member_count`；`SessionElement` 只有 `name/time/content/isnew/new_count/ismute` | `rooms[].id` 只能用显示名，而 Node schema 的 `^[A-Za-z0-9_-]+$` 会拒绝中文群名 → **配置层根本表达不了** |
 | `sender.id` | 只有显示名。`sender_info()` 的 `id` 是微信号（如 `<微信号>`）不是 `wxid_`，且**观测到滞后一条消息、有时返回 `null`** | Policy 的 wxid 名单在 L0 上不可执行 |
-| `at`（消息时间） | 普通消息无时间字段，只有 `TimeMessage` 分隔符带 `time` | 只能用服务端接收时间 |
+| `at`（消息时间） | 普通消息无时间字段，但 `TimeMessage` 分隔符带 `time`；按房间记住最近的分隔符即可分钟对齐，只有监听启动前的历史消息回落服务端接收时间 | 已按此实现，见 §3.2 |
 | `/members` | 无群成员 API（`_api` 只有 `add_group_members`） | 成员表退化为空 |
 
 **因此 L0 的准入门槛没有通过，而且不只是 `@` 一项**：即使只做单聊，身份与时序也达不到契约。
