@@ -28,6 +28,12 @@ export const WeixinConfigSchema = z.object({
   atOnly: z.boolean().default(true),
   /** How often the polling transport asks the bridge for new messages, in seconds. */
   pollSeconds: z.number().int().min(5).max(3600).default(5),
+  /**
+   * How long one bridge request may take, in seconds. The default is generous because some endpoints
+   * drive the client's own UI: listing chats enumerates the contact pages, which costs ~10 s on a busy
+   * account. Too small a value looks like "the bridge did not answer" while it is still working.
+   */
+  timeoutSeconds: z.number().int().min(5).max(300).default(30),
 }).strict()
 export type WeixinConfig = z.infer<typeof WeixinConfigSchema>
 
@@ -50,6 +56,8 @@ const Fields: FieldSpec[] = [
     hint: { zh: '开启时只接收 @ 机器人的群消息；关闭时也接收其余消息，交评估按规则推断。后端完全无法判定群 @ 时（能力为 none），开启会让群消息全部被过滤，此时应关闭并靠规则与名单准入。', en: 'On receives only messages that mention the bot; off also receives the rest, from which Eval may infer work under the rules. A backend that cannot detect mentions at all (capability `none`) filters every group message while this is on, so turn it off and rely on the rules and the sender list.' } },
   { key: 'pollSeconds', type: 'number', advanced: true, min: 5, max: 3600, label: { zh: '轮询间隔 / 秒', en: 'Poll interval / s' },
     hint: { zh: '轮询传输向桥询问新消息的间隔。', en: 'How often the polling transport asks the bridge for new messages.' } },
+  { key: 'timeoutSeconds', type: 'number', advanced: true, min: 5, max: 300, label: { zh: '桥请求超时 / 秒', en: 'Bridge request timeout / s' },
+    hint: { zh: '单个桥请求最多等多久。有些端点要驱动客户端界面（例如列会话会翻联系人群组，忙时约 10 秒），这个值太小会被误报成「桥没有响应」。', en: 'How long one bridge request may take. Some endpoints drive the client UI - listing chats walks the contact pages and takes about 10 s on a busy account - so too small a value is reported as "the bridge did not answer".' } },
 ]
 
 const WeixinPolicySchema = z.object({
@@ -100,7 +108,8 @@ const MENTION_FACTS: Record<MentionCapability, Localized> = {
 /** Builds the weixin SourceKind; the default `weixinKind` uses the sidecar client and the last recorded status. */
 export function createWeixinKind(hooks: WeixinKindHooks = {}): SourceKind<WeixinConfig> {
   const bridgeFor = (config: WeixinConfig): BridgeClient =>
-    hooks.client?.(config) ?? createBridgeClient({ baseUrl: config.baseUrl, tokenFile: config.tokenFile })
+    hooks.client?.(config)
+      ?? createBridgeClient({ baseUrl: config.baseUrl, tokenFile: config.tokenFile, timeoutMs: config.timeoutSeconds * 1000 })
   /** What the backend last reported it can do; `undefined` while nothing has been read, which reads as capable. */
   const capabilitiesOf = (): BridgeCapabilities | undefined => hooks.capabilities ? hooks.capabilities() : remembered?.capabilities
   const policy: SourcePolicyPart<Record<string, unknown> & { allowed: { id: string; name?: string }[] }> = {
@@ -195,7 +204,10 @@ export function createWeixinKind(hooks: WeixinKindHooks = {}): SourceKind<Weixin
       const ctx = host.context({ kind: SOURCE, health: ['weixin'] })
       const config = ctx.config<WeixinConfig>(SOURCE)
       if (!config) return {}
-      const bridge = bridgeFor(config)
+      // Refreshing the picker is a person pressing a button and waiting, so it may wait far longer than
+      // a poll: the first listing can walk the contact pages, and giving up early leaves them with nothing.
+      const bridge = hooks.client?.(config)
+        ?? createBridgeClient({ baseUrl: config.baseUrl, tokenFile: config.tokenFile, timeoutMs: Math.max(config.timeoutSeconds, 60) * 1000 })
       const labels: Record<string, string> = {}
       for (const room of await bridge.rooms()) {
         if (room.name) labels[room.id] = room.name

@@ -46,6 +46,11 @@ IDEM_MAX_ITEMS = 256
 IDEM_TTL_S = 600.0
 MEDIA_MAX_ITEMS = 64
 ROOMS_LIMIT = 500
+# How long a `/rooms` answer is reused, and how long the expensive recent-groups half is kept.
+ROOMS_CACHE_S = 120.0
+RECENT_GROUPS_TTL_S = 300.0
+# After a slow or failed collection, wait this long before paying for it again.
+RECENT_GROUPS_RETRY_S = 60.0
 VOICE_TIMEOUT_S = 8.0
 ISO_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
@@ -600,6 +605,10 @@ class PcUiaBackend(Backend):
         self._observed: "OrderedDict[str, OrderedDict]" = OrderedDict()
         self._room_names: "dict[str, str]" = {}
         self._rooms_note = ""
+        self._rooms_cache = []        # last answer /rooms served, so a repeat press is instant
+        self._rooms_cache_at = 0.0
+        self._recent_groups_cache = []      # the expensive half, kept for minutes
+        self._recent_groups_at = 0.0
         self._time_markers: "dict[str, str]" = {}  # room -> 最近的 TimeMessage 时间（ISO UTC）
         self._raw: "dict[str, object]" = {}
         self._listening = False
@@ -722,8 +731,9 @@ class PcUiaBackend(Backend):
             parts.append("群 @ 判据：@%s" % name)
         if self._self_name_note:
             parts.append(self._self_name_note)
-        if self._rooms_note:
-            parts.append(self._rooms_note)
+        for note in (self._rooms_note, getattr(self, "_rooms_at_note", "")):
+            if note:
+                parts.append(note)
         return "；".join(parts)
 
     # -- 挂载与监听（全部在主线程上执行） ---------------------------------
@@ -998,21 +1008,64 @@ class PcUiaBackend(Backend):
             state["detail"] = detail
         return state
 
+    @staticmethod
+    def _window_minimized(wx) -> bool:
+        """Whether the client's main window is minimised, read with one Win32 call.
+
+        `GetAllRecentGroups()` must find the Contacts page's list control; a minimised window never
+        renders it, so the call fails after its own ten-second lookup timeout. Knowing that up front
+        is the difference between "the picker is empty in 0.05 s" and "the bridge did not answer".
+        """
+        try:
+            import ctypes
+            import ctypes.wintypes as wt
+
+            hwnd = int(getattr(getattr(wx, "_api", None), "HWND", 0) or 0)
+            if not hwnd:
+                return False
+            ctypes.WinDLL("user32").IsIconic.argtypes = [wt.HWND]
+            return bool(ctypes.WinDLL("user32").IsIconic(hwnd))
+        except BaseException:
+            return False
+
+    def _recent_groups(self, wx) -> list:
+        """`GetAllRecentGroups()` behind a cache: it costs ~10 s and sometimes returns nothing.
+
+        A slow or failing collection keeps the previous answer and is not retried for a minute, so one
+        bad call cannot turn every later refresh into another ten seconds.
+        """
+        now = time.monotonic()
+        if self._recent_groups_cache and now - self._recent_groups_at < RECENT_GROUPS_TTL_S:
+            return self._recent_groups_cache
+        if now - self._recent_groups_at < RECENT_GROUPS_RETRY_S:
+            return self._recent_groups_cache
+        if self._window_minimized(wx):
+            # Not a failure: the window simply cannot render the list it needs. Keep whatever was
+            # learned before, and say why the list is short instead of stalling for ten seconds.
+            self._rooms_note = "客户端窗口最小化，群列表暂不可枚举；先在微信里打开目标群，再点刷新"
+            return self._recent_groups_cache
+        self._recent_groups_at = now
+        collected = []
+        try:
+            for item in wx.GetAllRecentGroups() or []:
+                name = item[0] if isinstance(item, (list, tuple)) and item else field(item, "name")
+                if isinstance(name, str) and name:
+                    collected.append(name)
+        except BaseException:
+            if self.verbose:
+                traceback.print_exc()
+        if collected:
+            self._recent_groups_cache = collected
+            self._rooms_note = ""
+        return self._recent_groups_cache
+
     def _visible_rooms(self, wx) -> list:
         """客户端**能看到的**会话：`GetAllRecentGroups()` 的群 + `GetSession()` 里的会话。
 
         只读——不 `AddListenChat`，不切会话，不改任何状态。「正在听哪些」由 `/listen` 的
         `listening` 表达，不混进这里（面板下拉要的是候选全集，不是订阅状态）。
         """
-        names = []
-        try:
-            for item in wx.GetAllRecentGroups() or []:
-                name = item[0] if isinstance(item, (list, tuple)) and item else field(item, "name")
-                if isinstance(name, str) and name:
-                    names.append(name)
-        except BaseException:
-            if self.verbose:
-                traceback.print_exc()
+        names = list(self._recent_groups(wx))
         try:
             for item in wx.GetSession() or []:
                 name = field(item, "name")
@@ -1036,19 +1089,35 @@ class PcUiaBackend(Backend):
         if total > ROOMS_LIMIT:
             self._rooms_note = "可见会话 %d 个，已截断到前 %d" % (total, ROOMS_LIMIT)
             out = out[:ROOMS_LIMIT]
-        else:
+        elif not self._rooms_note:
             self._rooms_note = ""
         return out
 
     def rooms(self):
-        """`GET /rooms`：本后端**能看到的**会话（不是正在听的，见 contract.md §1）。"""
+        """`GET /rooms`：本后端**能看到的**会话（不是正在听的，见 contract.md §1）。
+
+        答案缓存 `ROOMS_CACHE_S`；刷新超时或失败时返回上一次的答案——「稍旧的候选列表」远好过
+        让面板把它变成「桥没有响应」，而候选列表本来就只用于人工挑选。
+        """
         self._require()
+        now = time.monotonic()
+        if self._rooms_cache and now - self._rooms_cache_at < ROOMS_CACHE_S:
+            return self._rooms_cache
         try:
-            return self._executor.call(lambda wx: self._visible_rooms(wx), timeout=20.0)
+            answer = self._executor.call(lambda wx: self._visible_rooms(wx), timeout=25.0)
         except Unavailable:
+            if self._rooms_cache:
+                return self._rooms_cache
             raise
         except BaseException as error:
+            if self._rooms_cache:
+                self._rooms_at_note = "上次刷新失败（%s），这是上一份候选列表" % error
+                return self._rooms_cache
             raise Unavailable("GetSession/GetAllRecentGroups failed: %s" % error)
+        self._rooms_cache = answer
+        self._rooms_cache_at = time.monotonic()
+        self._rooms_at_note = ""
+        return answer
 
     def members(self, room):
         """observed 语义：返回该会话里实际发过言的发送人（没有成员表 API）。"""

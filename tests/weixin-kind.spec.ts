@@ -22,10 +22,14 @@ function fakeBridge(sent: unknown[], result: 'sent' | 'gone' = 'sent'): BridgeCl
 }
 
 describe('weixinKind schema and fields', () => {
-  it('validates baseUrl/tokenFile/selfWxid/rooms/atOnly/pollSeconds and lists the same keys as fields', () => {
+  it('validates every field and lists the same keys as fields', () => {
     expect(weixinKind.schema.parse({ tokenFile: '/tmp/weixin.token', selfWxid: 'wxid_self' }))
-      .toEqual({ baseUrl: 'http://127.0.0.1:8787', tokenFile: '/tmp/weixin.token', selfWxid: 'wxid_self', rooms: [], atOnly: true, pollSeconds: 5 })
-    expect(weixinKind.fields.map(field => field.key)).toEqual(['baseUrl', 'tokenFile', 'selfWxid', 'rooms', 'atOnly', 'pollSeconds'])
+      .toEqual({ baseUrl: 'http://127.0.0.1:8787', tokenFile: '/tmp/weixin.token', selfWxid: 'wxid_self', rooms: [], atOnly: true, pollSeconds: 5,
+        timeoutSeconds: 30 })
+    // The default is deliberately generous: listing chats walks the client's contact pages (~10 s here), so a tight
+    // timeout would be reported as "the bridge did not answer" while it is still working.
+    expect(weixinKind.fields.map(field => field.key))
+      .toEqual(['baseUrl', 'tokenFile', 'selfWxid', 'rooms', 'atOnly', 'pollSeconds', 'timeoutSeconds'])
     expect(weixinKind.kind).toBe('weixin')
     expect(weixinKind.health).toEqual(['weixin'])
   })
@@ -36,6 +40,8 @@ describe('weixinKind schema and fields', () => {
     expect(weixinKind.schema.safeParse({ tokenFile: '/tmp/t', selfWxid: 'wxid_self', pollSeconds: 4 }).success).toBe(false)
     expect(weixinKind.schema.safeParse({ tokenFile: '/tmp/t', selfWxid: 'wxid_self', pollSeconds: 3601 }).success).toBe(false)
     expect(weixinKind.schema.safeParse({ tokenFile: '/tmp/t', selfWxid: 'wxid_self', atOnly: 'yes' }).success).toBe(false)
+    expect(weixinKind.schema.safeParse({ tokenFile: '/tmp/t', selfWxid: 'wxid_self', timeoutSeconds: 4 }).success).toBe(false)
+    expect(weixinKind.schema.safeParse({ tokenFile: '/tmp/t', selfWxid: 'wxid_self', timeoutSeconds: 301 }).success).toBe(false)
     expect(weixinKind.schema.safeParse({ tokenFile: '/tmp/t', selfWxid: 'wxid_self', extra: 1 }).success).toBe(false)
   })
   it('offers the chats and senders as a picker, because a wxname id cannot be typed by a person', () => {
