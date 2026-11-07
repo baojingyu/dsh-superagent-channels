@@ -81,7 +81,7 @@ export async function reconcileListen(bridge: BridgeClient, rooms: readonly { id
 /** One polling round over the configured chats; the bridge's status is recorded for the kind's synchronous `facts`. */
 async function pollRound(ctx: SourceContext, config: WeixinConfig, signal: AbortSignal): Promise<PollRound> {
   const instance = SOURCE
-  const bridge = createBridgeClient({ baseUrl: config.baseUrl, tokenFile: config.tokenFile })
+  const bridge = createBridgeClient({ baseUrl: config.baseUrl, tokenFile: config.tokenFile, timeoutMs: config.timeoutSeconds * 1000 })
   // `/health` carries what the backend can actually do, and `scope` must answer synchronously, so it is read once per round
   // and remembered beside the status. It is a loopback call, and reading it every round is what lets a backend swap be
   // noticed without restarting this plugin.
