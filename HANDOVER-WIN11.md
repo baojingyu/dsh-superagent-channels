@@ -23,7 +23,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 仓库（唯一 remote） | `https://github.com/baojingyu/dsh-superagent-multichannel.git`（**私有、独立仓库**，见 [REPOSITORY.md](REPOSITORY.md)） |
+| 仓库（唯一 remote） | `https://github.com/baojingyu/open-dsh-superagent-channels.git`（**私有、独立仓库**，见 [REPOSITORY.md](REPOSITORY.md)） |
 | remote 配置 | `origin` fetch/push 均指向上面这一个 URL；**没有 `upstream` 等第二 remote**（要吸上游修复时再加，且只 fetch 不 push） |
 | 主分支 | `main` = v3 落地提交（`feat/win11-portability` 以 `--no-ff` 合并） |
 | 主分支近期提交 | `b7bb154`（README 改写为仓库首页）→ `692e6b1`（`merge: self-hosted sources ...`，`--no-ff` 合并提交）→ `4b7a7f8`（v2 本文档）→ `f2891e8`（v2 文档变更记录） |
@@ -151,7 +151,7 @@ C:\dev\
 
 ```powershell
 cd C:\dev
-git clone https://github.com/baojingyu/dsh-superagent-multichannel.git
+git clone https://github.com/baojingyu/open-dsh-superagent-channels.git
 cd open-dsh-superagent
 git checkout main
 git pull --ff-only
