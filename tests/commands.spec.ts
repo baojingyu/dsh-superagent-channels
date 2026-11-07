@@ -1,3 +1,4 @@
+import { basename } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { CliError, Commands, commandError } from '../src/infra/commands.ts'
@@ -15,6 +16,16 @@ const send = (commands: Commands, message: OutboundMessage) => sources.send(mess
 const deployment = testDeployment({ github: { ...testDeployment().github, cli: '/path/agent-gh' } })
 const REPOSITORY = deployment.repository
 const reply = { id: 'stable-operation', channel: githubChannel(8), text: 'Done', kind: 'reply' as const }
+/**
+ * The program the tests below run for real: Node itself, so a command that prints, exits with a code, or waits is written
+ * in one language on every platform. A POSIX shell is not assumed (`sh`, `sleep`, `echo` and `env` are commands Windows
+ * does not have), and neither is a `.cmd` shim, which Node refuses to start without a shell.
+ */
+const NODE = process.execPath
+/** The name a failure message may name: `node` on POSIX, `node.exe` on Windows. */
+const NODE_NAME = basename(NODE)
+/** A command that stays running until it is killed, so an abort has something to stop. */
+const WAITING = 'setTimeout(() => {}, 60_000)'
 describe('account-isolated operations', () => {
   it('uses the agent account\'s GitHub CLI and preserves literal shell metacharacters in argv', async () => {
     const commands = new Commands(() => deployment, {}, new AbortController().signal); const run = vi.spyOn(commands,'run').mockResolvedValue('{}')
@@ -24,9 +35,11 @@ describe('account-isolated operations', () => {
   it('runs every command with its environment over the process environment, where undefined removes a variable', async () => {
     process.env.GH_TOKEN = 'personal'
     try {
-      const output = await new Commands(() => deployment, { GH_TOKEN: undefined, DSH_SUPERAGENT_PROBE: 'agent' }, new AbortController().signal).run('env', [])
-      expect(output).toContain('DSH_SUPERAGENT_PROBE=agent')
-      expect(output).not.toContain('GH_TOKEN=')
+      const output = await new Commands(() => deployment, { GH_TOKEN: undefined, DSH_SUPERAGENT_PROBE: 'agent' }, new AbortController().signal)
+        .run(NODE, ['-e', 'console.log(JSON.stringify(process.env))'])
+      const environment = JSON.parse(output) as Record<string, string>
+      expect(environment.DSH_SUPERAGENT_PROBE).toBe('agent')
+      expect(environment).not.toHaveProperty('GH_TOKEN')
     } finally { delete process.env.GH_TOKEN }
   })
   it('refuses Feishu commands when the deployment has no Feishu bot', async () => {
@@ -172,8 +185,11 @@ it('says how to add the bot to a chat when Feishu answers that it is not a membe
 it('names only the program and how it ended when a command prints no diagnostics, never its arguments', async () => {
   const commands = new Commands(() => deployment, {}, new AbortController().signal)
   const secret = 'secret reply text'
-  await expect(commands.run('sh', ['-c', 'exit 3', secret])).rejects.toMatchObject({ message: 'sh exited with code 3', exitCode: 3 })
-  await expect(commands.run('sh', ['-c', 'kill -9 $$', secret])).rejects.toMatchObject({ message: 'sh was stopped by SIGKILL' })
+  await expect(commands.run(NODE, ['-e', 'process.exit(3)', secret])).rejects.toMatchObject({ message: `${NODE_NAME} exited with code 3`, exitCode: 3 })
+  // A process that kills itself is reported by its signal on POSIX and by the exit code the termination produced on
+  // Windows, where Node never reports a signal; either way the message names the program and not its arguments.
+  await expect(commands.run(NODE, ['-e', 'process.kill(process.pid, "SIGKILL")', secret])).rejects.toMatchObject({
+    message: process.platform === 'win32' ? `${NODE_NAME} exited with code 1` : `${NODE_NAME} was stopped by SIGKILL` })
   await expect(commands.run('/no/such/program', ['secret reply text'])).rejects.toMatchObject({ message: 'program could not run: ENOENT' })
   // Timeouts kill the child with SIGTERM; Node's default error message would echo every argument.
   const timedOut = { killed: true, signal: 'SIGTERM', code: null, stderr: '',
@@ -191,7 +207,7 @@ it('reports failures as CliError with the code the CLI names and the exit status
   const aborted = Object.assign(new Error('The operation was aborted'), { name: 'AbortError', stderr: '' })
   expect(commandError(aborted)).toBe(aborted)
   const controller = new AbortController()
-  const running = new Commands(() => deployment, {}, controller.signal).run('sleep', ['5'])
+  const running = new Commands(() => deployment, {}, controller.signal).run(NODE, ['-e', WAITING])
   controller.abort()
   await expect(running).rejects.toMatchObject({ name: 'AbortError' })
   const commands = new Commands(() => deployment, {}, new AbortController().signal)
@@ -203,12 +219,12 @@ it('stops a running command when the signal of its work aborts, or the lifetime,
   const lifetime = new AbortController(), work = new AbortController()
   const commands = new Commands(() => deployment, {}, lifetime.signal)
   const started = Date.now()
-  const running = commands.withSignal(work.signal).run('sleep', ['5'])
+  const running = commands.withSignal(work.signal).run(NODE, ['-e', WAITING])
   work.abort()
   await expect(running).rejects.toThrow()
   // Only commands bound to the aborted work signal stop.
-  expect(await commands.run('echo', ['still'])).toBe('still\n')
-  const other = commands.withSignal(new AbortController().signal).run('sleep', ['5'])
+  expect(await commands.run(NODE, ['-e', 'console.log("still")'])).toBe('still\n')
+  const other = commands.withSignal(new AbortController().signal).run(NODE, ['-e', WAITING])
   lifetime.abort()
   await expect(other).rejects.toThrow()
   expect(Date.now() - started).toBeLessThan(4000)

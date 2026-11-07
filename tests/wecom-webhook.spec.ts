@@ -7,6 +7,7 @@ import { DeliveredRing } from '../src/sources/chat/dedupe.ts'
 import { createWecomSender, parseXml } from '../src/sources/chat/wecom/adapter.ts'
 import { encrypt, signatureOf } from '../src/sources/chat/wecom/crypto.ts'
 import { handleWebhook, type WecomWebhookConfig } from '../src/sources/chat/wecom/webhook.ts'
+import { withPlatform } from './fixtures/platform.ts'
 
 const KEY = 'abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG'
 const CORP = 'ww1234567890abcdef'
@@ -151,21 +152,25 @@ describe('WeCom secret files', () => {
     try {
       let calls = 0
       const fetchFn = (async () => { calls++; return new Response('{}', { status: 200 }) }) as unknown as typeof fetch
-      await expect(createWecomSender({ fetchFn }).sendMessage(
+      // Windows synthesizes `st.mode` (0o666 for any writable file) and cannot tell 0644 from 0600, so the owner-only rule is
+      // judged as the POSIX rule it is; the file's real mode there is 0o666, which is what the stubbed branch refuses.
+      await withPlatform('linux', () => expect(createWecomSender({ fetchFn }).sendMessage(
         { corpId: 'ww1', corpSecret: 'inline', agentId: 1, tokenFile: file(dir, 'secret', 'file-secret', 0o644) }, { touser: 'u' }, 'hi'))
-        .rejects.toThrow(/0600/)
+        .rejects.toThrow(/0600/))
       expect(calls).toBe(0)
     } finally { rmSync(dir, { recursive: true, force: true }) }
   })
 
-  it('decrypts a callback with the EncodingAESKey in its 0600 file, and yields no event on a misconfigured key file', () => {
+  it('decrypts a callback with the EncodingAESKey in its 0600 file, and yields no event on a misconfigured key file', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'wecom-aes-'))
     try {
       const echostr = encrypt('1616140317555161061', KEY, CORP)
       const query = { msg_signature: signatureOf(CONFIG.token, TIMESTAMP, NONCE, echostr), timestamp: TIMESTAMP, nonce: NONCE, echostr }
       const good = handleWebhook({ query }, { ...CONFIG, encodingAesKey: '', encodingAesKeyFile: file(dir, 'aes', KEY) })
       expect(good).toEqual({ ok: true, events: [], reply: '1616140317555161061' })
-      const bad = handleWebhook({ query }, { ...CONFIG, encodingAesKey: '', encodingAesKeyFile: file(dir, 'aes-644', KEY, 0o644) })
+      // The same POSIX rule as above: a key file whose mode is not 0600 yields no event where the bits are real.
+      const bad = await withPlatform('linux', () => handleWebhook({ query },
+        { ...CONFIG, encodingAesKey: '', encodingAesKeyFile: file(dir, 'aes-644', KEY, 0o644) }))
       expect(bad).toEqual({ ok: false, events: [] })
     } finally { rmSync(dir, { recursive: true, force: true }) }
   })

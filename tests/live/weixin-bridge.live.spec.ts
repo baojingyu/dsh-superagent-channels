@@ -17,10 +17,16 @@ import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createBridgeClient } from '../../src/sources/chat/weixin/bridge.ts'
 import type { BridgeClient } from '../../src/sources/chat/weixin/bridge.ts'
+import { withPlatform } from '../fixtures/platform.ts'
 
 const LIVE = process.env.LIVE === '1'
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const SIDECAR = resolve(REPO, '..', 'open-dsh-superagent-ext', 'sidecar', 'wxauto-bridge', 'server.py')
+/**
+ * The interpreter that starts the sidecar. On Windows `python3` is the Microsoft Store alias, which fails instead of
+ * running anything, while the installed interpreter is `python`; `PYTHON` overrides both when the box differs.
+ */
+const PYTHON = process.env.PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3')
 /** The fake backend's own account, fixed by server.py; group @-detection is judged against it. */
 const SELF_WXID = 'wxid_fake_self'
 const ROOM = 'chatroom_fake_dev'
@@ -91,7 +97,7 @@ describe.skipIf(process.env.LIVE !== '1')('weixin bridge against the real wxauto
       const candidate = 18_000 + Math.floor(Math.random() * 1_000)
       tried.push(candidate)
       stderr = ''
-      const proc = spawn('python3', [SIDECAR, '--backend', 'fake', '--port', String(candidate), '--token', TOKEN],
+      const proc = spawn(PYTHON, [SIDECAR, '--backend', 'fake', '--port', String(candidate), '--token', TOKEN],
         { stdio: ['ignore', 'pipe', 'pipe'] })
       child = proc
       proc.stderr?.on('data', (chunk: Buffer) => {
@@ -208,7 +214,11 @@ describe.skipIf(process.env.LIVE !== '1')('weixin bridge against the real wxauto
     let calls = 0
     const counting = (async () => { calls += 1; throw new Error('must not fetch') }) as unknown as typeof fetch
     const loose = createBridgeClient({ baseUrl, tokenFile: looseFile, fetchFn: counting })
-    await expect(loose.health()).rejects.toThrow(/mode 0600/)
+    // Windows synthesizes `st.mode` (0o666 for any writable file) and cannot tell 0644 from 0600, so the owner-only rule is
+    // judged as the POSIX rule it is: the platform is stubbed for this assertion, and the file's real mode is 0o666 there.
+    await withPlatform('linux', async () => {
+      await expect(loose.health()).rejects.toThrow(/mode 0600/)
+    })
     expect(calls).toBe(0)
   })
 

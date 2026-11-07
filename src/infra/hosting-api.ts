@@ -3,7 +3,7 @@
  * base URL must be https (loopback http only), and every path must stay inside one of the configured projects.
  * It is the only network seam of the hosting adapters, so tests inject their own `fetchFn` or their own `HostingApi`.
  */
-import { readFile, stat } from 'node:fs/promises'
+import { readSecretFile } from './secret-file.ts'
 
 /** One HTTP answer: status, parsed JSON body (`null` when empty), response headers, and the resolved base URL. */
 export interface HostingAnswer { status: number; body: unknown; headers: Headers; baseUrl: string }
@@ -65,14 +65,7 @@ function checkPath(path: string, whitelist: readonly string[]): void {
 }
 
 /** Reads the token file after checking it is a regular 0600 file; failures never echo the token. */
-async function readToken(tokenFile: string): Promise<string> {
-  const info = await stat(tokenFile)
-  if (!info.isFile()) throw new Error('The hosting token file is not a regular file')
-  if ((info.mode & 0o777) !== 0o600) throw new Error('The hosting token file must be owner-only (mode 0600)')
-  const token = (await readFile(tokenFile, 'utf8')).trim()
-  if (!token) throw new Error('The hosting token file is empty')
-  return token
-}
+const readToken = (tokenFile: string): string => readSecretFile(tokenFile, 'hosting token file')
 
 /** Builds the client of one host configuration; validation of the base URL happens here, path and token checks on every call. */
 export function createHostingApi(options: HostingApiOptions): HostingApi {
@@ -81,7 +74,7 @@ export function createHostingApi(options: HostingApiOptions): HostingApi {
   const fetcher = options.fetchFn ?? fetch
   const send = async (method: 'GET' | 'POST', path: string, body: unknown, signal?: AbortSignal): Promise<HostingAnswer> => {
     checkPath(path, whitelist)
-    const token = await readToken(options.tokenFile)
+    const token = readToken(options.tokenFile)
     const budget = AbortSignal.timeout(TIMEOUT_MS)
     const answer = await fetcher(`${baseUrl}${path}`, {
       method,
