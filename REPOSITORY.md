@@ -86,9 +86,9 @@ fetches from it is still an independent repository.
 3. **No machine-specific paths in source.** Paths that only exist on one machine belong in flags or
    environment variables, not in a default. The sidecar's `--venv` / `WXBRIDGE_VENV` discovery is the
    pattern to copy.
-4. **Commit straight to `main`.** No branch per change: each commit is self-contained, says what it
-   changed and why, and the suite is green before it is pushed. A branch is opened only when work must
-   stay off `main` while it is incomplete, and it disappears once merged.
+4. **Develop on a branch off `main`.** Every requirement or piece of development gets its own branch
+   (`feat/…`, `fix/…`, `docs/…`), merged back with `--no-ff` and then deleted. `main` stays reviewable,
+   and the branch list stays short because a merged branch has no reason to survive.
 5. **The README is part of the change.** A commit that changes behaviour updates the documentation in
    the same commit, in both languages.
 
