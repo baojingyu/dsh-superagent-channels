@@ -50,6 +50,8 @@ LIVE=1 vitest run tests/live      # 对真实服务：13 passed + 1 skipped
 | `members` | `observed` | 只有已观测到的发送人，没有完整成员表 |
 | `media` | 视构建 | Plus 构建有 `download()`，免费构建没有 |
 
+配置群只写一次，在面板里：轮询循环每轮把配置的会话下发给 `POST /listen`，sidecar 只对差异动作，
+所以增删一个群不用重启 sidecar。解析不到的会话会**按名字**回报，不会表现成「这个群很安静」。
 **诚实的缺口**：微信 4.x 上**没有**结构化 mention 列表——消息气泡是扁平叶子
 （`childCount == 0`，无 text/value/legacy pattern），所以 `ats` 只能做到 `markup` 档。
 声明 `mentions: none` 的后端仍可用于单聊，其群聊则只靠 Policy 规则判定。
