@@ -1,4 +1,4 @@
-# dsh-superagent · multi-channel edition
+# open-dsh-superagent · multi-channel edition
 
 **English** · [简体中文](README.zh-CN.md)
 
@@ -113,6 +113,9 @@ patterns strict but is not something a person can type.
 | `src/infra/{hosting-api,yunxiao-api,secret-file}.ts` | token-file HTTP clients, path allowlists, the owner-only rule |
 | `../open-dsh-superagent-ext/sidecar/` | the WeChat sidecar and its contract (sibling directory; the live test resolves it there) |
 | `tests/live/*.live.spec.ts` | live suites, gated by `LIVE=1` |
+
+The bundle's own identifier stays `dsh-superagent`: it is what `cordis.patch.yml` inserts and what
+`scripts/dsh-superagent` is named after. The repository is `open-dsh-superagent`; the plugin is not.
 
 ## Documentation
 
