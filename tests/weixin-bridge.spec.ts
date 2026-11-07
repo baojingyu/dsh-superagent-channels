@@ -84,6 +84,26 @@ describe('createBridgeClient', () => {
     expect((await client(older.fetchFn).health()).capabilities).toBeUndefined()
   })
 
+  it('pushes the listen set and maps what the backend confirmed, changed, and could not resolve', async () => {
+    const { fetchFn, seen } = stubFetch({
+      '/listen': () => reply({
+        listening: [{ id: 'wxname_aa', name: '研发-交付群' }, { id: '', name: 'ignored' }],
+        added: ['研发-交付群', 7], removed: [], failed: [{ room: 'wxname_bb', detail: 'no such chat' }, { room: '' }],
+      }),
+    })
+    await expect(client(fetchFn).listen!(['wxname_aa', 'wxname_bb'])).resolves.toEqual({
+      listening: [{ id: 'wxname_aa', name: '研发-交付群' }],
+      added: ['研发-交付群'], removed: [], failed: [{ room: 'wxname_bb', detail: 'no such chat' }],
+    })
+    // The set is replaced rather than merged, so the body is the whole configuration every time.
+    expect(seen[0]!.body).toEqual({ rooms: ['wxname_aa', 'wxname_bb'] })
+  })
+
+  it('reports an unusable backend on /listen as a failure rather than an empty set', async () => {
+    const { fetchFn } = stubFetch({ '/listen': () => reply({ error: 'unavailable' }, 502) })
+    await expect(client(fetchFn).listen!(['wxname_aa'])).rejects.toThrow(/POST \/listen failed with 502/)
+  })
+
   it('maps /messages into ChatEvents, computing mentionsAgent from the structured ats list of the account', async () => {
     const { fetchFn, seen } = stubFetch({
       '/status': () => reply({ loggedIn: true, wxid: 'wxid_self', name: '助手' }),

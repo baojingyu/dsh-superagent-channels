@@ -199,6 +199,19 @@ describe.skipIf(process.env.LIVE !== '1')('weixin bridge against the real wxauto
     expect([...image.bytes.slice(0, 8)]).toEqual([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
   }, TEST_TIMEOUT_MS)
 
+  it('pushes the listen set to the real sidecar, which answers what it watches and what it cannot resolve', async () => {
+    // The fake backend's dataset is fixed, so a chat it already serves needs no add and an unknown one is reported rather
+    // than invented. Both answer 200: a chat that could not be resolved is a fact about the configuration, not a failed call.
+    await expect(client.listen!([ROOM])).resolves.toEqual({
+      listening: [{ id: ROOM, name: '研发-交付群' }], added: [], removed: [], failed: [],
+    })
+    const unknown = await client.listen!(['chatroom_missing'])
+    expect(unknown.listening).toEqual([])
+    expect(unknown.failed.map(entry => entry.room)).toEqual(['chatroom_missing'])
+    // The set is replaced, so an empty configuration stops watching everything.
+    await expect(client.listen!([])).resolves.toEqual({ listening: [], added: [], removed: [], failed: [] })
+  }, TEST_TIMEOUT_MS)
+
   it('rejects a wrong bearer token as unauthorized', async () => {
     const wrongFile = join(directory, 'wrong.token')
     writeFileSync(wrongFile, 'not-the-sidecar-token\n')

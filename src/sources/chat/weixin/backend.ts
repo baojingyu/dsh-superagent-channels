@@ -6,4 +6,4 @@ export interface WxPerson { id: string; name: string }
 export interface WxRoom { id: string; name: string }
 
 /** Paths of the frozen sidecar contract (open-dsh-superagent-ext/sidecar/wxauto-bridge/contract.md §1). */
-export const BridgeEndpoints = { health: '/health', status: '/status', rooms: '/rooms', members: '/members', messages: '/messages', send: '/send' } as const
+export const BridgeEndpoints = { health: '/health', status: '/status', rooms: '/rooms', members: '/members', messages: '/messages', send: '/send', listen: '/listen' } as const

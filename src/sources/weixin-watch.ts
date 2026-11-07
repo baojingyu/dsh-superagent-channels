@@ -65,8 +65,21 @@ async function pollChat(ctx: SourceContext, bridge: BridgeClient, instance: stri
   return received
 }
 
+/**
+ * Tells the backend which chats to watch, and reports what it confirmed plus what it could not resolve. The configuration
+ * decides; the sidecar acts only on the difference, so this runs every round and adding or removing a chat in the panel
+ * takes effect without restarting the sidecar. An empty configuration is skipped on purpose: it would silence a sidecar
+ * whose chats someone configured on its own, while a Source with no chats already reads nothing. A backend that cannot
+ * change its listen set at runtime answers `undefined` and is left alone.
+ */
+export async function reconcileListen(bridge: BridgeClient, rooms: readonly { id: string }[]): Promise<{ watching: number; unresolved: string[] }> {
+  if (rooms.length === 0 || !bridge.listen) return { watching: 0, unresolved: [] }
+  const result = await bridge.listen(rooms.map(room => room.id))
+  return { watching: result.listening.length, unresolved: result.failed.map(entry => entry.room) }
+}
+
 /** One polling round over the configured chats; the bridge's status is recorded for the kind's synchronous `facts`. */
-async function pollRound(ctx: SourceContext, config: WeixinConfig, signal: AbortSignal): Promise<number> {
+async function pollRound(ctx: SourceContext, config: WeixinConfig, signal: AbortSignal): Promise<PollRound> {
   const instance = SOURCE
   const bridge = createBridgeClient({ baseUrl: config.baseUrl, tokenFile: config.tokenFile })
   // `/health` carries what the backend can actually do, and `scope` must answer synchronously, so it is read once per round
@@ -74,13 +87,17 @@ async function pollRound(ctx: SourceContext, config: WeixinConfig, signal: Abort
   // noticed without restarting this plugin.
   const health = await bridge.health()
   rememberWeixinStatus(await bridge.status(), health.capabilities)
+  const { watching, unresolved } = await reconcileListen(bridge, config.rooms)
   let received = 0
   for (const room of config.rooms) {
     signal.throwIfAborted()
     received += await pollChat(ctx, bridge, instance, room.id)
   }
-  return received
+  return { received, watching, unresolved }
 }
+
+/** What one round did: messages handed over, chats the backend confirmed it watches, and chats it could not resolve. */
+interface PollRound { received: number; watching: number; unresolved: string[] }
 
 /** Polls each chat every `pollSeconds`; setup and an off Source keep it quiet instead of failing. */
 async function watch(ctx: SourceContext, signal: AbortSignal): Promise<void> {
@@ -92,9 +109,14 @@ async function watch(ctx: SourceContext, signal: AbortSignal): Promise<void> {
     if (!config) ctx.report('weixin', health('paused', 'sourceOff'))
     else {
       try {
-        const received = await pollRound(ctx, config, signal)
+        const round = await pollRound(ctx, config, signal)
         if (!signal.aborted) {
-          ctx.report('weixin', { state: 'ready', detail: `${received} messages; next poll ≥ ${config.pollSeconds}s`,
+          // The detail names the chats the backend confirmed it watches, so "configured but not watched" is visible in the
+          // panel instead of looking like a quiet group. An unresolved chat is named rather than counted: it is the one
+          // thing an operator has to fix.
+          const watching = round.watching || config.rooms.length
+          const unresolved = round.unresolved.length ? `; could not watch ${round.unresolved.join(', ')}` : ''
+          ctx.report('weixin', { state: 'ready', detail: `${round.received} messages; watching ${watching}/${config.rooms.length}${unresolved}; next poll ≥ ${config.pollSeconds}s`,
             at: new Date().toISOString() })
         }
       } catch (error) { if (!signal.aborted) ctx.report('weixin', { state: 'error', detail: String(error) }) }
