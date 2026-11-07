@@ -153,7 +153,7 @@ Invariants the contract keeps:
 | Tier | Backend | When it applies |
 | --- | --- | --- |
 | L0 | `wxauto` / `wxauto4` / `wxautox4` (UI automation) | default; needs an interactive Windows desktop session |
-| L1 | a `wxhelper`-class hook | L0 blocked by window or version limits |
+| L1 | a `wxhelper`-class hook | **ruled out**: it targets WeChat 3.9.x only, and its message payload carries no mention list, so it would not deliver `@` either (ADR-005 §7) |
 | L2 | a `WeChatPadPro`-class iPad protocol service | no Windows machine available |
 | L3 | a hosted API | everything else is down and the work cannot stop |
 
