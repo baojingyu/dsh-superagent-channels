@@ -53,7 +53,7 @@ to guess:
 
 | capability | `pc-uia` | meaning |
 | --- | --- | --- |
-| `mentions` | `markup` | group `@` is read from the client's own mention markup (`@name` + `U+2005`), not from a typed `@name`; a renamed account breaks it and a pasted separator can forge it |
+| `mentions` | `markup` | group `@` is read from the client's own mention markup (`@name` + `U+2005`), not from a typed `@name`. The account's own name is re-read on a 60-second TTL and again on every `/listen`, so renaming it heals without a restart; a pasted separator can still forge it |
 | `members` | `observed` | only the senders seen so far, never the full roster |
 | `media` | per build | the Plus build has `download()`; the free one does not |
 
