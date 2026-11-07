@@ -465,7 +465,7 @@ POST /listen
 | --- | --- |
 | `room`（chatroomId） | 拿不到。`ChatInfo()` 只有 `chat_type/chat_name/group_member_count`；`SessionElement` 只有 `name/time/content/isnew/new_count/ismute`；因此用 `wxname_<hash>` |
 | `sender.id` | 只有显示名。`sender_info()` 的 `id` 是微信号（如 `<微信号>`）不是 `wxid_`，且**实测滞后一条消息、有时返回 `null`**；因此用 `wxname_<hash>` |
-| `at`（消息时间） | 普通消息无时间字段，只有 `TimeMessage` 分隔符带 `time` → 只能用服务端接收时间 |
+| `at`（消息时间） | 普通消息没有时间字段，但客户端会在消息流里插 `TimeMessage` 分隔符。现在按房间记住最近的分隔符，事件 `at` 取「最近分隔符 → 消息自带 `time` → 服务端接收时间」，**分钟对齐**；监听启动前的历史消息没有分隔符，仍回落服务端时间 |
 | `/members` | 无群成员 API（`_api` 只有 `add_group_members`）→ 能力为 `observed`：只列已见过的发送人，不是完整成员表 |
 
 注意 `rooms[].id` 的 schema 是 `^[A-Za-z0-9_-]+$`，中文群名过不了——**这个严格性要保住**，
