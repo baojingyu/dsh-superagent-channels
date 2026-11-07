@@ -46,7 +46,7 @@ LIVE=1 vitest run tests/live      # 对真实服务：13 passed + 1 skipped
 
 | 能力 | `pc-uia` | 含义 |
 | --- | --- | --- |
-| `mentions` | `markup` | 群 `@` 读的是客户端自己的 mention 标记（`@名字` + `U+2005`），不是手打的 `@名字`；本账号改名即失效，粘贴分隔符可伪造 |
+| `mentions` | `markup` | 群 `@` 读的是客户端自己的 mention 标记（`@名字` + `U+2005`），不是手打的 `@名字`。判据名按 60 秒 TTL 重读、`/listen` 时强制重读，所以本账号改名**不用重启**就会自愈；粘贴分隔符仍可伪造 |
 | `members` | `observed` | 只有已观测到的发送人，没有完整成员表 |
 | `media` | 视构建 | Plus 构建有 `download()`，免费构建没有 |
 
