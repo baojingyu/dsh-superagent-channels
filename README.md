@@ -59,7 +59,11 @@ to guess:
 
 Configuring a chat happens once, in the panel: every round the polling loop pushes the configured chats to
 `POST /listen`, and the sidecar acts only on the difference, so adding or removing a group takes effect
-without restarting it. A chat the sidecar cannot resolve is reported back by name instead of looking like
+without restarting it. A chat the sidecar cannot resolve is reported back by name instead of looking likea quiet group.
+
+The chat and sender rows are pickers rather than free text: a `wxname_<hash>` id keeps the settings
+patterns strict but nobody can type one, so refreshing loads the chats and senders the bridge has
+seen and the row is chosen from that list. `/rooms` reports every recent group plus the sessions currently visible in the session list, so a direct chat that has scrolled away appears once it is opened.
 a quiet group.
 The honest gap: there is **no structured mention list** on WeChat 4.x. The message bubble is a flat
 accessibility leaf (`childCount == 0`, no text/value/legacy pattern), so `ats` can only be

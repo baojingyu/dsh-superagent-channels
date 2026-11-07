@@ -52,6 +52,8 @@ LIVE=1 vitest run tests/live      # 对真实服务：13 passed + 1 skipped
 
 配置群只写一次，在面板里：轮询循环每轮把配置的会话下发给 `POST /listen`，sidecar 只对差异动作，
 所以增删一个群不用重启 sidecar。解析不到的会话会**按名字**回报，不会表现成「这个群很安静」。
+群与发送人这两行是**下拉选**，不是手填：`wxname_<hash>` 这样的 id 保住了设置里的 id 正则，
+但没人能手打，所以刷新一次会把桥见过的会话和发送人载入，再从列表里挑。`/rooms` 给的是「全部近期群 + 当前会话列表里可见的会话」，所以滚出列表的单聊要先打开一次才会出现在候选里。
 **诚实的缺口**：微信 4.x 上**没有**结构化 mention 列表——消息气泡是扁平叶子
 （`childCount == 0`，无 text/value/legacy pattern），所以 `ats` 只能做到 `markup` 档。
 声明 `mentions: none` 的后端仍可用于单聊，其群聊则只靠 Policy 规则判定。
