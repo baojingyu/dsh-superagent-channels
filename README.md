@@ -75,7 +75,7 @@ it per call, and refuses anything that is not a `0600` regular file.
 | `src/sources/{hosting,work,chat}/port.ts` | the three provider contracts |
 | `src/sources/{weixin,gitlab,projex,dingtalk,wecom}-watch.ts` | the five optional plugins |
 | `src/infra/{hosting-api,yunxiao-api}.ts` | token-file HTTP clients with path allowlists |
-| `sidecar/` | WeChat sidecar (contract + zero-dependency implementation) |
+| `../open-dsh-superagent-ext/sidecar/` | WeChat sidecar (contract + zero-dependency implementation). It lives in the sibling directory because the live test resolves it there; see [HANDOVER-WIN11.md](HANDOVER-WIN11.md) §3.2 |
 | `tests/live/*.live.spec.ts` | live suites, gated by `LIVE=1` |
 
 ## Conventions to keep

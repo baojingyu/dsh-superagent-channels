@@ -72,7 +72,7 @@ npm install --ignore-scripts --legacy-peer-deps     # 本机 pnpm 11 会卡在 E
 | `src/sources/{hosting,work,chat}/port.ts` | 三个厂商契约 |
 | `src/sources/{weixin,gitlab,projex,dingtalk,wecom}-watch.ts` | 五个可选插件 |
 | `src/infra/{hosting-api,yunxiao-api}.ts` | 带 token 文件与路径白名单的 HTTP 客户端 |
-| `sidecar/` | 微信 sidecar（契约 + 零依赖实现） |
+| `../open-dsh-superagent-ext/sidecar/` | 微信 sidecar（契约 + 零依赖实现）。放在同级目录，因为 live 测试按该相对路径定位；见 [HANDOVER-WIN11.md](HANDOVER-WIN11.md) §3.2 |
 | `tests/live/*.live.spec.ts` | 真实联调套件，由 `LIVE=1` 门控 |
 
 ## 改代码时要守的约定
