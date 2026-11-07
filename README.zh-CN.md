@@ -1,4 +1,4 @@
-# open-dsh-superagent · 多通道版
+# dsh-superagent-channels · 多通道版
 
 [English](README.md) · **简体中文**
 
@@ -102,7 +102,7 @@ npm install --ignore-scripts --legacy-peer-deps   # 本机 pnpm 11 会卡在 ERR
 | `src/sources/instance.ts` | 实例 id 与通道 id，以及兼容规则 |
 | `src/sources/{weixin,gitlab,projex,dingtalk,wecom}-watch.ts` | 五个可选插件 |
 | `src/infra/{hosting-api,yunxiao-api,secret-file}.ts` | token 文件 HTTP 客户端、路径白名单、owner-only 规则 |
-| `../open-dsh-superagent-ext/sidecar/` | 微信 sidecar 与契约（同级目录，live 测试按这个路径找它） |
+| `../dsh-superagent-channels-ext/sidecar/` | 微信 sidecar 与契约（同级目录，live 测试按这个路径找它） |
 | `tests/live/*.live.spec.ts` | live 用例，由 `LIVE=1` 门控 |
 
 ## 文档
