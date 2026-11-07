@@ -35,6 +35,20 @@ export interface ChatEvent {
   historical?: boolean
   /** Structured mention targets: IDs of the accounts the message @-ed. */
   ats?: string[]
+  /** Images on the message, when the backend names them; absent for backends that deliver text only. */
+  media?: ChatMedia[]
+}
+
+/**
+ * An image attached to one chat message. WeChat delivers only the message's text, so a backend names the images of a message
+ * here and the reader downloads the bytes later by `id`; the platform's declared `mime` is a hint, never trusted for the bytes.
+ */
+export interface ChatMedia {
+  /** Backend ID of the image, downloaded through the backend's media endpoint. */
+  id: string
+  kind: 'image'
+  /** Media type the platform declared; the downloaded bytes decide the real one. */
+  mime?: string
 }
 
 /** One page of a Thread read back from a backend; `next` is the cursor of the following page. */

@@ -25,8 +25,11 @@ export function apply(ctx: Context): void {
   })
 }
 
-/** The Trigger of one bridge event: the platform message ID namespaced by the instance, on the Thread of its chat. */
-function triggerOf(event: ChatEvent, instance: string): Trigger {
+/**
+ * The Trigger of one bridge event: the platform message ID namespaced by the instance, on the Thread of its chat. Exported
+ * for the tests: the image IDs of a message must survive into `meta.media`, which is what assessments read.
+ */
+export function triggerOf(event: ChatEvent, instance: string): Trigger {
   const thread = event.chatId || event.sender.id
   return {
     id: key(SOURCE, event.nativeId),
@@ -41,6 +44,7 @@ function triggerOf(event: ChatEvent, instance: string): Trigger {
     channel: { source: instance, thread: `${instance}:${thread}`,
       address: { room: event.chatId, wxid: event.sender.id, ...event.nativeId ? { quoteId: event.nativeId } : {} } },
     meta: { room: event.chatId, direct: event.direct, senderId: event.sender.id, ats: event.ats ?? [], nativeId: event.nativeId,
+      ...event.media?.length ? { media: event.media.map(item => item.id) } : {},
       ...event.parentId ? { parentId: event.parentId } : {} },
   }
 }

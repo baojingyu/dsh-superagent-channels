@@ -148,10 +148,10 @@ describe.skipIf(process.env.LIVE !== '1')('weixin bridge against the real wxauto
   it('maps the sidecar messages into ChatEvents, keeping ats verbatim and deriving mentionsAgent from it', async () => {
     const status = await client.status()
     const page = await client.messages(ROOM, undefined, 50)
-    expect(page.next).toBe('3')
-    expect(page.events.map(event => event.nativeId)).toEqual(['m1', 'm2', 'm3'])
+    expect(page.next).toBe('4')
+    expect(page.events.map(event => event.nativeId)).toEqual(['m1', 'm2', 'm3', 'm4'])
 
-    const [first, second, third] = page.events
+    const [first, second, third, fourth] = page.events
     expect(first).toMatchObject({
       nativeId: 'm1', chatId: ROOM, direct: false, threadRoot: ROOM,
       sender: { id: 'wxid_alice', name: '阿黎', bot: false },
@@ -160,13 +160,16 @@ describe.skipIf(process.env.LIVE !== '1')('weixin bridge against the real wxauto
     })
     expect(second).toMatchObject({ nativeId: 'm2', ats: [], mentionsAgent: false })
     expect(third).toMatchObject({ nativeId: 'm3', ownMessage: true, ats: [], mentionsAgent: false })
+    // The sidecar lists an image message's downloadable images per event, in the `<nativeId>#<index>` scheme.
+    expect(fourth).toMatchObject({ nativeId: 'm4', text: '[图片]', ats: [], mentionsAgent: false })
+    expect(fourth!.media).toEqual([{ id: 'm4#0', kind: 'image' }])
     // The contract's rule, checked against every event as served by the real sidecar.
     for (const event of page.events) expect(event.mentionsAgent).toBe((event.ats ?? []).includes(status.wxid))
 
     // Cursor paging reads on from the previous page's `next`.
     const tail = await client.messages(ROOM, page.next, 50)
     expect(tail.events.map(event => event.nativeId)).toEqual([])
-    expect(tail.next).toBe('3')
+    expect(tail.next).toBe('4')
   }, TEST_TIMEOUT_MS)
 
   it('sends idempotently: the same Idempotency-Key answers deduped:true with the same msgId', async () => {
@@ -179,6 +182,15 @@ describe.skipIf(process.env.LIVE !== '1')('weixin bridge against the real wxauto
 
     const again = await client.send(outbound)
     expect(again).toEqual({ msgId: first.msgId, deduped: true })
+  }, TEST_TIMEOUT_MS)
+
+  it('downloads one message image from the real sidecar as PNG bytes', async () => {
+    // The ID comes from the image event's media list; its `#` is percent-encoded on the wire and decoded by the sidecar.
+    const image = await client.media!('m4#0')
+    expect(image.mime).toBe('image/png')
+    expect(image.bytes.byteLength).toBeGreaterThan(8)
+    // The fake backend serves a 1x1 PNG; its magic bytes are what the reader sniffs before committing an attachment.
+    expect([...image.bytes.slice(0, 8)]).toEqual([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
   }, TEST_TIMEOUT_MS)
 
   it('rejects a wrong bearer token as unauthorized', async () => {

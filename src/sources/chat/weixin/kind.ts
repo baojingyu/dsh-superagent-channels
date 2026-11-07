@@ -4,6 +4,7 @@ import type { OutboundMessage } from '../../../core/index.ts'
 import type { ChannelHost, FieldSpec, SourceChannel, SourceKind, SourcePolicyPart } from '../../kind.ts'
 import type { BridgeClient, BridgeStatus } from './bridge.ts'
 import { createBridgeClient } from './bridge.ts'
+import { weixinThreadContext } from './thread.ts'
 
 /** Stable kind ID; one kind, several interchangeable backends behind the sidecar. */
 export const SOURCE = 'weixin'
@@ -127,6 +128,9 @@ export function createWeixinKind(hooks: WeixinKindHooks = {}): SourceKind<Weixin
     },
     channel,
     policy,
+    // Images of a message are downloaded through the sidecar when an assessment asks for one; mounting the reader changes
+    // nothing for a Source whose chats never carry images, and a client that lacks /media reports that on the read instead.
+    threadContext: weixinThreadContext((raw) => bridgeFor(raw as WeixinConfig)),
     environment: {
       variables: [
         { key: 'DSH_SUPERAGENT_WEIXIN_ROOM', description: { zh: '接下工单的微信群 chatroomId；工单不是从微信来的时为空', en: 'chatroomId of the WeChat group that started the ticket; empty when the ticket did not start on WeChat' } },

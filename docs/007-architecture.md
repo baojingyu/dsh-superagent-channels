@@ -405,6 +405,8 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/sources/chat/weixin/backend.ts` | `BridgeEndpoints` and the `WxRoom`/`WxPerson` types: the bridge client's constants and types |
 | `src/sources/chat/weixin/bridge.ts` | `createBridgeClient`, the sidecar bridge's HTTP client: health, status, rooms, members, messages and send, with its token file, timeouts and retryable failures |
 | `src/sources/chat/weixin/kind.ts` | `weixinKind` / `createWeixinKind`, the Weixin chat `SourceKind`: its schema and fields, the structured `@` scope rule, the bridge-backed Channel and its environment |
+| `src/sources/chat/weixin/media.ts` | `readWeixinImage` and `sniffImageMediaType`: downloads a message image from the sidecar, trusts only its magic bytes, and commits it as an attachment |
+| `src/sources/chat/weixin/thread.ts` | `weixinThreadContext`, the Weixin `ThreadContext`: the recent messages of a chat and the images one carries, read through the bridge client |
 | `src/sources/hosting/port.ts` | The code-hosting port: `HostAdapter`, `ChangeRequest` and `ChangeNote` |
 | `src/sources/hosting/kind.ts` | `hostingKind`, the factory that turns a `HostAdapter` into a hosting `SourceKind` |
 | `src/sources/hosting/gitlab/adapter.ts` | The GitLab `HostAdapter`: `createGitlabAdapter`, the mapping of a merge request, note and pipeline, and its CI snapshots |
@@ -498,6 +500,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/live/weixin-bridge.live.spec.ts` | The Weixin bridge against a real local sidecar (only with `LIVE=1`): health, status, rooms, members, messages, idempotent sends, and the token and permission failures |
 | `tests/live/gitlab-contract.live.spec.ts` | The GitLab.com contract read-only (only with `LIVE=1`): merge request and note mapping, and an unauthorized token's error that never names the token |
 | `tests/live/thirdparty-errors.live.spec.ts` | WeCom, DingTalk and Yunxiao authentication failures (only with `LIVE=1`): the providers' error codes and that no secret appears in the message |
+| `tests/weixin-media.spec.ts` | The Weixin media path over injected `fetch` and fake attachments: the magic-byte sniffing, the size and deployment refusals, the attachment commit, and the ThreadContext's message and image reads |
 
 `tests/fixtures/` holds what several tests share: `host.ts`, a simulated DeepSeek Harness host; `panel-server.ts` and `panel.tsx`, the fake management API and the panel around a page; `deployment.ts`, a resolved deployment; `git.ts`, the environment of every git the tests start, which names no repository; and `async.ts`.
 
