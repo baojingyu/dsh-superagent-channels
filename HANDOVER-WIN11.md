@@ -1,7 +1,7 @@
 # 交接文档：迁移到 Win11 继续开发
 
 面向：接手本任务的工程师
-基线日期：2026-11-07　文档版本：**v3**（随 Win11 落地提交更新）　基线提交：见 §1
+基线日期：2026-11-07　文档版本：**v4**（随本轮微信收口更新）　基线提交：见 §1
 前置决定（已由 owner 确认，交接期内不改变）：**仓库不改名、不回退**；所有后续改动只提交到
 `baojingyu/open-dsh-superagent`。
 
@@ -15,6 +15,7 @@
 | v1 | 初版，基线 `b7bb154` |
 | v2 | 基线更新为 `4b7a7f8`（本文档自身所在的提交）；补充 `README.md`/`README.zh-CN.md` 中 sidecar 路径修正的说明；故障速查表新增 `push` 代理抖动（`Proxy CONNECT aborted`）的处理方式 |
 | v3 | Win11 机器上真正跑起来了：§2 基线在 Windows 上**逐条复跑**并补齐 64 个 Windows 专属失败；§3.7 阻塞改为**已修复**（平台守卫 + `icacls` 分工）；§4.1 的 Q1 **已有真机定论：L0 拿不到结构化 `@`**，后端按 ADR-005 落 L2/L1；新增 §4.4 后端能力自述与 L1 证据；§3.2 补充 `open-dsh-superagent-ext` 在本机的实际位置；速查表新增 Python 解释器与 `sleep` 两条 |
+| v4 | **§4.1 结论修正**：v3 的「L0 不可用」判断是错的——收消息要改用监听模式（`AddListenChat` + `StartListening`），群 `@` 用客户端自己的 mention 标记（`@名` + `U+2005`）判定，`capabilities.mentions` 从布尔改为 `structured`/`markup`/`none` 三态；新增 §4.2 的 `POST /listen`（面板一次配置）与 `wxname_<hash>` 身份；判据名改 60 秒 TTL 重读，**改名不用重启**；ADR-005 §7 记录 L1 密钥突击的实测边界（未拿到密钥，附已排除项与校准方法） |
 
 ---
 
@@ -368,7 +369,10 @@ if self.config.AtMe in message.content: ...    # 3381 / 3405 / 3729 / 3748
 
 #### 三条代价，必须记住
 
-1. **改名即失效**：判据含本账号显示名，改昵称后要重启实例让它重读；
+1. **判据名会变**：判据含本账号显示名。现在**不用重启**——显示名按 **60 秒 TTL** 重读
+   （`--self-name-ttl`），`POST /listen` 时**强制重读**，`/messages` 轮询也顺带刷新；
+   `/health` 与 `/status` 的 `detail` 直接写出当前判据名（`群 @ 判据：@<昵称>`）。
+   读失败保留旧名并记 note——清空会让判定永远不命中，比旧值更糟；
 2. **可伪造**：分隔符能被粘贴，所以它比子串匹配强，但**不是不可伪造**；
 3. 因此「群 `@` 可以当授权」这句话只在 `capabilities.mentions` 声明了强度之后才成立。
 
@@ -537,6 +541,13 @@ $env:LIVE='1'; .\node_modules\.bin\vitest.cmd run tests/live; Remove-Item Env:\L
 # sidecar（排障）
 cd C:\dev\open-dsh-superagent-ext\sidecar\wxauto-bridge
 python server.py --backend fake --port 8787 --token dev-only
+
+# sidecar（真机；--listen 已不再需要，群从面板的 POST /listen 下发）
+$PY = "D:\<wxauto4-env>\<wxbot-dir>\.venv\Scripts\python.exe"
+& $PY server.py --backend pc-uia --port 8787 --token <TOKEN> `
+    --self-name-ttl 60          # 群 @ 判据名的重读间隔（秒）
+# 验证：curl -H "Authorization: Bearer <TOKEN>" 127.0.0.1:8787/health
+#       detail 里能看到 `群 @ 判据：@<本账号显示名>`
 
 # 微信真机探针
 cd C:\dev\open-dsh-superagent-ext\poc
