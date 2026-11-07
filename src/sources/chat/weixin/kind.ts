@@ -1,8 +1,9 @@
 /** Weixin Source kind: group messages judged by structured `@`, echo-idempotent replies through the sidecar bridge, and its environment. */
 import { z } from 'zod'
 import type { OutboundMessage } from '../../../core/index.ts'
-import type { ChannelHost, FieldSpec, SourceChannel, SourceKind, SourcePolicyPart } from '../../kind.ts'
-import type { BridgeCapabilities, BridgeClient, BridgeStatus } from './bridge.ts'
+import { KV } from '../../../kv.ts'
+import type { ChannelHost, FieldSpec, Localized, SourceChannel, SourceKind, SourcePolicyPart } from '../../kind.ts'
+import type { BridgeCapabilities, BridgeClient, BridgeStatus, MentionCapability } from './bridge.ts'
 import { createBridgeClient } from './bridge.ts'
 import { weixinThreadContext } from './thread.ts'
 
@@ -44,7 +45,7 @@ const Fields: FieldSpec[] = [
       { key: 'name', type: 'text', label: { zh: '名字', en: 'Name' }, optional: true },
     ] },
   { key: 'atOnly', type: 'switch', label: { zh: '仅接收 @ 的消息', en: 'Receive only @s' },
-    hint: { zh: '开启时只接收 @ 机器人的群消息；关闭时也接收其余消息，交评估按规则推断。后端不支持判定群 @ 时（如 pc-uia），开启会让群消息全部被过滤，此时应关闭并靠规则与名单准入。', en: 'On receives only messages that mention the bot; off also receives the rest, from which Eval may infer work under the rules. A backend that cannot detect mentions (such as pc-uia) filters every group message while this is on, so turn it off and rely on the rules and the sender list.' } },
+    hint: { zh: '开启时只接收 @ 机器人的群消息；关闭时也接收其余消息，交评估按规则推断。后端完全无法判定群 @ 时（能力为 none），开启会让群消息全部被过滤，此时应关闭并靠规则与名单准入。', en: 'On receives only messages that mention the bot; off also receives the rest, from which Eval may infer work under the rules. A backend that cannot detect mentions at all (capability `none`) filters every group message while this is on, so turn it off and rely on the rules and the sender list.' } },
   { key: 'pollSeconds', type: 'number', advanced: true, min: 5, max: 3600, label: { zh: '轮询间隔 / 秒', en: 'Poll interval / s' },
     hint: { zh: '轮询传输向桥询问新消息的间隔。', en: 'How often the polling transport asks the bridge for new messages.' } },
 ]
@@ -82,6 +83,17 @@ export function rememberWeixinStatus(status: BridgeStatus, capabilities?: Bridge
 type WeixinScopeResult =
   | { listened: true; observed: boolean; row?: string }
   | { listened: false; reason: string; observed?: boolean; row?: string }
+
+/**
+ * How the panel describes the strength of this backend's mention proof. `markup` is the honest middle: it reads the
+ * separator the client itself inserts after a name picked from the mention list, so a person typing `@name` does not
+ * produce it, but a pasted separator can, and a renamed account no longer matches its own name.
+ */
+const MENTION_FACTS: Record<MentionCapability, Localized> = {
+  structured: { zh: '群 @ 按结构化列表判定', en: 'Group @s are judged on the structured list' },
+  markup: { zh: '群 @ 按客户端标记判定：改本账号昵称即失效，粘贴分隔符可伪造', en: "Group @s are judged on the client's own mention markup: renaming this account breaks it, and a pasted separator can forge it" },
+  none: { zh: '该后端无法判定群 @：群消息只按规则推断，不按 @ 判定', en: 'This backend cannot detect group @s: group messages are judged by the rules, never by mentions' },
+}
 
 /** Builds the weixin SourceKind; the default `weixinKind` uses the sidecar client and the last recorded status. */
 export function createWeixinKind(hooks: WeixinKindHooks = {}): SourceKind<WeixinConfig> {
@@ -128,14 +140,14 @@ export function createWeixinKind(hooks: WeixinKindHooks = {}): SourceKind<Weixin
     health: ['weixin'],
     // Reception is decided on the structured `ats` list, never by matching `@nickname` in the text. An ambient group message
     // is filtered but still observed, so it remains Thread-context material; `reason` is what Intake records for the filter.
-    // A backend that reports it cannot produce `ats` at all (the pc-uia one on WeChat 4.x: the message bubble is a flat
-    // accessibility leaf with no mention element) can never prove a group message addresses the agent. Recording
+    // A backend that reports it cannot produce `ats` at all can never prove a group message addresses the agent. Recording
     // `group_ambient` there would claim we looked and found no `@`; the honest reason is that we cannot look, which also
-    // tells an operator that the Policy's mention row is unavailable rather than simply unmatched.
+    // tells an operator that the Policy's mention row is unavailable rather than simply unmatched. `markup` backends do
+    // produce `ats`, so they take the same path as `structured` ones; only `facts` distinguishes how strong the proof is.
     scope({ meta }, config): WeixinScopeResult {
       const room = typeof meta.room === 'string' ? meta.room : ''
       if (!room) return { listened: true, observed: false, row: 'directMessages' }
-      if (capabilitiesOf()?.mentions === false) {
+      if (capabilitiesOf()?.mentions === 'none') {
         return config.atOnly
           ? { listened: false, reason: 'mentions_unsupported', observed: true, row: 'groupAmbient' }
           : { listened: true, observed: true, row: 'groupAmbient' }
@@ -163,15 +175,30 @@ export function createWeixinKind(hooks: WeixinKindHooks = {}): SourceKind<Weixin
       }),
     },
     // `facts` is synchronous: it reports the status the polling loop last recorded, and "Not connected" until there is one.
-    // The second fact states a backend limitation rather than hiding it: a Source whose backend cannot see structured `@`s
-    // still receives direct messages, but its group chats can only be judged by the Policy's rules.
+    // The second fact states how strong the mention proof is rather than hiding it: a `markup` backend reads the client's
+    // own mention markup, which survives neither a renamed account nor a pasted separator, and an operator should know that
+    // before treating a group `@` as authorization.
     facts: () => {
       const status = hooks.status ? hooks.status() : remembered?.status
       const account = status?.loggedIn ? { zh: `已登录：${status.name || status.wxid}`, en: `Signed in as ${status.name || status.wxid}` } : { zh: '未连接', en: 'Not connected' }
-      const mentions = capabilitiesOf()?.mentions === false
-        ? { zh: '该后端无法判定群 @：群消息只按规则推断，不按 @ 判定', en: 'This backend cannot detect group @s: group messages are judged by the rules, never by mentions' }
-        : { zh: '群 @ 按结构化列表判定', en: 'Group @s are judged on the structured list' }
+      const mentions = MENTION_FACTS[capabilitiesOf()?.mentions ?? 'structured']
       return { account, mentions }
+    },
+    // A backend without stable chat IDs names its chats and people `wxname_<hash>`, which keeps the id patterns strict at
+    // the cost of being unreadable. This resolves them to display names for the panel's row keys, exactly as the Feishu
+    // kind resolves its chat ids; a failed read leaves the stored labels alone rather than clearing them.
+    async refreshLabels(host) {
+      const ctx = host.context({ kind: SOURCE, health: ['weixin'] })
+      const config = ctx.config<WeixinConfig>(SOURCE)
+      if (!config) return {}
+      const bridge = bridgeFor(config)
+      const labels: Record<string, string> = {}
+      for (const room of await bridge.rooms()) {
+        if (room.name) labels[room.id] = room.name
+        for (const person of await bridge.members(room.id)) if (person.name) labels[person.id] = person.name
+      }
+      ctx.state.set(KV.sources.labels(SOURCE), labels)
+      return labels
     },
   }
 }
