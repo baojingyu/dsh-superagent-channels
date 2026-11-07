@@ -39,9 +39,11 @@ const Fields: FieldSpec[] = [
   { key: 'selfWxid', type: 'text', pattern: '^[A-Za-z0-9_-]+$', label: { zh: '本账号 wxid', en: 'This account wxid' },
     hint: { zh: '群 @ 判定和自消息识别都以它为准，昵称改了也不会失效。', en: 'Group @-detection and own-message detection are judged against it, so a renamed account still works.' } },
   { key: 'rooms', type: 'rows', label: { zh: '接收的群', en: 'Chats' },
-    hint: { zh: '只接收这些群里发给机器人的消息；群 ID 必须稳定（真实 chatroomId），不能填昵称。', en: 'Receives only the messages to the bot in these chats; the chat ID must be the stable chatroomId, never the display name.' },
+    hint: { zh: '只接收这些群里发给机器人的消息；群 ID 必须是桥给出的稳定 ID（没有稳定 ID 的后端会给出 wxname_ 开头的标识），不能填昵称。点「刷新会话列表」从桥能看到的会话里挑，再保存。', en: 'Receives only the messages to the bot in these chats; the chat ID must be the stable ID the bridge reports (a backend without stable IDs names them wxname_…), never a nickname. Press "Refresh chats" to pick from what the bridge can see, then save.' },
     columns: [
-      { key: 'id', type: 'text', label: { zh: '群 ID', en: 'Chat ID' }, pattern: '^[A-Za-z0-9_-]+$' },
+      { key: 'id', type: 'text', label: { zh: '群 ID', en: 'Chat ID' }, pattern: '^[A-Za-z0-9_-]+$',
+        choose: { zh: '选择桥能看到的会话', en: 'Choose a chat the bridge can see' },
+        refresh: { zh: '刷新会话列表', en: 'Refresh chats' } },
       { key: 'name', type: 'text', label: { zh: '名字', en: 'Name' }, optional: true },
     ] },
   { key: 'atOnly', type: 'switch', label: { zh: '仅接收 @ 的消息', en: 'Receive only @s' },
@@ -106,8 +108,10 @@ export function createWeixinKind(hooks: WeixinKindHooks = {}): SourceKind<Weixin
     schema: WeixinPolicySchema,
     fields: [
       { key: 'allowed', type: 'rows', label: { zh: '能发起工作的微信用户', en: 'WeChat users who may originate work' },
+        hint: { zh: '点「刷新会话列表」会把桥见过的发送人也一起载入，然后从这里挑人。', en: 'Refreshing the chat list also loads the senders the bridge has seen, so pick a person from here.' },
         columns: [
-          { key: 'id', type: 'text', label: { zh: 'wxid', en: 'wxid' }, pattern: '^[A-Za-z0-9_-]+$' },
+          { key: 'id', type: 'text', label: { zh: '用户 ID', en: 'User ID' }, pattern: '^[A-Za-z0-9_-]+$',
+            choose: { zh: '选择桥见过的发送人', en: 'Choose a sender the bridge has seen' } },
           { key: 'name', type: 'text', label: { zh: '名字', en: 'Name' }, optional: true },
         ] },
     ],
