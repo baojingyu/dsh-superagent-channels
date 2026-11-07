@@ -1,11 +1,18 @@
 # 交接文档：迁移到 Win11 继续开发
 
 面向：接手本任务的工程师
-基线日期：2026-11-07　基线提交：`b7bb154`
+基线日期：2026-11-07　文档版本：**v2**（随 `4b7a7f8` 更新）　基线提交：`4b7a7f8`
 前置决定（已由 owner 确认，交接期内不改变）：**仓库不改名、不回退**；所有后续改动只提交到
 `baojingyu/open-dsh-superagent`。
 
 > 读完 §5 再动手。**§3.7 有一个 Windows 专属阻塞**，不处理的话所有 token 文件校验都会失败。
+
+### 文档变更记录
+
+| 版本 | 变更 |
+| --- | --- |
+| v1 | 初版，基线 `b7bb154` |
+| v2 | 基线更新为 `4b7a7f8`（本文档自身所在的提交）；补充 `README.md`/`README.zh-CN.md` 中 sidecar 路径修正的说明；故障速查表新增 `push` 代理抖动（`Proxy CONNECT aborted`）的处理方式 |
 
 ---
 
@@ -15,11 +22,11 @@
 | --- | --- |
 | 仓库（唯一 remote） | `https://github.com/baojingyu/open-dsh-superagent.git` |
 | remote 配置 | `origin` fetch/push 均指向上面这一个 URL；**没有 `upstream` 等第二 remote** |
-| 主分支 | `main` = `b7bb154`（`docs: this repository now describes itself, in English and Chinese`） |
-| 主分支上一个提交 | `692e6b1`（`merge: self-hosted sources ...`，`--no-ff` 合并提交） |
+| 主分支 | `main` = `4b7a7f8`（`docs: hand over to the Win11 machine, and correct the sidecar path`） |
+| 主分支近期提交 | `b7bb154`（README 改写为仓库首页）→ `692e6b1`（`merge: self-hosted sources ...`，`--no-ff` 合并提交） |
 | 备查分支 | `feat/multi-instance-sources` = `dc614f6`（内容与 `main` 一致，仅无 merge 提交；**保留，不删**） |
 | 工作树 | 干净（`git status --porcelain` 为空） |
-| 分支拓扑 | `8c32a9d`（上游原型）→ 7 个功能提交 → `692e6b1` merge → `b7bb154` docs |
+| 分支拓扑 | `8c32a9d`（上游原型）→ 7 个功能提交 → `692e6b1` merge → `b7bb154` README → `4b7a7f8` 本文档 |
 | 默认启用状态 | 五个新插件在 `cordis.patch.yml` 里全部 `disabled: true` |
 
 复核命令（Windows PowerShell，任意目录）：
@@ -33,7 +40,7 @@ git branch -vv
 ```
 
 预期：`origin` 只有一行 fetch、一行 push，URL 均为 `baojingyu/open-dsh-superagent`；
-`HEAD -> main` 指向 `b7bb154`；`git status` 无输出；`feat/multi-instance-sources` 与 `main` 内容一致。
+`HEAD -> main` 指向 `4b7a7f8`；`git status` 无输出；`feat/multi-instance-sources` 与 `main` 内容一致。
 
 ---
 
@@ -329,5 +336,6 @@ git push -u origin feat/<topic>
 | `must be owner-only (mode 0600)` | Windows 权限位问题（§3.7） |
 | gitlab live 里 notes 被 skip | 预期行为：匿名读评论 401，不是失败 |
 | 全量测试偶发失败 | 加 `--maxWorkers=2` 重跑，单跑该文件确认 |
+| `push` 报 `Proxy CONNECT aborted` / `HTTP2 framing layer` | 代理抖动：`git -c http.version=HTTP/1.1 push origin main` 重试；直连不通时不要 `unset` 代理 |
 | `the wxauto 3.9 accessibility tree was not found` | 客户端是 4.x，装 `wxauto4`/`wxautox4`（§3.8） |
 | 探针 `no WeChat window` | 与客户端不在同一交互式会话（§3.8） |
