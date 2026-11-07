@@ -38,6 +38,19 @@ describe('weixinKind schema and fields', () => {
     expect(weixinKind.schema.safeParse({ tokenFile: '/tmp/t', selfWxid: 'wxid_self', atOnly: 'yes' }).success).toBe(false)
     expect(weixinKind.schema.safeParse({ tokenFile: '/tmp/t', selfWxid: 'wxid_self', extra: 1 }).success).toBe(false)
   })
+  it('offers the chats and senders as a picker, because a wxname id cannot be typed by a person', () => {
+    // A backend without stable IDs names chats and people `wxname_<hash>`. Those ids keep the patterns strict but nobody can
+    // type them, so the rows must be choosable from what `refreshLabels` loaded, and the chat list must be refreshable.
+    const rooms = weixinKind.fields.find(field => field.key === 'rooms')
+    if (rooms?.type !== 'rows') throw new Error('the rooms field must be a rows field')
+    expect(rooms.columns[0]).toMatchObject({
+      key: 'id', choose: { zh: '选择桥能看到的会话', en: 'Choose a chat the bridge can see' },
+      refresh: { zh: '刷新会话列表', en: 'Refresh chats' },
+    })
+    const allowed = weixinKind.policy!.fields.find(field => field.key === 'allowed')
+    if (allowed?.type !== 'rows') throw new Error('the allowed field must be a rows field')
+    expect(allowed.columns[0]).toMatchObject({ key: 'id', choose: { zh: '选择桥见过的发送人', en: 'Choose a sender the bridge has seen' } })
+  })
 })
 
 describe('weixinKind scope', () => {

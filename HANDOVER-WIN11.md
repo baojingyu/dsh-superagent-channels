@@ -443,6 +443,15 @@ POST /listen
 - `weixin-watch` 每轮轮询前下发 `config.rooms` 的 id 列表；`rooms` 为空时**不调用**
   （否则会静默掉别人手工配好的 sidecar），并把「在听 N/M、哪些没听上」写进健康详情。
 - 后端不支持运行时改监听集合时，`listen` 方法在 seam 上是可选的，循环直接不问它。
+
+面板里 `rooms[].id` 与 `policy.allowed[].id` 是**下拉选**而不是手填：`wxname_<hash>` 保住了 id 正则，
+但没人能手打，所以「刷新会话列表」会把 `/rooms` 与各会话的 `/members` 载入成标签，再从列表里挑。
+`refreshLabels` 就是这条链路，与 Feishu 用的是同一套机制。
+
+`/rooms` 的语义是「本后端**能看到的**会话」，不是「正在听的」：`pc-uia` 上是
+`GetAllRecentGroups()` 的全部群 + `GetSession()` 里当前可见的会话（按显示名排序，上限 500）。
+**因此滚出会话列表的单聊不在候选里**——先打开那个单聊一次，再点刷新。正在听什么只看
+`POST /listen` 的 `listening`。
 #### L0 的另外四个契约缺口（同样是「已知缺口，不是 bug」）
 
 | 契约字段 | L0 实际情况 |
