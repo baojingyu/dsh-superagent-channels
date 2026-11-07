@@ -27,12 +27,12 @@ export interface SourceContextDeps {
 }
 
 /**
- * Builds the context for one Source kind. Health reports are restricted to entries declared by the kind and
- * bound to the active registration, becoming no-ops once unregistered.
+ * Builds the context for one Source instance. Health reports are restricted to entries declared by the kind and bound to
+ * the instance's own entries (its ID, or the kind's when omitted), becoming no-ops once the kind unregisters.
  */
-export function sourceContextOf(deps: SourceContextDeps, kind: { kind: string; health: readonly string[] }): SourceContext {
+export function sourceContextOf(deps: SourceContextDeps, kind: { kind: string; id?: string; health: readonly string[] }): SourceContext {
   const { store } = deps
-  const health = deps.sources.healthEntries(kind.health)
+  const health = deps.sources.healthEntries(kind.id ?? kind.kind, kind.health, kind.kind)
   return {
     get deployment() { return deps.deployment },
     commands: deps.commands,

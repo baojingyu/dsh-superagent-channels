@@ -16,6 +16,11 @@
     "./client": "./lib/client.js",
     "./github-watch": "./lib/github-watch.js",
     "./feishu-watch": "./lib/feishu-watch.js",
+    "./weixin-watch": "./lib/weixin-watch.js",
+    "./gitlab-watch": "./lib/gitlab-watch.js",
+    "./projex-watch": "./lib/projex-watch.js",
+    "./dingtalk-watch": "./lib/dingtalk-watch.js",
+    "./wecom-watch": "./lib/wecom-watch.js",
     "./package.json": "./package.json",
     "./locale/*.json": "./locale/*.json"
   },

@@ -10,6 +10,26 @@
     - id: dsh-superagent-feishu
       name: dsh-superagent/feishu-watch
       disabled: true
+    # Optional Weixin Source; requires a wxauto-bridge sidecar and its token file after enabling.
+    - id: dsh-superagent-weixin
+      name: dsh-superagent/weixin-watch
+      disabled: true
+    # Optional GitLab Source; requires a project, an instance URL, and a token file after enabling.
+    - id: dsh-superagent-gitlab
+      name: dsh-superagent/gitlab-watch
+      disabled: true
+    # Optional Yunxiao Projex Source; requires a project space, an organization ID, and a token file after enabling.
+    - id: dsh-superagent-projex
+      name: dsh-superagent/projex-watch
+      disabled: true
+    # Optional DingTalk Source; requires app credentials and an injected stream transport (SDK outside this bundle) after enabling.
+    - id: dsh-superagent-dingtalk
+      name: dsh-superagent/dingtalk-watch
+      disabled: true
+    # Optional WeCom Source; its signed callback needs a public reverse-proxied route after enabling.
+    - id: dsh-superagent-wecom
+      name: dsh-superagent/wecom-watch
+      disabled: true
     # The agent preset of every Executor Session (WORKER_PRESET in src/app/sessions.ts); the main Session has its own, below.
     # It is DSH's `standard` preset with only what a worker needs, and a shell whose foreground command moves to a background job
     # after 5 seconds, so a long command does not hold back a person's message, which the Session takes at its next step. Left
