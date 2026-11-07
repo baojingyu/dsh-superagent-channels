@@ -26,7 +26,7 @@ WeChat 客户端自动化跑在一台 **Windows 常驻机**上，以独立进程
 | 层 | 后端 | 触发启用的条件 |
 |---|---|---|
 | **L0** | `pc-uia`（wxauto 一类，UIAutomation，不注入进程） | 默认 |
-| **L1** | `pc-hook`（wxhelper 一类，DLL 注入 + HTTP） | L0 受窗口/版本限制，且业务书面接受注入风险 |
+| **L1** | `pc-hook`（wxhelper 一类，DLL 注入 + HTTP） | **已划掉**：只适配 3.9.x，且 hook 出的消息没有 `atuserlist`，装了也拿不到 `@`（见 §7 审计） |
 | **L2** | `pad`（WeChatPadPro / 社区 fork，iPad 协议） | 无 Windows 机、只有 Linux；业务书面接受协议风控 |
 | **L3** | `hosted`（付费 API） | L0–L2 全挂且业务不能停 |
 | 旁路 | 企微客户群 / 官方 ClawBot 单聊 | 客户愿意迁群 / 只需单聊（属需求变更，不是技术降级） |
@@ -244,6 +244,45 @@ if self.config.AtMe in message.content: ...    # 3381 / 3405 / 3729 / 3748 行
 - **L1（DB 读取器）**：本机已确认消息库位置与加密形态，是**不注入进程也能拿到全部结构化字段**的
   路线。证据与做法见下。它解决的是 `structured` 那一档，而不是「能不能用」。
 
+#### 阶梯可行性审计：L1 与 L2 对真实文档的核查（2026-11-07）
+
+§2.2 的阶梯假设「L1（注入）能拿到结构化 `@`」「L2（pad）能解决一切」。对**真实文档**核过之后，
+这两个假设都要修正——这一步是为了不让人照着阶梯去做无用功。
+
+**L1（`wxhelper` 一类注入插件）= 对本机不可用，而且即使可用也不解决 `@`。**
+
+- 它只适配 **微信 3.9.x**（`WeChat.exe`）：仓库 README 明列 3.8.0.41 / 3.8.1.26 / 3.9.0.28 /
+  3.9.2.23 / 3.9.2.26 / 3.9.5.81，`doc/` 下只有 3.9.2.23 与 3.9.5.81 两份，jsDelivr 上最高 tag 是
+  `3.9.10.19-v1`，全仓库**没有** 4.x / `Weixin.exe` 的任何痕迹。本机是 4.x。
+- 更关键：它 hook 出来的消息 JSON 是 **11 个字段**
+  （`pid/fromUser/toUser/content/signature/msgId/msgSequence/createTime/displayFullContent/type/base64Img`），
+  **没有 `atuserlist` / `atList`**，也没有任何返回结构化 `@` 列表的端点。也就是说：换到 3.9 客户端、
+  接受注入风险之后，我们想要的那个字段**依然不存在**。
+- 它默认监听 `0.0.0.0:19088` 且**无任何鉴权**（源码 `StartHttpServer`），等于把整个微信号暴露给局域网。
+  作者自己在 README 写「可能会造成封号等后果」。
+
+**L2（`WeChatPadPro` 一类 pad 服务）= 版本这关过了，`@` 这关文档没给。**
+
+- 它不驱动本地客户端，是 iPad 协议端（iOS 18.61 / build 861），所以「本机装的是 4.x」与它无关。
+- 公开 Cloud swagger（`gwpad.com/Cloudswagger/swagger.json`）可核对到 **401 个端点**：
+  `basePath=/v1`，响应包 `{Code, Data, Message, Success, request_id}`，
+  鉴权头 `X-Cloud-Access-Token`。
+- **但全文检索 `atuserlist` 命中 0**，`at_list` / `AtList` 全是 `chat_list` 的误命中；唯一与 `@` 相关的
+  字段是**发送侧**的 `Msg.SendNewMsgParamDoc.At`。入站 `sync_message` 事件**没有字段级 schema**。
+  也就是说：结构化 `@` 列表**是否存在于入站事件里，公开文档无法确认**。
+- 群 id 与发送者 wxid 有文档：`Msg.QuoteContextDoc.chat_user_id`（群聊为 `room@chatroom`）、
+  `from_user_id`（群聊为成员 wxid）。所以 L2 在**身份**上确实能补齐 L0 的缺口。
+- 闭源二进制 + 授权码计费，最新版本只在赞助群；仍在维护（2025-08-22 发布 v2.01）。
+  文档有坑：README 指向的本地 swagger 文件已不在仓库，旧文档站已 404，只有上面那个 swagger 可信。
+
+**结论**：阶梯从「L1 优先、L2 次选」改为——**L1 划掉**（对 4.x 不可用，且不提供 `@` 列表）；
+**L2 是唯一候选**，但它能否给出结构化 `@` 只能由持证方实测确认。
+
+**给持证方的一次性验证（10 分钟，决定 L2 值不值得接）**：用 pad 服务登录一个测试号，拉一个群、
+让群友 @ 该号一次，然后看 `sync_message`（或同义入站事件）里这条消息的原始 JSON：
+
+- 若出现形如 `atuserlist` / `at_list` / `msgsource` 里带 wxid 的字段 → L2 成立，`mentions` 可升级为 `structured`；
+- 若没有 → L2 只能补身份与时间，`mentions` 仍是 `markup` 档，那就**没有必要为 `@` 换后端**。
 #### L1 可行性证据（已确认，未实施）
 
 ```
