@@ -811,7 +811,23 @@ class PcUiaBackend(Backend):
             notes.append("StartListening 失败: %s" % error)
         if not self._listen_names:
             notes.append("未配置 --listen：监听模式下不会收到任何消息")
+        self._warm_rooms_in_background()
         return "；".join(notes)
+
+    def _warm_rooms_in_background(self) -> None:
+        """Fill the `/rooms` cache before anyone presses refresh.
+
+        The first listing walks the client's contact pages - measured at 19 s on this account - so it
+        happens here, on a daemon thread after the listener is up, instead of during the one click a
+        person is watching.
+        """
+        def run() -> None:
+            try:
+                self.rooms()
+            except BaseException:
+                pass
+
+        threading.Thread(target=run, daemon=True, name="wxbridge-warm-rooms").start()
 
     def _apply_listen(self, wx, requested: "list[str]") -> dict:
         """集合替换（幂等）：只对差异发微信调用；完全相同时一个调用都不发。"""
