@@ -57,6 +57,10 @@ to guess:
 | `members` | `observed` | only the senders seen so far, never the full roster |
 | `media` | per build | the Plus build has `download()`; the free one does not |
 
+Configuring a chat happens once, in the panel: every round the polling loop pushes the configured chats to
+`POST /listen`, and the sidecar acts only on the difference, so adding or removing a group takes effect
+without restarting it. A chat the sidecar cannot resolve is reported back by name instead of looking like
+a quiet group.
 The honest gap: there is **no structured mention list** on WeChat 4.x. The message bubble is a flat
 accessibility leaf (`childCount == 0`, no text/value/legacy pattern), so `ats` can only be
 `markup`-grade. A backend that reports `mentions: none` is still usable for direct messages, and
