@@ -42,6 +42,8 @@ export interface BridgeSend {
 }
 /** `POST /send` outcome: the bridge's message ID (possibly a cached one), or `gone` when the conversation cannot receive it. */
 export type BridgeSendResult = { msgId: string; deduped: boolean } | 'gone'
+/** Bytes of one message image and the media type the sidecar served them with. */
+export interface BridgeMedia { bytes: Uint8Array; mime: string }
 /** The client the weixin adapter uses to read events and send through one sidecar. */
 export interface BridgeClient {
   health(): Promise<BridgeHealth>
@@ -50,6 +52,11 @@ export interface BridgeClient {
   members(room: string): Promise<WxPerson[]>
   messages(room: string, cursor?: string, limit?: number): Promise<{ events: ChatEvent[]; next: string }>
   send(message: BridgeSend): Promise<BridgeSendResult>
+  /**
+   * Downloads the bytes of one message image (`GET /media/<id>`); optional on the seam so a test double without the endpoint
+   * still satisfies the client, while every real client implements it.
+   */
+  media?(id: string): Promise<BridgeMedia>
 }
 
 /** Request options whose headers stay a plain record, so the bearer and idempotency headers can be merged safely. */
@@ -58,6 +65,8 @@ const IDENTITY_TTL_MS = 60_000
 const DEFAULT_TIMEOUT_MS = 15_000
 const DEFAULT_PAGE_SIZE = 50
 const MAX_PAGE_SIZE = 200
+/** `GET /media/<id>` is not in the shared `BridgeEndpoints` table yet, so the reader names it here. */
+const MEDIA_PATH = '/media'
 
 const record = (value: unknown): Record<string, unknown> =>
   typeof value === 'object' && value !== null ? value as Record<string, unknown> : {}
@@ -72,6 +81,10 @@ function toChatEvent(raw: unknown, selfWxid: string): ChatEvent {
   const senderName = text(sender.name)
   const quoteId = text(event.quoteId)
   const ats = Array.isArray(event.ats) ? event.ats.filter((id): id is string => typeof id === 'string') : []
+  const media = (Array.isArray(event.media) ? event.media : [])
+    .map(item => record(item))
+    .filter(item => text(item.id) !== '' && item.kind === 'image')
+    .map(item => ({ id: text(item.id), kind: 'image' as const, ...(text(item.mime) ? { mime: text(item.mime) } : {}) }))
   return {
     nativeId: text(event.nativeId),
     chatId: room,
@@ -85,6 +98,7 @@ function toChatEvent(raw: unknown, selfWxid: string): ChatEvent {
     ...(event.own === true ? { ownMessage: true } : {}),
     mentionsAgent: ats.includes(selfWxid),
     ats,
+    ...(media.length ? { media } : {}),
   }
 }
 
@@ -218,6 +232,28 @@ export function createBridgeClient(options: BridgeOptions): BridgeClient {
       if (answer.status === 200) return { msgId: text(body.msgId), deduped: body.deduped === true }
       if (answer.status === 409 && text(body.error) === 'gone') return 'gone'
       throw failure(answer.status, answer.body, `POST ${BridgeEndpoints.send}`)
+    },
+    async media(id: string): Promise<BridgeMedia> {
+      const path = `${MEDIA_PATH}/${encodeURIComponent(id)}`
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), timeoutMs)
+      let response: Response
+      try {
+        response = await doFetch(`${base}${path}`, { signal: controller.signal, headers: { Authorization: `Bearer ${token()}` } })
+      } catch (error) {
+        if (controller.signal.aborted) throw new Error(`The wxauto bridge did not answer ${path} within ${timeoutMs}ms`)
+        throw error
+      } finally {
+        clearTimeout(timer)
+      }
+      // The sidecar answers 404 when the message or its image is not in the rendered window, and 501 when this backend cannot
+      // download images at all (the free wxauto build has no `download()`); neither will ever succeed on a retry.
+      if (response.status === 404) throw new Error('gone')
+      if (response.status === 401) throw new Error('unauthorized')
+      if (!response.ok) throw new Error(`GET ${path} failed with ${response.status}`)
+      const mime = (response.headers.get('content-type') ?? '').split(';')[0]!.trim().toLowerCase()
+      if (!mime.startsWith('image/')) throw new Error(`The bridge answered ${path} with ${mime || 'no content type'}, not an image`)
+      return { bytes: new Uint8Array(await response.arrayBuffer()), mime }
     },
   }
 }
