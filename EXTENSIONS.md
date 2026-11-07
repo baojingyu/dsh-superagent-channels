@@ -1,142 +1,246 @@
-# Extensions: self-hosted sources
+# Extensions: the multi-channel layer
 
 **English** · [简体中文](EXTENSIONS.zh-CN.md)
 
-This fork is a secondary development of
-[`open-dsh-superagent`](https://github.com/baojingyu/open-dsh-superagent) (a research prototype,
-not an official DeepSeek product) built on DeepSeek Harness. Upstream listens to one GitHub
-repository and, optionally, Feishu. This branch keeps every upstream behaviour and adds the
-sources a team in mainland China actually runs on.
+This repository is a downstream distribution of a research prototype built on
+[DeepSeek Harness](https://dsh.dev) (see [REPOSITORY.md](REPOSITORY.md)). The prototype listens to one
+GitHub repository and, optionally, Feishu. This edition keeps every prototype behaviour and adds the
+channels a team in mainland China actually runs on, plus the ability to run several instances of one
+channel.
 
-Upstream's own documents still describe the agent; this file is the map of what was added.
+Upstream's numbered documents still describe the agent itself. This file is the map of what was
+added, and the reference for anyone extending it further.
 
-## What is added
+## 1. What is added, and where it lives
 
-| Gap upstream | What this branch adds | Where |
+| Gap | What this edition adds | Where |
 | --- | --- | --- |
-| only GitHub | **GitLab** (self-hosted): merge requests, notes, pipelines | `src/sources/hosting/*` |
-| no work items | **Yunxiao Projex**: requirement / bug / task, comments, paging | `src/sources/work/*` |
-| only Feishu | **WeChat** personal account: group `@`, message images | `src/sources/chat/weixin/*` |
+| only GitHub | **GitLab** (self-hosted or gitlab.com): merge requests, notes, pipelines | `src/sources/hosting/gitlab/*`, `src/infra/hosting-api.ts` |
+| no work items | **Yunxiao Projex**: requirement / bug / task, comments, status | `src/sources/work/projex/*`, `src/infra/yunxiao-api.ts` |
+| only Feishu | **WeChat** personal account: group `@`, message images, voice transcripts | `src/sources/chat/weixin/*`, sidecar |
 | — | **DingTalk** Stream, **WeCom** encrypted callback | `src/sources/chat/{dingtalk,wecom}/*` |
-| one instance per kind | **many instances per kind**, config/health/KV scoped per instance | `src/sources/instance.ts`, `src/sources/registry.ts` |
+| one instance per channel | **many instances per channel**, config / health / cursors scoped per instance | `src/sources/instance.ts`, `src/sources/registry.ts` |
 
-Five optional plugins ship with the bundle and are **disabled by default** in
-`cordis.patch.yml`: `weixin`, `gitlab`, `projex`, `dingtalk`, `wecom`. They are built as separate
-entries (`lib/*-watch.js`), so enabling one is a patch file change plus a saved instance.
+Five optional plugins ship **disabled** in `cordis.patch.yml` (`weixin`, `gitlab`, `projex`,
+`dingtalk`, `wecom`) and are built as separate entries (`lib/*-watch.js`), so enabling one is a patch
+change plus a saved instance, not a rebuild of the bundle.
 
-## The one assumption that had to change
+## 2. The one assumption that had to change
 
-Upstream has a single extension point, `SourceKind`, but it treats *a kind* as *an instance*:
-`registry.resolve()` hard-codes `id: kind.kind`. That makes "two GitLab projects" or "two WeChat
-accounts" impossible. This branch separates the settings key (the instance id) from the behaviour
-id (the kind id) and keeps one compatibility rule:
+The prototype has a single extension point, `SourceKind`, but it treats *a kind* as *an instance*:
+`registry.resolve()` hard-codes `id: kind.kind`, which makes "two GitLab projects" or "two WeChat
+accounts" impossible. This edition separates the **settings key** (the instance id) from the
+**behaviour id** (the channel id) and keeps one compatibility rule:
 
-> the default instance id stays equal to the kind id, so stored triggers, threads, mandates and
+> the default instance id stays equal to the channel id, so stored triggers, threads, mandates and
 > policies keep resolving without a migration.
 
 Everything else follows from three narrow ports rather than three ad-hoc integrations:
 
 ```
-src/sources/hosting/   HostAdapter  → hostingKind()   change requests, notes, CI
-src/sources/work/      WorkAdapter  → workKind()      work items, comments, status
-src/sources/chat/      ChatAdapter  → chatKind()      messages, threads, media
+src/sources/hosting/   HostAdapter  →  change requests, notes, CI
+src/sources/work/      WorkAdapter  →  work items, comments, status
+src/sources/chat/      ChatAdapter  →  messages, threads, media
                        InboundTransport (poll | stream | webhook), DeliveredRing
 ```
 
-A new provider is an adapter of a few hundred lines: the trigger shape, merge-request lifecycle,
-CI summary, comment idempotency, cards and prompts are reused unchanged. Identity and scope are
-the only provider-specific parts.
+Adding a provider means writing an adapter of a few hundred lines. The trigger shape, the
+change-request lifecycle, the CI summary, comment idempotency, cards and prompts are reused
+unchanged; identity and scope are the only provider-specific parts. Section 6 is the recipe.
 
-## WeChat needs a sidecar
+## 3. Feature points, channel by channel
 
-The WeChat desktop client cannot be driven from Node, so it sits behind a loopback HTTP sidecar
-with a frozen contract (seven endpoints, JSON events, `0600` bearer token). The Node side only
-knows the contract, which keeps the backend replaceable:
+### 3.1 GitLab — `hosting/gitlab`
 
-| Layer | Backend | When |
+| Aspect | Detail |
+| --- | --- |
+| What it listens to | merge requests of the configured project, their notes, and pipeline status |
+| Transport | polling (`pollSeconds`, default 30) |
+| Identity | `hostUrl` + `project` (`group/name`); self-hosted instances are first class |
+| Credentials | a personal access token (`api` scope) in a **file**, read per call, owner-only (`0600`, or an ACL on Windows) |
+| Path safety | every request path is confined to the configured project; a path that escapes it is refused before any request |
+| Error mapping | a non-JSON body becomes a status error, never a token echo; 401 maps to `unauthorized` |
+| Outbound | comments and review-thread replies, **marker-idempotent** (the reply carries a marker, so a retry that already landed is detected) |
+| Known gap | write-back against a real instance is unverified here (no PAT) |
+
+### 3.2 Yunxiao Projex — `work/projex`
+
+| Aspect | Detail |
+| --- | --- |
+| What it listens to | work items in the configured project space, by category, plus their comments |
+| Categories | requirement / bug / task are polled by default; other categories are dropped rather than guessed |
+| Transport | polling (`pollSeconds`) |
+| Identity | `organizationId` + `project`; `assignedTo` is an Aliyun **accountID**, so the configuration must hold the bot's own accountID |
+| Credentials | a `pt-…` personal token in a file, owner-only, reread per call |
+| Path safety | confined to `/oapi/v1/`, with an organization allowlist; dot-segment escapes are refused before any request, plain or percent-encoded |
+| Read-only by default | `writeBack` defaults to **false**, so the adapter never changes a work item's status unless asked |
+| Outbound | comments, marker-idempotent |
+| Known gap | read/write against a real instance is unverified here (no token) |
+
+### 3.3 WeChat — `chat/weixin`
+
+The desktop client cannot be driven from Node, so it sits behind a **loopback HTTP sidecar** with a
+frozen contract. The Node side knows only the contract; the backend is replaceable. Sections 4 and 5
+are the detail.
+
+| Aspect | Detail |
+| --- | --- |
+| What it listens to | the chats configured in the panel, plus direct messages |
+| Transport | polling the sidecar (`pollSeconds`, minimum 5) which is itself **push-fed** by the client's listener |
+| Identity | `selfWxid` is the account whose `@`s count; chats and senders are the sidecar's ids |
+| Credentials | the sidecar's bearer token in a file, owner-only |
+| Group `@` | decided on `ats`, never on the message body — see §5.2 |
+| Outbound | text, **keyed** idempotency (the OutboundMessage id is sent as `Idempotency-Key`), quoted replies, ≥1 s serialized spacing |
+| Inbound media | images, downloaded through the sidecar and judged by magic bytes |
+| Config from the panel | `POST /listen` replaces the watched set; adding or removing a chat needs no restart |
+
+### 3.4 DingTalk — `chat/dingtalk`
+
+| Aspect | Detail |
+| --- | --- |
+| What it listens to | group messages addressed to the bot, and direct messages |
+| Transport | **Stream** (long-lived connection), with an interruptible reconnect |
+| Identity | `clientId` + `robotCode` |
+| Credentials | `clientSecret` inline or in a file, owner-only |
+| Capabilities | `idempotency: none`, `maxChars: 5000`, `markdown: true`, `proactive: false` |
+| Honest weakness | outbound is **at-least-once**: there is no server-side idempotency key and the session webhook cannot dedupe a retry, so a retry may duplicate. The kind declares this instead of pretending |
+| Known gap | the Stream transport needs a `dingtalk-stream` SDK injected as `connect`; without it the kind registers but does not start |
+
+### 3.5 WeCom — `chat/wecom`
+
+| Aspect | Detail |
+| --- | --- |
+| What it listens to | the application's messages: group chats by `chatid`, and direct messages |
+| Transport | **webhook** (signed, encrypted callback) |
+| Identity | `corpId` + `agentId` |
+| Credentials | `corpSecret` inline or in a file; `encodingAesKeyFile` holds the 43-character EncodingAESKey |
+| Crypto | signature check, AES-CBC decryption, replay rejection (a redelivered message yields no second event) |
+| Capabilities | `idempotency: none`, `maxChars: 2048`, `markdown: false`, `proactive: true` |
+| Honest weakness | outbound is at-least-once; the message API has no idempotency key |
+| Known gap | the callback needs a public reverse-proxied route; only the pure `handleWebhook` function exists today |
+
+## 4. The WeChat sidecar
+
+A separate Python process (standard library only) on `127.0.0.1`, authenticated with a bearer token
+read from an owner-only file. The contract is frozen and versioned; the Node side is the reference
+consumer.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /health` | whether the sidecar and its backend are usable, plus `capabilities` |
+| `GET /status` | the signed-in account, and the mention name being judged against |
+| `GET /rooms` | the chats the backend **can see** (the picker's candidates), not the ones it watches |
+| `GET /members?room=` | the people it has seen in that chat (or the full roster, per capability) |
+| `GET /messages?room=&cursor=&limit=` | events since a cursor, with a `next` cursor |
+| `POST /send` | send text, optional quote, optional `Idempotency-Key` |
+| `GET /media/<id>` | one message image's bytes; `404` when gone, `501` when the build cannot download |
+| `POST /listen` | replace the watched set; idempotent, acts only on the difference |
+
+Invariants the contract keeps:
+
+- **`ats` is never derived from the message body.** A backend that cannot produce a mention list says
+  so; it does not fall back to matching `@name` in the text.
+- **`/media` never returns zero bytes with 200.** An empty payload is `404`.
+- **`/send` is serialized** process-wide with at least one second between sends, and `/media` shares
+  that lock, because both drive the same client UI.
+- **`/rooms` is read-only.** It never starts a listener as a side effect.
+- **The bearer token never appears in a log line.**
+
+## 5. WeChat backend tiers
+
+### 5.1 The ladder
+
+| Tier | Backend | When it applies |
 | --- | --- | --- |
-| L0 | `wxauto` / `wxauto4` / `wxautox4` (UIAutomation) | default; needs an interactive Windows desktop session |
-| L1 | `wxhelper`-class hook | L0 blocked by window or version limits |
-| L2 | `WeChatPadPro` (iPad protocol) | no Windows machine available |
-| L3 | hosted API | everything else is down and the business cannot stop |
+| L0 | `wxauto` / `wxauto4` / `wxautox4` (UI automation) | default; needs an interactive Windows desktop session |
+| L1 | a `wxhelper`-class hook | L0 blocked by window or version limits |
+| L2 | a `WeChatPadPro`-class iPad protocol service | no Windows machine available |
+| L3 | a hosted API | everything else is down and the work cannot stop |
 
-Three facts learned the hard way, all recorded in this branch's behaviour:
+Only **L0** is implemented. L2 is a stub that answers `available: false` and `501` on data endpoints,
+so switching to it later is a configuration change plus a restart, not a code change.
 
-1. **The client generation decides the package.** WeChat 4.x (`Weixin.exe`, `Qt51514QWindowIcon`)
-   has no 3.9 accessibility tree; `wxauto` 3.9 cannot attach to it. Use `wxauto4`/`wxautox4`, or pin
-   the client to 3.9.11.17.
-2. **The probe must run in the same interactive desktop session as the client.** From SSH, a
-   service or a disconnected RDP session it sees no window at all.
-3. **Group `@` is never keyed on text.** Scope reads a structured `ats`/mention list; a renamed bot
-   must keep working. A backend that cannot expose such a list is not eligible — that rule is why
-   the backend is a ladder instead of a single dependency.
+### 5.2 Group `@`, and why it is graded
 
-## Message images
+WeChat 4.x exposes **no structured mention list**: the message bubble is a flat accessibility leaf
+(`childCount == 0`, no text/value/legacy pattern), and the message object carries no mention field. So
+a group `@` is read from the client's **own markup** — a name picked from the mention list is followed
+by `U+2005` (four-per-em space), while a typed `@name` uses `U+0020` — plus `@所有人`.
 
-An image posted in a group is often the whole bug report. The path:
+That is stronger than substring matching, and weaker than a structured list, so the capability report
+says which it is:
 
-```
-sidecar /messages  →  ChatEvent.media  →  Trigger.meta.media
-                   →  threadContext.read() appends [image:<id>]
-                   →  images(text) extracts it  →  image() downloads  →  attachment for the model
-```
+| Value | Meaning |
+| --- | --- |
+| `structured` | the client gave a mention list (the `fake` reference backend, and future L1/L2) |
+| `markup` | the client's own markup, resolved against this account (L0 today) |
+| `none` | the backend cannot tell at all |
 
-Guarantees: media is judged by **magic bytes**, never by the remote content type; payloads beyond
-the attachment byte limit or of an unknown format are refused **before** anything is saved; `/media`
-shares one UI lock with `/send`; a backend without `ImageMessage.download()` answers `501` and
-reports no media rather than handing out ids it cannot fetch.
+The account's own display name is reread on a 60-second TTL, forced on every `/listen`, and refreshed
+on the polling path, so renaming the account heals without a restart. A failed read keeps the old name
+rather than clearing it — clearing would make detection never match, which is worse than a stale name.
 
-## Verification status
+### 5.3 What L0 cannot supply
 
-Measured on this branch (node 22.23.2):
+| Contract field | L0 reality |
+| --- | --- |
+| `room` (chatroom id) | not available; chats are named `wxname_<sha1(display name)[:16]>` |
+| `sender.id` | a display name, namespaced the same way; `sender_info()` returns a WeChat ID, lags one message and is sometimes null |
+| `at` (message time) | the client's time separators where they exist, otherwise the receive time |
+| `/members` | only the senders seen so far (`members: observed`) |
 
-```bash
-tsc --noEmit                      # 0
-vitest run --maxWorkers=2         # 83 files (80 passed + 3 skipped) / 1435 tests (1421 passed + 14 skipped), 0 failed
-tsdown                            # build complete, 8 entries: index + 7 watch plugins
-LIVE=1 vitest run tests/live      # 13 passed + 1 skipped against real services
-```
+The namespacing is deliberate: it keeps the settings' id patterns strict instead of widening them to
+accept a display name, and `refreshLabels` resolves the ids back to names for the panel's pickers. The
+cost is that renaming a chat changes its id.
 
-Verified against real things, not mocks only:
+## 6. Adding a provider
 
-- a real sidecar process over loopback: six endpoints, idempotent send, `0600` token, `/media` PNG
-- real `gitlab.com` public API: merge-request mapping; a bogus token maps to 401 without echoing it
-- real WeCom / DingTalk / Yunxiao: authentication failures surfaced as diagnosable errors
-- the panel data layer: two instances of one kind, deleting one, legacy settings without `kind`
+1. Implement the port. For chat, an adapter needs: list chats, read messages since a cursor, send, and
+   (optionally) download media. For work, list/read/comment. For hosting, change requests, notes, CI.
+2. Declare `capabilities` honestly — `idempotency` (`keyed` / `marker` / `none`), `maxChars`,
+   `markdown`, `proactive`. The panel shows these; a wrong value becomes a wrong promise.
+3. Write the `kind` with its schema, its fields (every schema key needs a field), its `scope` rule and
+   its environment variables.
+4. Add a `*-watch.ts` plugin entry and a `cordis.patch.yml` insert with `disabled: true`.
+5. Add the file rows to `docs/007-architecture.md` — `tests/docs.spec.ts` fails if a module or a spec
+   file is missing from those tables.
+6. Add a spec. Live behaviour goes in `tests/live/*.live.spec.ts` behind `LIVE=1`.
 
-**Not verified, and not claimed here:**
+## 7. Verification matrix
 
-- WeChat against a real client: whether a structured `@` list exists is still open, and it decides
-  L0 vs L2
-- any write against a real code host or work item (no credentials here)
-- WeCom callback over a public reverse proxy; DingTalk Stream without its SDK plugged in
-- WeCom/DingTalk message images (only the WeChat path is implemented)
+| What | How it is proven |
+| --- | --- |
+| the whole suite | `vitest run --maxWorkers=2`, green on macOS arm64 and Windows 11 |
+| the WeChat contract | a real sidecar process over loopback: 9 live cases (endpoints, `ats`, idempotent send, image bytes, `/listen`) |
+| the WeChat client | a real WeChat 4.x client: listener callbacks, own identity, send round trip, image download, five markup cases proving a typed `@name` does not count |
+| GitLab | the real `gitlab.com` API: merge-request mapping, a bogus token mapped to 401 without echoing it |
+| WeCom / DingTalk / Yunxiao | real authentication failures surfaced as diagnosable errors, with no secret in the message |
+| the panel data layer | two instances of one channel, deleting one, legacy settings without a channel id |
+| Windows | the measured baseline and the 16 files that failed on a first clone, in [HANDOVER-WIN11.md](HANDOVER-WIN11.md) |
 
-## Conventions to keep when changing this
+**Not verified, and not claimed:** any write against a real code host or work item; the WeCom callback
+over a public reverse proxy; DingTalk Stream with its SDK plugged in; WeChat `structured` mentions
+(no tier that provides them is implemented); WeCom/DingTalk message images.
 
-- **Never key `@` on text.** Read the structured mention list; if a backend has none, it is out.
+## 8. Conventions to keep
+
+- **Never key `@` on text.** Scope reads `ats`. A backend may derive `ats` from the client's own
+  markup, but the strength must be declared in `capabilities.mentions`, so a person can see whether a
+  group `@` is proof or a hint.
 - **One writer per state.** Sources change a Ticket only through `SourceContext.tickets`; health
   entries are claimed per instance; the outbox alone writes receipts.
-- **Idempotency is declared.** `capabilities.idempotency` is `keyed` / `marker` / `none`, and the
-  panel shows what the code really does; WeCom is at-least-once and says so.
-- **Secrets come from files**, read per call with a `0600` check, and never appear in a message.
-- **`src/sources` does not import `src/app`.** Types that both sides need live in `src/sources`.
+- **Idempotency is declared.** `keyed` / `marker` / `none`, and the panel shows what the code does.
+- **Secrets come from files**, read per call, owner-only, and never appear in a message or a log line.
+- **Backend differences stay in the sidecar.** Identity normalisation belongs there, not in the
+  settings schema.
+- **`src/sources` does not import `src/app`.** Types both sides need live in `src/sources`.
+- **No personal data, no machine-specific paths.** Placeholders in docs and fixtures; flags or
+  environment variables for paths.
 
-## Where things are
+## 9. License
 
-| Path | What |
-| --- | --- |
-| `src/sources/instance.ts` | instance id vs kind id, and the compatibility helper |
-| `src/sources/{hosting,work,chat}/port.ts` | the three provider contracts |
-| `src/sources/{weixin,gitlab,projex,dingtalk,wecom}-watch.ts` | the optional plugins |
-| `src/infra/{hosting-api,yunxiao-api}.ts` | token-file HTTP clients with path allowlists |
-| `cordis.patch.yml` | the five inserts, all `disabled: true` |
-| `docs/007-architecture.md` | upstream's module and test tables, extended for every new file |
-| `tests/live/*.live.spec.ts` | live suites, gated by `LIVE=1` |
-
-## License
-
-Upstream is MIT and a research prototype. This fork keeps that license and adds no guarantees.
-WeChat automation through UI Automation is third-party tooling: it is not authorised by Tencent,
-may be limited by the client or the platform, and must stay inside the boundaries above — reply
-only when addressed, never broadcast, never bulk-add contacts.
+MIT, the same as the prototype this edition grew from; the upstream copyright notice is kept. WeChat
+automation through UI automation is third-party tooling: it is not authorised by Tencent, may be
+limited by the client or the platform, and must stay inside the boundaries recorded in
+[ADR-005](docs/extensions/ADR-005-weixin-backend.md) — reply only when addressed, never broadcast,
+never bulk-add contacts, one account signed in at a time.
