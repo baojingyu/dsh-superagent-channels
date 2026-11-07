@@ -1,6 +1,6 @@
 # SETUP
 
-Instructions for an agent that sets up dsh-superagent with its operator. If you are a person, ask your coding agent to read this file and follow it.
+Instructions for an agent that sets up open-dsh-superagent with its operator. If you are a person, ask your coding agent to read this file and follow it.
 
 ## How to run the setup
 
