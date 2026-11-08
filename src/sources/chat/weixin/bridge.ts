@@ -247,11 +247,22 @@ export function createBridgeClient(options: BridgeOptions): BridgeClient {
     return { status: response.status, body }
   }
 
-  /** Turns a non-2xx answer into the error the caller expects: `unauthorized`, a retryable 502, or a plain failure. */
+  /** The first non-empty line of a backend note, capped, so a multi-line reason still fits a message. */
+  function headline(value: string): string {
+    const line = value.split('\n').map(part => part.trim()).find(part => part !== '') ?? ''
+    return line.length > 200 ? `${line.slice(0, 197)}...` : line
+  }
+  /**
+   * Turns a non-2xx answer into the error the caller expects: `unauthorized`, a retryable 502, or a plain failure. The
+   * backend's `detail` is carried along: it is where the reason lives, and a person reading a panel needs the reason, not
+   * just the status code.
+   */
   function failure(status: number, body: unknown, what: string): Error {
     if (status === 401) return new Error('unauthorized')
-    const code = text(record(body).error)
-    const error = new Error(`${what} failed with ${status}${code ? ` (${code})` : ''}`)
+    const answered = record(body)
+    const code = text(answered.error)
+    const detail = headline(text(answered.detail))
+    const error = new Error(`${what} failed with ${status}${code ? ` (${code})` : ''}${detail ? `: ${detail}` : ''}`)
     if (status === 502) (error as Error & { retryable?: boolean }).retryable = true
     return error
   }

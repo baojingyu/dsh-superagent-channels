@@ -164,6 +164,19 @@ describe('createBridgeClient', () => {
     expect((error as Error & { retryable?: boolean }).retryable).toBe(true)
   })
 
+  it('carries the backend\'s own reason into the message, so a panel shows why and not only that', async () => {
+    // The bridge answers 502 with `detail` holding the real cause, such as an unattachable client. Losing it turns a
+    // precise "your WeChat client is not signed in" into a useless "unavailable".
+    const { fetchFn } = stubFetch({
+      '/rooms': () => reply({ error: 'unavailable', detail: 'attach failed: no signed-in main window found\nretrying every 30s' }, 502),
+    })
+    const error = await client(fetchFn).rooms().catch((reason: unknown) => reason)
+    expect((error as Error).message).toContain('502')
+    expect((error as Error).message).toContain('no signed-in main window found')
+    // One line only: the panel has a toast, not a log viewer.
+    expect((error as Error).message).not.toContain('\n')
+  })
+
   it('throws when the bridge does not answer within its timeout', async () => {
     const fetchFn = ((_input: unknown, init: RequestInit) => new Promise<Response>((_resolve, reject) => {
       init.signal?.addEventListener('abort', () => reject(new DOMException('The operation was aborted.', 'AbortError')))
