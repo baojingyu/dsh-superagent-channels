@@ -85,13 +85,13 @@ are the detail.
 
 | Aspect | Detail |
 | --- | --- |
-| What it listens to | the chats configured in the panel, plus direct messages |
+| What it listens to | the chats configured in the panel: groups (judged on the structured `@`) and direct chats (a direct message needs no mention to be addressed to the bot) |
 | Transport | polling the sidecar (`pollSeconds`, minimum 5) which is itself **push-fed** by the client's listener |
 | Identity | `selfWxid` is the account whose `@`s count; chats and senders are the sidecar's ids |
 | Credentials | the sidecar's bearer token in a file, owner-only |
 | Group `@` | decided on `ats`, never on the message body — see §5.2 |
 | Outbound | text, **keyed** idempotency (the OutboundMessage id is sent as `Idempotency-Key`), quoted replies, ≥1 s serialized spacing |
-| Inbound media | images, downloaded through the sidecar and judged by magic bytes |
+| Inbound media | images, downloaded through the sidecar and judged by magic bytes; groups and direct chats share one `/media` path |
 | Config from the panel | `POST /listen` replaces the watched set; adding or removing a chat needs no restart |
 
 ### 3.4 DingTalk — `chat/dingtalk`

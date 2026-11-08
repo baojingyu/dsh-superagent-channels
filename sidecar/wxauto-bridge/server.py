@@ -604,6 +604,9 @@ class PcUiaBackend(Backend):
         self._queue_lock = threading.Lock()
         self._observed: "OrderedDict[str, OrderedDict]" = OrderedDict()
         self._room_names: "dict[str, str]" = {}
+        # Chat id -> the client's own `chat_type`. A direct chat reports `room: ""` in its events while
+        # the panel stores the person's id, so the mapping between the two has to be remembered.
+        self._chat_kind: "dict[str, str]" = {}
         self._rooms_note = ""
         self._rooms_cache = []        # last answer /rooms served, so a repeat press is instant
         self._rooms_cache_at = 0.0
@@ -674,10 +677,24 @@ class PcUiaBackend(Backend):
         return room_id
 
     def _normalize_room(self, room: str) -> str:
-        """`/messages` 的 `room` 既接受 `wxname_…` 也接受显示名；空串 = 单聊。"""
+        """`/messages` / `/media` 的 `room`：空串 = 单聊；`wxname_…` 或显示名 = 该会话。
+
+        单聊事件的 `room` 是空串（契约如此），而面板里存的是那个人的 `wxname_…`。所以这里要把
+        「人」的 id 映射回单聊流，否则按人 id 取永远是空的。判断依据是消息到达时客户端报的
+        `chat_type`；还没见过消息时退化为「不在最近群列表里就不是群」，且只在群列表非空时采用。
+        """
         if not room:
             return ""
-        return room if room.startswith("wxname_") else wxname(room)
+        room_id = room if room.startswith("wxname_") else wxname(room)
+        kind = self._chat_kind.get(room_id, "")
+        if kind == "friend":
+            return ""
+        if kind == "group":
+            return room_id
+        name = self._room_names.get(room_id) or room
+        if self._recent_groups_cache and name not in set(self._recent_groups_cache):
+            return ""
+        return room_id
 
     # -- 身份（判据名） ---------------------------------------------------
     def _refresh_identity(self, wx, force: bool = False) -> None:
@@ -926,6 +943,8 @@ class PcUiaBackend(Backend):
             chat_type = str(field(chat, "chat_type") or "")
             who = str(field(chat, "who") or field(chat, "_last_chat") or "")
             room = self._room_id_for(who) if chat_type == "group" else ""
+            if who and chat_type:
+                self._chat_kind[wxname(who)] = chat_type
             if kind == "time":
                 # 时间分隔符不是消息：记下来给后续事件当 `at`，自己不进事件流。
                 marker = _marker_time(msg)

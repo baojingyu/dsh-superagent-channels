@@ -215,6 +215,14 @@
 
 `/health.capabilities` 是这些能力的机器可读形式（见 §3.1）：L0 上 `mentions:"markup"`、`members:"observed"`。
 
+**单聊怎么读（L0）**：单聊事件的 `room` 是 **空串**（契约如此），而面板里存的是那个人或那个会话的
+`wxname_…`。所以 `/messages` 与 `/media` 的 `room` 接受三种写法：空串、`wxname_…`、显示名；后两者会被
+映射回单聊流。判断依据是消息到达时客户端报的 `chat_type`，还没见过消息时退化为「不在最近群列表里就不是群」。
+
+> **已知限制**：所有单聊共用 `room: ""` 这一条流，所以多个人的私信在 sidecar 侧是混在一起的。Node 侧按
+> 发送人分线程（`threadRoot = senderId`），并按消息 id 去重，所以不会串错、也不会重复；代价是配置了 N 个
+> 单聊时，每轮会看到这 N 个人混在一起的页面。
+
 **`/rooms` 的语义（L0）**：返回 `GetAllRecentGroups()` 的群 + `GetSession()` 里的会话，按显示名排序
 （`GetSession()` 是 MRU 序，新消息一来就抖，面板下拉需要稳定顺序），上限 500 条；超过时在
 `/health` 与 `/status` 的 `detail` 里说明截断了多少。**它不反映订阅状态**：`/rooms` 全量列出候选，
