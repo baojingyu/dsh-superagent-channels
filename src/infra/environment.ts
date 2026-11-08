@@ -80,8 +80,15 @@ export async function writeEnvironment(deployment: Pick<Deployment, 'stateDir' |
   const { stateDir, repository, github, feishu } = deployment
   const dir = workerBin(stateDir)
   await mkdir(dir, { recursive: true })
-  const before = await readdir(dir)
-  for (const name of before) { const file = join(dir, name); if (!await written(file)) throw new SetupError('foreignFile', { file }) }
+  // Editor metadata (`.idea`, `.vscode`) appears when someone opens this directory in an IDE. It is a directory, so it
+  // cannot shadow a command on PATH, and refusing it would stop every Source from running; anything else that is not ours
+  // is still refused.
+  const before = (await readdir(dir, { withFileTypes: true }))
+    .filter(entry => !(entry.isDirectory() && entry.name.startsWith('.')))
+  for (const entry of before) {
+    const file = join(dir, entry.name)
+    if (!await written(file)) throw new SetupError('foreignFile', { file })
+  }
   // Workers may be running concurrently: write each shim to a temp file and atomically rename it so no command ever resolves past the shim directory.
   const kept = new Set<string>()
   const shim = async (name: string, body: string): Promise<void> => {
@@ -102,7 +109,7 @@ export async function writeEnvironment(deployment: Pick<Deployment, 'stateDir' |
   for (const name of new Set(blockedCommands.filter(name => !WORKER_COMMANDS.includes(name)))) {
     await shim(name, fail(`${name} is blocked in this installation; use gh, which acts as ${github.login}.`))
   }
-  for (const name of before) if (!kept.has(name)) await unlink(join(dir, name))
+  for (const entry of before) if (!kept.has(entry.name)) await unlink(join(dir, entry.name))
   await own(workerGitConfig(stateDir), [
     MARKER,
     // Make git refuse to commit without an explicit identity set by the worker instead of guessing from the operator's OS user.

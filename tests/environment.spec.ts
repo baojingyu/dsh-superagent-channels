@@ -90,6 +90,19 @@ describe('worker shims', () => {
     await expect(writeEnvironment(testDeployment({ stateDir: dir }), [])).rejects.toThrow(`${workerGitConfig(dir)} was not written by dsh-superagent`)
     expect(readFileSync(workerGitConfig(dir), 'utf8')).toBe('[user]\n\tname = someone\n')
   })
+  it('ignores an editor\'s dot-directory but still refuses any other foreign entry', async () => {
+    await writeEnvironment(testDeployment({ stateDir: dir }), [])
+    const bin = workerBin(dir)
+    // Opening the state directory in an IDE writes this; it cannot shadow a command, so the shims are still written.
+    mkdirSync(join(bin, '.idea'))
+    writeFileSync(join(bin, '.idea', 'worker-bin.iml'), '<module/>')
+    await writeEnvironment(testDeployment({ stateDir: dir }), [])
+    expect(readdirSync(bin).sort()).toEqual(['.idea', 'gh', 'lark-cli'])
+    // A directory that is not dot-prefixed is still refused: that is where a fake shim could live.
+    mkdirSync(join(bin, 'idea'))
+    await expect(writeEnvironment(testDeployment({ stateDir: dir }), [])).rejects.toThrow(/was not written by dsh-superagent/)
+    rmSync(join(bin, 'idea'), { recursive: true, force: true })
+  })
   it('replaces the files it wrote under the project\'s earlier names', async () => {
     await writeEnvironment(testDeployment({ stateDir: dir }), ['old-cli', 'older-cli'])
     const legacy = (file: string, name: string) => writeFileSync(file, readFileSync(file, 'utf8').replace('Written by dsh-superagent', `Written by ${name}`))
