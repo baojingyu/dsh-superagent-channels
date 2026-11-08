@@ -56,6 +56,11 @@ VOICE_TIMEOUT_S = 8.0
 # client's UI up to VOICE_TIMEOUT_S per voice message; turning images off keeps `media` empty and leaves the
 # `[图片]` placeholder in the text.
 INBOUND_DEFAULTS = {"voice": True, "images": True}
+# A listener that has delivered nothing for this long, while it is supposed to be listening, is treated as stale.
+LISTENER_QUIET_S = 600.0
+# At most one re-attach per window: a chat that is simply silent must not turn into a fight with the client.
+LISTENER_REATTACH_GAP_S = 900.0
+WATCHDOG_TICK_S = 60.0
 ISO_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 # 非文本消息的空 content 占位：绝不产出 `text: ""` 的空事件
@@ -611,6 +616,11 @@ class PcUiaBackend(Backend):
         self._queue_lock = threading.Lock()
         self._observed: "OrderedDict[str, OrderedDict]" = OrderedDict()
         self._room_names: "dict[str, str]" = {}
+        # Listener liveness: when a real event last arrived, when we last re-attached, and how often.
+        self._last_inbound_at = time.monotonic()
+        self._last_reattach_at = 0.0
+        self._reattach_count = 0
+        self._watchdog: "threading.Thread | None" = None
         # Chat id -> the client's own `chat_type`. A direct chat reports `room: ""` in its events while
         # the panel stores the person's id, so the mapping between the two has to be remembered.
         self._chat_kind: "dict[str, str]" = {}
@@ -760,6 +770,11 @@ class PcUiaBackend(Backend):
         for note in (self._rooms_note, getattr(self, "_rooms_at_note", "")):
             if note:
                 parts.append(note)
+        if self._listen_names:
+            quiet = int(time.monotonic() - self._last_inbound_at)
+            parts.append("监听 %d 个会话，最近事件 %d 秒前" % (len(self._listen_names), quiet))
+        if self._reattach_count:
+            parts.append("监听已自动重挂 %d 次（客户端界面卡住，或另一个 UI 自动化工具抢过窗口）" % self._reattach_count)
         return "；".join(parts)
 
     # -- 挂载与监听（全部在主线程上执行） ---------------------------------
@@ -781,6 +796,59 @@ class PcUiaBackend(Backend):
         except TypeError:
             wx.AddListenChat(name, self._on_message)
         self._room_id_for(name)
+
+    def _reattach_if_quiet(self, wx) -> None:
+        """Re-attach a listener that has gone silent. **Main thread only.**
+
+        The client can stop delivering without the process noticing: `AddListenChat` still answers, `StartListening` still
+        returns, and the only symptom is that nothing arrives - which looks exactly like a quiet chat. So a stale attach
+        is inferred from silence, re-attached once per window, and reported in `detail()`.
+        """
+        if not self._listen_names or not self._listening:
+            return
+        now = time.monotonic()
+        if now - self._last_inbound_at < LISTENER_QUIET_S:
+            return
+        if now - self._last_reattach_at < LISTENER_REATTACH_GAP_S:
+            return
+        self._last_reattach_at = now
+        for name in list(self._listen_names):
+            try:
+                self._remove_listen(wx, name)
+            except BaseException:
+                pass
+            try:
+                self._add_listen(wx, name)
+            except BaseException:
+                if self.verbose:
+                    traceback.print_exc()
+        try:
+            wx.StartListening()
+            self._listening = True
+        except BaseException:
+            if self.verbose:
+                traceback.print_exc()
+        self._reattach_count += 1
+        self._last_inbound_at = now
+
+    def _start_listener_watchdog(self) -> None:
+        """Runs the quiet check on a timer, submitting it to the main thread like every other WeChat call."""
+        if self._watchdog is not None:
+            return
+        # The base loop creates this lazily, and `_setup_wx` runs before it does.
+        event = getattr(self, "_stop_event", None)
+        if event is None:
+            event = self._stop_event = threading.Event()
+
+        def loop() -> None:
+            while not event.wait(WATCHDOG_TICK_S):
+                try:
+                    self._executor.call(lambda wx: self._reattach_if_quiet(wx), timeout=120.0)
+                except BaseException:
+                    pass
+
+        self._watchdog = threading.Thread(target=loop, daemon=True, name="wxbridge-listener-watchdog")
+        self._watchdog.start()
 
     def _remove_listen(self, wx, name: str) -> None:
         removed = False
@@ -833,6 +901,8 @@ class PcUiaBackend(Backend):
             notes.append("StartListening 失败: %s" % error)
         if not self._listen_names:
             notes.append("未配置 --listen：监听模式下不会收到任何消息")
+        self._last_inbound_at = time.monotonic()
+        self._start_listener_watchdog()
         self._warm_rooms_in_background()
         return "；".join(notes)
 
@@ -992,6 +1062,7 @@ class PcUiaBackend(Backend):
                 while len(self._raw) > 256:
                     self._raw.pop(next(iter(self._raw)), None)
             self._last_event_at = event["at"]
+            self._last_inbound_at = time.monotonic()
             self._observe(room, event["sender"])
             if self.verbose:
                 sys.stderr.write("[listen] %s room=%r %s\n" % (event["nativeId"], room, chat_type))

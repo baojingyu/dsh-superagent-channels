@@ -101,6 +101,13 @@ are the detail.
 | Still-working note | after the receipt, if the bot has said nothing in that chat, one note every `progressAfterSeconds`, at most 3; it stops as soon as the bot speaks |
 | Config from the panel | `POST /listen` replaces the watched set; adding or removing a chat needs no restart |
 
+> **One UI-automation client per machine.** A listener is only as alive as the client's window: when the window is
+> stuck, or another tool of this kind drives it, `AddListenChat` and `StartListening` still answer while the callback
+> stops firing - which looks exactly like a quiet chat. So ten minutes without a real event is treated as a stale
+> attach: every watched chat is removed and re-added and `StartListening` is called again, at most once per fifteen
+> minutes. `/health`'s `detail` reports `recent event K s ago` and `re-attached M times`; a rising M means something
+> else is taking the window.
+
 ### 3.4 DingTalk — `chat/dingtalk`
 
 | Aspect | Detail |
