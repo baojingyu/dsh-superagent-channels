@@ -141,12 +141,11 @@ describe('weixinKind channel', () => {
     expect(weixinKind.channel!.allowed!({ room: 'room-2' }, config)).toBe(false)
   })
 
-  it('allows a reply to a direct message by the person, because a direct chat carries no room', () => {
-    // A direct message is one conversation per person and its events have `room: ''`, so the address falls back to the
-    // sender. The configuration names that person, which is what the row in the panel holds.
-    const withPerson = { ...config, rooms: [{ id: 'wxname_person', name: '<成员>' }] }
-    expect(weixinKind.channel!.allowed!({ room: '', wxid: 'wxname_person' }, withPerson)).toBe(true)
-    expect(weixinKind.channel!.allowed!({ room: '', wxid: 'wxname_stranger' }, withPerson)).toBe(false)
+  it('answers a direct message without a chat entry, and still gates a group by its row', () => {
+    // A direct message arrives without configuration, so the person is not listed twice: the Policy decides who may
+    // work, and answering a person who wrote to the bot needs no entry anywhere else.
+    expect(weixinKind.channel!.allowed!({ room: '', wxid: 'wxname_person' }, config)).toBe(true)
+    expect(weixinKind.channel!.allowed!({ room: '', wxid: 'wxname_stranger' }, config)).toBe(true)
     // A group reply is still judged on the room alone.
     expect(weixinKind.channel!.allowed!({ room: 'room-1', wxid: 'wxname_person' }, config)).toBe(true)
     expect(weixinKind.channel!.allowed!({ room: 'room-2', wxid: 'wxname_person' }, config)).toBe(false)
@@ -206,14 +205,12 @@ describe('weixinKind channel', () => {
 })
 
 describe('weixinKind policy', () => {
-  it('warns when chats are received but nobody may originate work, and stays quiet otherwise', () => {
+  it('warns while nobody may originate work, and stays quiet once someone may', () => {
     const warnings = weixinKind.policy!.warnings!
-    const rooms = [{ id: 'wxname_person', name: '<成员>' }]
-    expect(warnings({ rooms }, { allowed: [] })).toHaveLength(1)
-    // Nothing configured to receive: no gap to warn about.
-    expect(warnings({ rooms: [] }, { allowed: [] })).toHaveLength(0)
-    // Someone is listed: whatever else is wrong, this is not it.
-    expect(warnings({ rooms }, { allowed: [{ id: 'wxname_person' }] })).toHaveLength(0)
+    // People are configured in one place only, so an empty list is the whole story: every message is refused.
+    expect(warnings({ rooms: [{ id: 'room-1' }] }, { allowed: [] })).toHaveLength(1)
+    expect(warnings({}, { allowed: [] })).toHaveLength(1)
+    expect(warnings({ rooms: [{ id: 'room-1' }] }, { allowed: [{ id: 'wxname_person' }] })).toHaveLength(0)
   })
 
   it('puts allowed first and accepts wxid lists while refusing duplicates and malformed IDs', () => {

@@ -15,6 +15,11 @@ const WXID_PATTERN = /^[A-Za-z0-9_-]+$/
 const RoomsSchema = z.array(z.object({
   id: z.string().trim().regex(WXID_PATTERN, 'Invalid chatroom ID'),
   name: z.string().trim().max(60).optional(),
+  /**
+   * `yes` lets this row's sender originate work. A direct chat is that person, so they are configured here once instead of
+   * twice - in this list and again in the Policy's list of people who may ask.
+   */
+  allow: z.enum(['yes', 'no']).default('no'),
 }).strict()).default([])
 export const WeixinConfigSchema = z.object({
   /** Loopback address of the wxauto-bridge sidecar; the bridge never listens beyond 127.0.0.1. */
@@ -76,13 +81,16 @@ const Fields: FieldSpec[] = [
     hint: { zh: '保存 sidecar bearer token 的文件路径；文件权限必须是 0600，否则客户端拒绝读取。', en: 'Path of the file holding the sidecar bearer token; it must have mode 0600 or the client refuses to read it.' } },
   { key: 'selfWxid', type: 'text', pattern: '^[A-Za-z0-9_\\-]+$', label: { zh: '本账号 wxid', en: 'This account wxid' },
     hint: { zh: '群 @ 判定和自消息识别都以它为准，昵称改了也不会失效。', en: 'Group @-detection and own-message detection are judged against it, so a renamed account still works.' } },
-  { key: 'rooms', type: 'rows', label: { zh: '接收的群与私聊', en: 'Chats and direct messages' },
-    hint: { zh: '只接收这些会话里发给机器人的消息。选**群**＝群聊（按 @ 判定），选**一个人**＝私聊（私聊不需要 @，收到就当作找机器人）。ID 必须是桥给出的稳定标识（形如 wxname_…），不能填昵称；点「刷新会话列表」从桥能看到的会话里挑，再保存。第二列的「名字」只是给人看的标签，选中后会自动填，留空也可以。', en: 'Receives only the messages to the bot in these chats; the chat ID must be the stable ID the bridge reports (a backend without stable IDs names them wxname_…), never a nickname. Press "Refresh chats" to pick from what the bridge can see, then save.' },
+  { key: 'rooms', type: 'rows', label: { zh: '接收的群', en: 'Groups to receive' },
+    hint: { zh: '这里只填**群**：这些群里发给机器人的消息会被接收（按结构化 @ 判定，不看文本里的 @昵称）。**私聊不需要在这里配**——私聊本来就收得到，而「谁能发起工作」统一在「评估 → 策略 → 在各来源上」的名单里配一次。ID 必须是桥给出的稳定标识（形如 wxname_…），不能填昵称；点「刷新会话列表」从桥能看到的会话里选。',
+      en: 'Groups only: messages to the bot in these groups are received (judged on the structured @ list, never on @name in the text). A direct message needs no entry here - it arrives anyway - and the list of people who may originate work lives in one place: Eval -> Policy -> per Source.' },
     columns: [
       { key: 'id', type: 'text', label: { zh: '群 ID', en: 'Chat ID' }, pattern: '^[A-Za-z0-9_\-]+$',
         choose: { zh: '选择桥能看到的会话', en: 'Choose a chat the bridge can see' },
         refresh: { zh: '刷新会话列表', en: 'Refresh chats' } },
       { key: 'name', type: 'text', label: { zh: '名字', en: 'Name' }, optional: true },
+      { key: 'allow', type: 'select', label: { zh: '允许发起工作', en: 'May originate work' },
+        options: [{ value: 'no', label: { zh: '不允许', en: 'No' } }, { value: 'yes', label: { zh: '允许', en: 'Yes' } }] },
     ] },
   { key: 'atOnly', type: 'switch', label: { zh: '仅接收 @ 的消息', en: 'Receive only @s' },
     hint: { zh: '开启时只接收 @ 机器人的群消息；关闭时也接收其余消息，交评估按规则推断。后端完全无法判定群 @ 时（能力为 none），开启会让群消息全部被过滤，此时应关闭并靠规则与名单准入。', en: 'On receives only messages that mention the bot; off also receives the rest, from which Eval may infer work under the rules. A backend that cannot detect mentions at all (capability `none`) filters every group message while this is on, so turn it off and rely on the rules and the sender list.' } },
@@ -182,13 +190,10 @@ export function createWeixinKind(hooks: WeixinKindHooks = {}): SourceKind<Weixin
         ] },
     ],
     explicit: { zh: '名单内的人 @ 机器人或私聊机器人，总是明确的请求，不需要配置。', en: 'Someone on the list who mentions the bot or messages it directly always makes an explicit request; that needs no setting.' },
-    // The two settings are easy to confuse: "接收的群与私聊" decides what arrives, this list decides who may ask for anything.
-    // Configuring the first and forgetting the second refuses every message, with nothing on screen saying why.
     warnings(config, part) {
-      const rooms = Array.isArray((config as Partial<WeixinConfig>).rooms) ? (config as WeixinConfig).rooms : []
-      if (rooms.length === 0 || part.allowed.length > 0) return []
-      return [{ zh: '这个来源已经配置了接收会话，但「能发起工作的微信用户」是空的：现在任何人发消息都会被判为「名单外」而拒绝。把要接的人加进上面的名单。',
-        en: 'This Source already receives chats, but the list of people who may originate work is empty: every message is refused as coming from an unlisted sender. Add the people you want to work with above.' }]
+      if (part.allowed.length > 0) return []
+      return [{ zh: '「能发起工作的微信用户」是空的：现在任何人发消息都会被判为「名单外」而拒绝。人只在这一个地方配——私聊不需要在「接收的群」里再写一次。',
+        en: 'The list of people who may originate work is empty, so every message is refused as unlisted. People are configured here, once: a direct chat needs no entry among the groups.' }]
     },
   }
   const channel: SourceChannel<WeixinConfig> = {
@@ -200,7 +205,7 @@ export function createWeixinKind(hooks: WeixinKindHooks = {}): SourceKind<Weixin
       files: { maxBytes: 20 * 1024 * 1024 } },
     // A reply goes only to a chat the Source still receives. A direct message carries no room - the direct
     // stream is one conversation per person - so the person's id is what the configuration names.
-    allowed: (address, config) => config.rooms.some(room => room.id === (address.room || address.wxid)),
+    allowed: (address, config) => address.room ? config.rooms.some(room => room.id === address.room) : true,
     send: async (host: ChannelHost, message: OutboundMessage): Promise<'sent' | 'gone'> => {
       const { room = '', wxid = '', quoteId } = message.channel.address
       const config = host.config as WeixinConfig

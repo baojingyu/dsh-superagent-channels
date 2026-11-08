@@ -28,6 +28,7 @@ const unaddressed = (overrides: Partial<Trigger> = {}): Trigger => { const { add
 const github = (login: string, addressed?: 'mention'): Trigger => ({ id: 'g', source: 'github', threads: [{ source: 'github', id: '1' }], actor: { source: 'github', id: login }, human: true, at: '', text: 'x', ...addressed ? { addressed } : {}, meta: { number: 1, isPr: true } })
 const ticket = { id: 'ticket', ended: { at: '', by: 'executor', reason: 'closed', outcome: 'closed' } } as Ticket
 
+
 describe('source scope', () => {
   it('listens to configured chats, reads every message only where configured, and follows the direct-message switch', () => {
     expect(sources.scope(feishu())).toEqual({ listened: true, observed: false, row: CHAT })
