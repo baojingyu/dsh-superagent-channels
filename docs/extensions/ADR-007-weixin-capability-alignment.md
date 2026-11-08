@@ -74,6 +74,8 @@ Chat 公开成员：AddGroupMembers AtAll CancelCall ChatInfo Close EditFriendIn
 | **已实施** | P2：`mentionBack`（sidecar `at`、契约、面板、`verify/mention-check.py`） | sidecar、`bridge.ts`、`kind.ts` | 完成（真机群内未跑，避免在真实群里发言） |
 | **已实施** | P3：`keywords` + `autoReplies` | `scope()`、`weixin-watch.ts`、`ports.ts` | 完成 |
 | **已实施** | P4：即时回执 + 处理中提醒（`acknowledge`/`ackText`/`progressAfterSeconds`） | `weixin-watch.ts` 的 `pollChat`、`kind.ts` | 完成 |
+| **已实施** | P5：监听自愈（10 分钟无事件 → 先摘后挂，每 15 分钟最多一次；`/health` 报「最近事件 / 已重挂次数」） | `server.py` 的 `_reattach_if_quiet`、`_start_listener_watchdog`；`verify/listener-check.py` | 完成 |
+| **已实施** | P6：游标跨重启单调（序号时钟播种 + 响应带 `head`）；客户端游标超前时从头读 | `server.py`、`bridge.ts`、`weixin-watch.ts` | 完成 |
 | — | `quoteStyle: 'text'` | 现状已是「引用写进正文」，没有独立开关 | 不需要 |
 | — | 出站图片/文件 | 需要核心 `OutboundMessage` 附件模型 | 另立 ADR |
 

@@ -18,7 +18,7 @@ GitLab、云效 Projex、微信、钉钉、企业微信，以及同一种通道�
 | 上游 | 本版 |
 | --- | --- |
 | 只有 GitHub | **GitLab**（可自建）：合并请求、评论、流水线 |
-| 只有飞书 | **微信个人号**：群 `@`、消息图片、语音转写 |
+| 只有飞书 | **微信个人号**：群 `@` 与私聊、图片、语音转写、**即时回执与处理中提醒**、**关键词收听/自动回复**、**回复时 @ 发言人**、群与私聊各自的图片/语音开关；**监听哑掉自愈**、**游标跨重启单调** |
 | 没有工作项 | **云效 Projex**：需求 / 缺陷 / 任务、评论、分页 |
 | — | **钉钉** Stream 与**企业微信**加密回调 |
 | 一种通道一个实例 | **同种通道多实例**，配置、健康与游标按实例隔离 |
@@ -26,6 +26,9 @@ GitLab、云效 Projex、微信、钉钉、企业微信，以及同一种通道�
 每个来源插件都会加载，并各自构建成独立入口（`lib/*-watch.js`），所以面板能把它们都列出来；
 跑不跑由卡片上的开关决定，关闭的来源报 `sourceOff` 并空转。启用一个通道 = 打开开关 + 它自己的配置，
 **不需要改 profile**。
+
+微信这条通道的每一项能力、取舍理由，以及真机上踩过的两个坑（一台机器只能有一个 UI 自动化客户端；
+桥重启不能让游标把消息吞掉），都记在 [ADR-007](docs/extensions/ADR-007-weixin-capability-alignment.md)。
 
 逐项功能细节——每个字段、端点、幂等规则、能力状态与已知缺口——见
 [EXTENSIONS.md](EXTENSIONS.md)（中文：[EXTENSIONS.zh-CN.md](EXTENSIONS.zh-CN.md)）。
@@ -37,9 +40,9 @@ GitLab、云效 Projex、微信、钉钉、企业微信，以及同一种通道�
 | 检查 | macOS arm64 / node 22.23.2 | Windows 11 / node 22.21.1 |
 | --- | --- | --- |
 | `tsc --noEmit` | 0 | 0 |
-| `vitest run --maxWorkers=2` | 83 files / 1435 tests / 1421 passed / 14 skipped / 0 失败 | 85 files / 1467 tests / 1431 passed / 36 skipped / 0 失败 |
+| `vitest run --maxWorkers=2` | 83 files / 1435 tests / 1421 passed / 14 skipped / 0 失败（**微信改动前最后一次**） | 85 files / 1479 tests / 1443 passed / 36 skipped / 0 失败 |
 | `tsdown` | 构建成功，8 个入口 | 同左 |
-| `LIVE=1 vitest run tests/live` | 13 passed + 1 skipped | 13 passed + 1 skipped |
+| `LIVE=1 vitest run tests/live` | 13 passed + 1 skipped（改动前） | 14 passed + 1 skipped |
 
 Windows 多出的 21 条跳过逐文件登记在 [HANDOVER-WIN11.md](HANDOVER-WIN11.md) §2：POSIX 服务管理器
 与一条需要活子进程的飞书桩。没有任何一条是为了「让失败消失」而跳过的。

@@ -21,7 +21,7 @@ to detach a copy from the prototype.
 | Upstream | This edition |
 | --- | --- |
 | only GitHub | **GitLab** (self-hosted): merge requests, notes, pipelines |
-| only Feishu | **WeChat** personal account: group `@`, message images, voice transcripts |
+| only Feishu | **WeChat** personal account: group `@` and direct messages, images, voice transcripts, **instant receipt and still-working notes**, **keyword listening and canned replies**, **mention the sender in a reply**, per-chat switches for images and voice; **a listener that re-attaches itself**, and **a cursor that survives a restart** |
 | no work items | **Yunxiao Projex**: requirement / bug / task, comments, paging |
 | — | **DingTalk** Stream and **WeCom** encrypted callback |
 | one instance per channel | **many instances per channel**, with config, health and cursors scoped per instance |
@@ -29,6 +29,10 @@ to detach a copy from the prototype.
 Every Source plugin loads and is built as a separate entry (`lib/*-watch.js`), so the panel can list them all;
 its switch decides which ones run, and a Source that is off reports `sourceOff` and idles. Turning one on is a
 switch in the panel plus whatever setup that Source needs - never a profile edit.
+
+Every capability of the WeChat channel, why it is shaped that way, and the two traps found on real hardware (one
+UI-automation client per machine; a bridge restart must never let the stored cursor swallow the chat) are recorded
+in [ADR-007](docs/extensions/ADR-007-weixin-capability-alignment.md).
 
 Full feature detail — every field, endpoint, idempotency rule, capability state and known gap — is
 in [EXTENSIONS.md](EXTENSIONS.md).
@@ -40,9 +44,9 @@ Measured on `main`, on both platforms this project is developed on:
 | Check | macOS arm64 / node 22.23.2 | Windows 11 / node 22.21.1 |
 | --- | --- | --- |
 | `tsc --noEmit` | 0 | 0 |
-| `vitest run --maxWorkers=2` | 83 files, 1435 tests, 1421 passed, 14 skipped, 0 failed | 85 files, 1467 tests, 1431 passed, 36 skipped, 0 failed |
+| `vitest run --maxWorkers=2` | 83 files, 1435 tests, 1421 passed, 14 skipped, 0 failed (last run **before** the WeChat work) | 85 files, 1479 tests, 1443 passed, 36 skipped, 0 failed |
 | `tsdown` | build complete, 8 entries: index + 7 watch plugins | same |
-| `LIVE=1 vitest run tests/live` | 13 passed + 1 skipped | 13 passed + 1 skipped |
+| `LIVE=1 vitest run tests/live` | 13 passed + 1 skipped (before) | 14 passed + 1 skipped |
 
 The 21 extra Windows skips are recorded per file in [HANDOVER-WIN11.md](HANDOVER-WIN11.md) §2: the
 POSIX service manager and one Feishu stub that needs a live child process. Nothing was skipped to

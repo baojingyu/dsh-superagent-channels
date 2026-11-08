@@ -16,6 +16,7 @@
 | v2 | 基线更新为 `4b7a7f8`（本文档自身所在的提交）；补充 `README.md`/`README.zh-CN.md` 中 sidecar 路径修正的说明；故障速查表新增 `push` 代理抖动（`Proxy CONNECT aborted`）的处理方式 |
 | v3 | Win11 机器上真正跑起来了：§2 基线在 Windows 上**逐条复跑**并补齐 64 个 Windows 专属失败；§3.7 阻塞改为**已修复**（平台守卫 + `icacls` 分工）；§4.1 的 Q1 **已有真机定论：L0 拿不到结构化 `@`**，后端按 ADR-005 落 L2/L1；新增 §4.4 后端能力自述与 L1 证据；§3.2 补充 `dsh-superagent-channels-ext` 在本机的实际位置；速查表新增 Python 解释器与 `sleep` 两条 |
 | v4 | **§4.1 结论修正**：v3 的「L0 不可用」判断是错的——收消息要改用监听模式（`AddListenChat` + `StartListening`），群 `@` 用客户端自己的 mention 标记（`@名` + `U+2005`）判定，`capabilities.mentions` 从布尔改为 `structured`/`markup`/`none` 三态；新增 §4.2 的 `POST /listen`（面板一次配置）与 `wxname_<hash>` 身份；判据名改 60 秒 TTL 重读，**改名不用重启**；ADR-005 §7 记录 L1 密钥突击的实测边界（未拿到密钥，附已排除项与校准方法） |
+| v5 | **微信通道按真机验收补齐并上线**：私聊可读（`room:""` 与「人 id」映射）、私聊图片、`voice`/`images` 开关、`mentionBack`（出站 `at`）、`keywords`/`autoReplies`、**即时回执+处理中提醒**、以及两个只在真机暴露的缺陷——**监听会静默哑掉**（现由「10 分钟无事件」判定并先摘后挂，`/health` 写「最近事件 K 秒前 / 已自动重挂 M 次」）、**桥重启后序号归零把消息吞掉**（序号改由时钟播种，响应新增 `head`，客户端发现游标超前就从头读）。另：面板列出全部来源、未启用的卡片收起。 |
 
 ---
 
