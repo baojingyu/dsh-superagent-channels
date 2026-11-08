@@ -25,6 +25,21 @@ it('shows each Source\'s state on the Source status and opens its settings from 
   expect(all('.dt-card')[1]!.textContent).toContain('部署检查未通过：没有设置智能体的 GitHub CLI。')
 })
 
+it('collapses the card of a Source nobody switched on, and reveals its settings when it is on', async () => {
+  // The panel lists every installed Source, so the ones a person does not use must not spread their settings down the
+  // page. The switch is the only control until it is on; an unsaved edit keeps the fields visible.
+  server.settings.sources.feishu = { ...server.settings.sources.feishu!, enabled: false }
+  await mount()
+  await click(zh['tab.source'])
+  await click(find(zh['tab.settings'], '.dt-status-head button'))
+  const card = () => all('.dt-card')[0]!
+  expect(card().querySelector('.dt-card-title')?.textContent).toBe('飞书')
+  expect(card().textContent).toContain(zh.sourceCollapsedHint)
+  expect(card().querySelectorAll('input, select, textarea')).toHaveLength(0)
+  await click(card().querySelector('button[role="switch"]')!)
+  expect(card().querySelectorAll('input, select, textarea').length).toBeGreaterThan(0)
+})
+
 it('folds more than six chats into a line of their names', async () => {
   const chats = Array.from({ length: 7 }, (_, n) => ({ chatId: n ? `oc_c${n}` : 'oc_team', listen: 'all' as const }))
   server.settings.sources.feishu = { ...server.settings.sources.feishu!, config: { ...server.settings.sources.feishu!.config, chats } }

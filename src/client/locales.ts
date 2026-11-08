@@ -148,6 +148,7 @@ const TEXT = {
   labelsCurrent: ['列表已是最新', 'List is up to date'],
   labelsFailed: ['读取失败，列表保持不变：{error}', 'Could not read the list; it stays as it was: {error}'],
   sourceNotInstalled: ['插件未安装', 'Plugin not installed'],
+  sourceCollapsedHint: ['未启用：打开右上角的开关后，这里才会显示它的配置。', 'Not enabled: switch it on and its settings appear here.'],
   sourceNotInstalledHint: ['提供这个来源的插件没有加载，配置按保存时的样子保留。', 'The plugin that provides this Source is not loaded; its configuration is kept as saved.'],
   sourceEnable: ['运行来源：{name}', 'Run Source: {name}'],
   addRow: ['添加', 'Add'],

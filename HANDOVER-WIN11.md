@@ -30,7 +30,7 @@
 | 备查分支 | 无。`feat/multi-instance-sources` 曾被保留备查，但它没有任何 `main` 里没有的提交（`git log main..<branch>` 为空），已删除；需要时按 SHA `dc614f6` 从历史里取 |
 | 工作树 | 干净（`git status --porcelain` 为空） |
 | 分支拓扑 | `8c32a9d`（上游原型）→ 7 个功能提交 → `692e6b1` merge → `b7bb154` README → `4b7a7f8` v2 文档 → `f2891e8` → v3 移植提交 |
-| 默认启用状态 | 五个新插件在 `cordis.patch.yml` 里全部 `disabled: true` |
+| 默认启用状态 | 所有来源插件都加载并注册；**跑不跑由面板卡片上的开关决定**，关闭时报 `sourceOff` 并空转 |
 
 复核命令（Windows PowerShell，任意目录）：
 

@@ -31,6 +31,9 @@ function SourceCard({ source }: { source: SourceView }) {
     refreshLabels={refreshLabels} fact={spec.type === 'fact' || !changed(spec.key) ? source.facts[spec.key] : undefined}
     onChange={next => draft.edit({ ...value, config: { ...value.config, [spec.key]: next } })} />
   const advanced = source.fields.filter(spec => spec.advanced)
+  // A Source nobody switched on shows its name and its switch, not a wall of settings: the fields appear once it is on,
+  // and an unsaved edit keeps them visible so switching off mid-edit cannot hide what was being typed.
+  const expanded = value.enabled || draft.dirty
   return <form id={`dt-source-${source.id}`} className="dt-card" onSubmit={event => { void draft.submit(event) }}>
     <Fields disabled={draft.busy}>
       <div className="dt-card-head">
@@ -47,8 +50,9 @@ function SourceCard({ source }: { source: SourceView }) {
         <p className="dt-error" role="status"><SetupMessage problem={problem} lead /></p><CheckSetupButton />
       </div>}
       {!source.installed && <Hint>{t('sourceNotInstalledHint')}</Hint>}
-      {source.installed && source.fields.filter(spec => !spec.advanced).map(field)}
-      {source.installed && advanced.length > 0 && <DisclosureRow icon={<Icon name="settings" />} title={t('advanced')} open={advancedOpen}
+      {source.installed && !expanded && <Hint>{t('sourceCollapsedHint')}</Hint>}
+      {source.installed && expanded && source.fields.filter(spec => !spec.advanced).map(field)}
+      {source.installed && expanded && advanced.length > 0 && <DisclosureRow icon={<Icon name="settings" />} title={t('advanced')} open={advancedOpen}
         onToggle={() => setAdvancedOpen(!advancedOpen)}>
         <div className="dt-disclosure-body">{advanced.map(field)}</div>
       </DisclosureRow>}
