@@ -224,8 +224,11 @@ class Backend:
     def messages(self, room: str, cursor: str, limit: int) -> "tuple[list, str]":
         raise Unsupported()
 
-    def send(self, room: str, wxid: str, text: str, quote_id: str = "") -> str:
-        """只发文本；**不接受** `at` 参数 —— 本 sidecar 不做主动 @（`SendMsg(at=[...])` 一律不出现）。"""
+    def send(self, room: str, wxid: str, text: str, quote_id: str = "", at: "list[str] | None" = None) -> str:
+        """只发文本；`at` 是可选的**群内提及**列表（显示名或其 `wxname_` id），单聊忽略。
+
+        入站的 `Message.at` 是「拍一拍」，出站的 `SendMsg(at=[...])` 是提及——同名不同义，别混。
+        """
         raise Unsupported()
 
     def media(self, media_id: str) -> "tuple[bytes, str]":
@@ -316,7 +319,7 @@ class FakeBackend(Backend):
         page = [dict(item) for item in FAKE_MESSAGES[start:start + limit]]
         return page, str(start + len(page))
 
-    def send(self, room, wxid, text, quote_id=""):
+    def send(self, room, wxid, text, quote_id="", at=None):
         if room and room != FAKE_ROOM:
             raise SendGone(room)
         return "fake_" + os.urandom(5).hex()
@@ -1229,8 +1232,13 @@ class PcUiaBackend(Backend):
             return [], (cursor or "0")
         return [event for _, event in page], str(page[-1][0])
 
-    def send(self, room, wxid, text, quote_id=""):
-        """只发文本，且在**主线程**上发（跨线程调微信会让监听失效）。绝不传 `at=`。"""
+    def send(self, room, wxid, text, quote_id="", at=None):
+        """只发文本，且在**主线程**上发（跨线程调微信会让监听失效）。
+
+        `at` 只对群有用：单聊没有"提及"，传了也只会让客户端困惑，所以这里直接丢掉。群里的条目可以是
+        `wxname_…` id 或显示名；id 只能靠 `_observed` 里该会话观测过的发送人来解析，解析不出来就不提，
+        绝不把 id 原样塞进客户端。
+        """
         self._require()
         target = ""
         if room:
@@ -1239,8 +1247,17 @@ class PcUiaBackend(Backend):
             target = self._room_names.get(wxid) or wxid
         if not target:
             raise SendGone(room)
+        mentions = []
+        if room and at:
+            known = self._observed.get(room) or {}
+            for entry in at:
+                if not isinstance(entry, str) or not entry:
+                    continue
+                name = known.get(entry) if entry.startswith("wxname_") else entry
+                if name and name not in mentions:
+                    mentions.append(name)
         try:
-            self._executor.call(lambda wx: wx.SendMsg(text, who=target))
+            self._executor.call(lambda wx: wx.SendMsg(text, who=target, **({"at": mentions} if mentions else {})))
         except Unavailable:
             raise
         except BaseException as error:
@@ -1324,7 +1341,7 @@ class PadBackend(Backend):
     def messages(self, room, cursor, limit):
         raise Unsupported(self.reason)
 
-    def send(self, room, wxid, text, quote_id=""):
+    def send(self, room, wxid, text, quote_id="", at=None):
         raise Unsupported(self.reason)
 
     def media(self, media_id):
@@ -1346,7 +1363,8 @@ class Sender:
         self._next_at = 0.0
         self._idem = TTLCache(IDEM_TTL_S, IDEM_MAX_ITEMS)
 
-    def send(self, room: str, wxid: str, text: str, quote_id: str, key: str) -> "tuple[str, bool]":
+    def send(self, room: str, wxid: str, text: str, quote_id: str, key: str,
+             at: "list[str] | None" = None) -> "tuple[str, bool]":
         with self.lock:
             if key:
                 cached = self._idem.get(key)
@@ -1355,7 +1373,7 @@ class Sender:
             wait = self._next_at - time.monotonic()
             if wait > 0:
                 time.sleep(wait)
-            msg_id = self.backend.send(room, wxid, text, quote_id)
+            msg_id = self.backend.send(room, wxid, text, quote_id, at)
             self._next_at = time.monotonic() + SEND_MIN_INTERVAL_S + random.uniform(0.0, SEND_JITTER_S)
             if key:
                 self._idem.put(key, msg_id)
@@ -1586,9 +1604,17 @@ class BridgeHandler(BaseHTTPRequestHandler):
         if not isinstance(body, dict):
             return self._json(400, {"error": "bad_request"})
         pick = lambda name: body.get(name) if isinstance(body.get(name), str) else ""  # noqa: E731
+        at = body.get("at")
+        if at is None:
+            at = []
+        elif isinstance(at, str):
+            at = [at]
+        if not isinstance(at, list) or any(not isinstance(entry, str) for entry in at):
+            return self._json(400, {"error": "bad_request"})
         msg_id, deduped = self.server.app.sender.send(
             pick("room"), pick("wxid"), pick("text"), pick("quoteId"),
             (self.headers.get("Idempotency-Key") or "").strip(),
+            [entry for entry in at if entry],
         )
         self._json(200, {"msgId": msg_id, "deduped": deduped})
 

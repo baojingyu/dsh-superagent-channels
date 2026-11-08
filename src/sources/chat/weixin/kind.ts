@@ -34,6 +34,8 @@ export const WeixinConfigSchema = z.object({
    * account. Too small a value looks like "the bridge did not answer" while it is still working.
    */
   timeoutSeconds: z.number().int().min(5).max(300).default(30),
+  /** Whether a group reply mentions the person who addressed the bot. A direct message has no mention to make. */
+  mentionBack: z.boolean().default(true),
   /** Whether a voice message is transcribed before Eval sees it. Transcription drives the client UI. */
   voice: z.boolean().default(true),
   /** Whether images are fetched as attachments; off keeps the `[图片]` placeholder and downloads nothing. */
@@ -58,6 +60,8 @@ const Fields: FieldSpec[] = [
     ] },
   { key: 'atOnly', type: 'switch', label: { zh: '仅接收 @ 的消息', en: 'Receive only @s' },
     hint: { zh: '开启时只接收 @ 机器人的群消息；关闭时也接收其余消息，交评估按规则推断。后端完全无法判定群 @ 时（能力为 none），开启会让群消息全部被过滤，此时应关闭并靠规则与名单准入。', en: 'On receives only messages that mention the bot; off also receives the rest, from which Eval may infer work under the rules. A backend that cannot detect mentions at all (capability `none`) filters every group message while this is on, so turn it off and rely on the rules and the sender list.' } },
+  { key: 'mentionBack', type: 'switch', label: { zh: '回复时 @ 发言人', en: 'Mention the sender in a reply' },
+    hint: { zh: '仅对群聊生效：回复群里找机器人的那个人时带上 @，让对方确实收到提醒。私聊没有 @ 这一说，开了也不会带。', en: 'Groups only: a reply to the person who addressed the bot carries an @, so they are actually notified. A direct message has no mention to make, so this does nothing there.' } },
   { key: 'voice', type: 'switch', label: { zh: '转写语音消息', en: 'Transcribe voice messages' },
     hint: { zh: '开启时语音会转成文字再交给评估；转写要驱动客户端界面，每条最多占用 8 秒，因此可以在不需要时关掉（关掉后文字是「[语音消息]」占位）。', en: 'On transcribes voice into text before Eval sees it; transcription drives the client UI and may hold it for up to eight seconds per message, so it can be turned off - the text then stays a `[语音消息]` placeholder.' } },
   { key: 'images', type: 'switch', label: { zh: '接收图片', en: 'Receive images' },
@@ -145,8 +149,12 @@ export function createWeixinKind(hooks: WeixinKindHooks = {}): SourceKind<Weixin
     allowed: (address, config) => config.rooms.some(room => room.id === (address.room || address.wxid)),
     send: async (host: ChannelHost, message: OutboundMessage): Promise<'sent' | 'gone'> => {
       const { room = '', wxid = '', quoteId } = message.channel.address
-      const result = await bridgeFor(host.config as WeixinConfig).send({
-        room, wxid, text: message.text, ...(quoteId ? { quoteId } : {}), idempotencyKey: message.id,
+      const config = host.config as WeixinConfig
+      // A mention only exists in a group, and it names the sender by id: the sidecar knows the display name it observed
+      // for that id, so a rewritten nickname cannot make the reply mention the wrong person.
+      const at = config.mentionBack && room && wxid ? { at: [wxid] } : {}
+      const result = await bridgeFor(config).send({
+        room, wxid, text: message.text, ...(quoteId ? { quoteId } : {}), ...at, idempotencyKey: message.id,
       })
       return result === 'gone' ? 'gone' : 'sent'
     },
