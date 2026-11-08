@@ -90,7 +90,7 @@ are the detail.
 | Identity | `selfWxid` is the account whose `@`s count; chats and senders are the sidecar's ids |
 | Credentials | the sidecar's bearer token in a file, owner-only |
 | Group `@` | decided on `ats`, never on the message body — see §5.2 |
-| Outbound | text, **keyed** idempotency (the OutboundMessage id is sent as `Idempotency-Key`), quoted replies, ≥1 s serialized spacing |
+| Outbound | text, **keyed** idempotency (the OutboundMessage id is sent as `Idempotency-Key`), ≥1 s serialized spacing. **No @ and no native quote**: the client library's `SendMsg` takes no quote argument, see ADR-007 |
 | Inbound media | images, downloaded through the sidecar and judged by magic bytes; groups and direct chats share one `/media` path |
 | Config from the panel | `POST /listen` replaces the watched set; adding or removing a chat needs no restart |
 
