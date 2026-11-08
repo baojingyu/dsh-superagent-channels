@@ -97,6 +97,7 @@ are the detail.
 | Panel configuration | `POST /listen` replaces the chat set and carries `options.voice` / `options.images`; adding a chat or flipping a switch needs no restart |
 | Keywords | a chat message naming one of `keywords` is treated as addressed to the bot **without an `@`** (case-insensitive); whether it becomes work is still the admission model's decision |
 | Canned replies | a match on `autoReplies` sends a fixed text from the polling loop, without the model; the message is **still handed to the model**, so a template never swallows the rest of what a person said |
+| Cursor | `/messages` carries `head`, so a client can notice that the sidecar restarted and its sequence went backwards, and start over; the sequence is seeded from the clock and stays monotonic across restarts |
 | Receipt | when someone mentions the bot or messages it directly, a receipt goes out **before** the assessment (`acknowledge` / `ackText`, once per chat per 30 s). Measured here, the assessment takes 53 s to 2 min 09 s; the receipt does not shorten it, it removes the guessing |
 | Still-working note | after the receipt, if the bot has said nothing in that chat, one note every `progressAfterSeconds`, at most 3; it stops as soon as the bot speaks |
 | Config from the panel | `POST /listen` replaces the watched set; adding or removing a chat needs no restart |

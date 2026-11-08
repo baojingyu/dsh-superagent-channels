@@ -189,3 +189,39 @@ describe('pollChat receipt and heartbeat', () => {
     }
   })
 })
+
+describe('pollChat cursor', () => {
+  function harness(head: string, events: unknown[]) {
+    let cursor: string | undefined = '8'
+    const received: unknown[] = []
+    const bridge = {
+      async health() { return { ok: true, available: true } },
+      async status() { return { loggedIn: true, wxid: 'wxid_self', name: '助手' } },
+      async rooms() { return [] },
+      async members() { return [] },
+      async messages() { return { events, next: '9', head } },
+      async send() { return { msgId: 'srv', deduped: false } },
+    } as unknown as BridgeClient
+    const ctx = {
+      state: { get: () => cursor, set: (_key: unknown, value: string | undefined) => { cursor = value } },
+      receive: async (t: unknown) => { received.push(t) },
+    } as unknown as SourceContext
+    return { bridge, ctx, received, cursor: () => cursor }
+  }
+
+  it('starts over when the backend sequence is behind the stored cursor, instead of going silent', async () => {
+    // A restart used to begin the sidecar's sequence at zero while this cursor stayed stored, so every later event was
+    // filtered out: the chat read as quiet forever, with nothing in any log. `head` is what makes that visible.
+    const stale = harness('4', [{ nativeId: 'c-1', chatId: '', direct: true, sender: { id: 'wxname_p', name: '阿黎' },
+      text: '网页游戏做好了吗？', at: '2026-11-08T10:05:00Z', ats: [], ownMessage: false, mentionsAgent: false }])
+    await expect(pollChat(stale.ctx, stale.bridge, 'weixin', 'chat-x', {})).resolves.toBe(0)
+    expect(stale.cursor()).toBe('')
+
+    // One the cursor has caught up with, a page is read normally.
+    const ahead = harness('9', [{ nativeId: 'c-1', chatId: '', direct: true, sender: { id: 'wxname_p', name: '阿黎' },
+      text: '网页游戏做好了吗？', at: '2026-11-08T10:05:00Z', ats: [], ownMessage: false, mentionsAgent: false }])
+    ;(ahead.ctx.state as unknown as { get: () => string }).get = () => '4'
+    await expect(pollChat(ahead.ctx, ahead.bridge, 'weixin', 'chat-y', {})).resolves.toBe(1)
+    expect(ahead.received).toHaveLength(1)
+  })
+})

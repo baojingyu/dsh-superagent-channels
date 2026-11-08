@@ -226,7 +226,7 @@ class Backend:
     def members(self, room: str) -> list:
         raise Unsupported()
 
-    def messages(self, room: str, cursor: str, limit: int) -> "tuple[list, str]":
+    def messages(self, room: str, cursor: str, limit: int) -> "tuple[list, str, str]":
         raise Unsupported()
 
     def send(self, room: str, wxid: str, text: str, quote_id: str = "", at: "list[str] | None" = None) -> str:
@@ -315,14 +315,14 @@ class FakeBackend(Backend):
 
     def messages(self, room, cursor, limit):
         if room != FAKE_ROOM:
-            return [], (cursor or "0")
+            return [], (cursor or "0"), str(len(FAKE_MESSAGES))
         try:
             start = int(cursor)
         except (TypeError, ValueError):
             start = 0
         start = max(0, min(start, len(FAKE_MESSAGES)))
         page = [dict(item) for item in FAKE_MESSAGES[start:start + limit]]
-        return page, str(start + len(page))
+        return page, str(start + len(page)), str(len(FAKE_MESSAGES))
 
     def send(self, room, wxid, text, quote_id="", at=None):
         if room and room != FAKE_ROOM:
@@ -612,7 +612,9 @@ class PcUiaBackend(Backend):
         self._self_name = ""
         self._last_event_at = ""
         self._queue: "deque[tuple[int, dict]]" = deque(maxlen=max(1, int(queue_size)))
-        self._seq = 0
+        # Seeded from the clock, not from zero: a client stores the cursor, and a restart that restarted the count
+        # would leave that cursor ahead of every future event - which reads as a silent chat, not as an error.
+        self._seq = int(time.time())
         self._queue_lock = threading.Lock()
         self._observed: "OrderedDict[str, OrderedDict]" = OrderedDict()
         self._room_names: "dict[str, str]" = {}
@@ -1297,11 +1299,12 @@ class PcUiaBackend(Backend):
         except (TypeError, ValueError):
             after = 0
         with self._queue_lock:
+            head = str(self._seq)
             page = [(seq, dict(event)) for seq, event in self._queue
                     if seq > after and event["room"] == target][:limit]
         if not page:
-            return [], (cursor or "0")
-        return [event for _, event in page], str(page[-1][0])
+            return [], (cursor or "0"), head
+        return [event for _, event in page], str(page[-1][0]), head
 
     def send(self, room, wxid, text, quote_id="", at=None):
         """只发文本，且在**主线程**上发（跨线程调微信会让监听失效）。
@@ -1633,8 +1636,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
             limit = int((query.get("limit") or ["50"])[0])
         except (TypeError, ValueError):
             limit = 50
-        events, nxt = self.server.app.backend.messages(room, cursor, max(1, min(limit, 200)))
-        self._json(200, {"events": events, "next": nxt})
+        events, nxt, head = self.server.app.backend.messages(room, cursor, max(1, min(limit, 200)))
+        self._json(200, {"events": events, "next": nxt, "head": head})
 
     def _listen(self) -> None:
         """`POST /listen`：`{"rooms": [名字或 wxname_id, …]}`，集合替换、幂等、部分失败仍 200。"""
