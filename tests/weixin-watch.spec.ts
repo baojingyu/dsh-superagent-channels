@@ -1,7 +1,8 @@
 /** weixin-watch: the listen set it pushes to the backend each round, and what it reports back about it. */
 import { describe, expect, it, vi } from 'vitest'
 import type { BridgeClient, BridgeInboundOptions, BridgeListenResult } from '../src/sources/chat/weixin/bridge.ts'
-import { pollChat, reconcileListen } from '../src/sources/weixin-watch.ts'
+import { pollChat, pollRound, reconcileListen } from '../src/sources/weixin-watch.ts'
+import { WeixinConfigSchema } from '../src/sources/chat/weixin/kind.ts'
 import type { SourceContext } from '../src/sources/host.ts'
 
 /** A bridge stub that records every `/listen` call, so a test can prove the call was made or skipped. */
@@ -223,5 +224,70 @@ describe('pollChat cursor', () => {
     ;(ahead.ctx.state as unknown as { get: () => string }).get = () => '4'
     await expect(pollChat(ahead.ctx, ahead.bridge, 'weixin', 'chat-y', {})).resolves.toBe(1)
     expect(ahead.received).toHaveLength(1)
+  })
+})
+
+describe('pollRound', () => {
+  /** A context just wide enough for one round: stored cursors, the inbox, and a health sink. */
+  function context() {
+    const received: unknown[] = []
+    const store = new Map<string, unknown>()
+    const ctx = {
+      state: {
+        get: (key: string) => store.get(key),
+        set: (key: string, value: unknown) => { if (value === undefined) store.delete(key); else store.set(key, value) },
+        keys: () => [...store.keys()],
+      },
+      receive: async (trigger: unknown) => { received.push(trigger); return 'stored' },
+      report: () => {},
+      configured: () => true,
+      config: () => undefined,
+    } as unknown as SourceContext
+    return { ctx, received }
+  }
+
+  /** A bridge whose direct stream holds one message from a person, and no chats. */
+  function directBridge() {
+    const asked: string[] = []
+    const bridge: BridgeClient = {
+      async health() { return { ok: true, available: true } },
+      async status() { return { loggedIn: true, wxid: 'wxid_self', name: '助手' } },
+      async rooms() { return [] },
+      async members() { return [] },
+      async messages(room) {
+        asked.push(room)
+        if (room !== '') return { events: [], next: '' }
+        return { events: [{
+          nativeId: 'dm-1', chatId: '', sender: { id: 'wxname_person', name: '<成员>' }, text: '请帮我看下',
+          at: '2026-11-09T00:00:00Z', mentionsAgent: false, direct: true, ownMessage: false, quoteId: '',
+          attachments: [], media: [],
+        } as never], next: '1', head: '1' }
+      },
+      async send() { return { msgId: 'srv-1', deduped: false } },
+    }
+    return { bridge, asked }
+  }
+
+  const config = (directMessages: boolean) => WeixinConfigSchema.parse({
+    tokenFile: 'C:/tmp/weixin.token', selfWxid: 'wxid_self', rooms: [], directMessages,
+  })
+
+  it('reads the direct stream with no chat configured, so a person is listed once - in the Policy', async () => {
+    const { ctx, received } = context()
+    const { bridge, asked } = directBridge()
+    const round = await pollRound(ctx, config(true), new AbortController().signal, bridge)
+    // The shared stream is read by its empty room, once per round.
+    expect(asked).toEqual([''])
+    expect(round.received).toBe(1)
+    expect(received).toHaveLength(1)
+    expect((received[0] as { actor: { id: string } }).actor.id).toBe('wxname_person')
+  })
+
+  it('reads nothing when direct messages are switched off', async () => {
+    const { ctx, received } = context()
+    const { bridge, asked } = directBridge()
+    await pollRound(ctx, config(false), new AbortController().signal, bridge)
+    expect(asked).toEqual([])
+    expect(received).toHaveLength(0)
   })
 })

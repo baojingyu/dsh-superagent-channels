@@ -29,6 +29,12 @@ export const WeixinConfigSchema = z.object({
   /** The agent's own wxid: what group `@`s and own messages are judged against. */
   selfWxid: z.string().trim().regex(WXID_PATTERN, 'Invalid wxid'),
   rooms: RoomsSchema,
+  /**
+   * Whether direct messages are read at all. Off keeps the Source to groups. On (the default) does not authorize anyone:
+   * every direct message is read as one stream, and the Policy's list of people decides who may originate work, so a person
+   * is configured once.
+   */
+  directMessages: z.boolean().default(true),
   /** Receive only messages that mention the agent; off receives everything and leaves admission to the Policy. */
   atOnly: z.boolean().default(true),
   /** How often the polling transport asks the bridge for new messages, in seconds. */
@@ -92,6 +98,8 @@ const Fields: FieldSpec[] = [
       { key: 'allow', type: 'select', label: { zh: '允许发起工作', en: 'May originate work' },
         options: [{ value: 'no', label: { zh: '不允许', en: 'No' } }, { value: 'yes', label: { zh: '允许', en: 'Yes' } }] },
     ] },
+  { key: 'directMessages', type: 'switch', label: { zh: '接收私聊', en: 'Receive direct messages' },
+    hint: { zh: '开启时读取私聊消息流（微信的私聊是**一条流**，不是每人一个会话），具体谁能发起工作仍由「评估 → 策略 → 能发起工作的用户」决定——所以人只在那一个地方配。关掉则只收群。', en: 'On reads the direct-message stream (WeChat delivers direct messages as one stream keyed by sender, not as a chat per person). Who may originate work is still decided by the Policy list, which is the only place people are configured. Off keeps the Source to groups.' } },
   { key: 'atOnly', type: 'switch', label: { zh: '仅接收 @ 的消息', en: 'Receive only @s' },
     hint: { zh: '开启时只接收 @ 机器人的群消息；关闭时也接收其余消息，交评估按规则推断。后端完全无法判定群 @ 时（能力为 none），开启会让群消息全部被过滤，此时应关闭并靠规则与名单准入。', en: 'On receives only messages that mention the bot; off also receives the rest, from which Eval may infer work under the rules. A backend that cannot detect mentions at all (capability `none`) filters every group message while this is on, so turn it off and rely on the rules and the sender list.' } },
   { key: 'keywords', type: 'rows', label: { zh: '关键词（不 @ 也算找机器人）', en: 'Keywords (admitted without an @)' },

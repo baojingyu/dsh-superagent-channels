@@ -158,9 +158,11 @@ export async function reconcileListen(bridge: BridgeClient, rooms: readonly { id
 }
 
 /** One polling round over the configured chats; the bridge's status is recorded for the kind's synchronous `facts`. */
-async function pollRound(ctx: SourceContext, config: WeixinConfig, signal: AbortSignal): Promise<PollRound> {
+export async function pollRound(ctx: SourceContext, config: WeixinConfig, signal: AbortSignal,
+  supplied?: BridgeClient): Promise<PollRound> {
   const instance = SOURCE
-  const bridge = createBridgeClient({ baseUrl: config.baseUrl, tokenFile: config.tokenFile, timeoutMs: config.timeoutSeconds * 1000 })
+  // The bridge is a parameter so a test can drive a round without a token file on disk.
+  const bridge = supplied ?? createBridgeClient({ baseUrl: config.baseUrl, tokenFile: config.tokenFile, timeoutMs: config.timeoutSeconds * 1000 })
   // `/health` carries what the backend can actually do, and `scope` must answer synchronously, so it is read once per round
   // and remembered beside the status. It is a loopback call, and reading it every round is what lets a backend swap be
   // noticed without restarting this plugin.
@@ -171,6 +173,15 @@ async function pollRound(ctx: SourceContext, config: WeixinConfig, signal: Abort
   const { watching, unresolved } = await reconcileListen(bridge, config.rooms,
     { voice: config.voice, images: config.images })
   let received = 0
+  // Direct messages are one stream keyed by sender, so a person needs no entry among the groups: polling `''` reads every
+  // one of them, and the Policy decides who may originate work. Reading it only for listed people is what made the same
+  // person need two entries.
+  if (config.directMessages) {
+    signal.throwIfAborted()
+    received += await pollChat(ctx, bridge, instance, '', {
+      autoReplies: config.autoReplies, acknowledge: config.acknowledge,
+      ackText: config.ackText, progressAfterSeconds: config.progressAfterSeconds })
+  }
   for (const room of config.rooms) {
     signal.throwIfAborted()
     received += await pollChat(ctx, bridge, instance, room.id, {
