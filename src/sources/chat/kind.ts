@@ -53,7 +53,10 @@ export function chatKind<C extends Record<string, unknown>>(adapter: ChatAdapter
     description: meta.description,
     schema: meta.schema,
     fields: meta.fields,
-    health: [meta.host, 'history'],
+    // Only the entries this kind reports. `history` belongs to a kind that runs a history backfill - Feishu does,
+    // a callback or listener transport does not - because a default instance claims its entries by bare name and a
+    // second kind naming the same one is refused at registration, which stops the whole plugin from starting.
+    health: [meta.host],
     scope({ meta: inbound }, config): ScopeResult {
       const settings = scopeConfig(config)
       if (inbound.direct === true) {

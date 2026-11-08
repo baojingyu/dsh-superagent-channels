@@ -59,7 +59,8 @@ export const wecomAdapter: ChatAdapter<WecomConfigValue> = {
   capabilities: { idempotency: 'none', maxChars: 2048, markdown: false, proactive: true },
   // Verifies the credentials the panel reads (the message API needs a token even before any send).
   async probe(config) { await createWecomSender().accessToken(config) },
-  // A callback transport has no history read; the `history` health entry stays for the later backfill task.
+  // A callback transport has no history read, so this kind reports one entry and declares one; a backfill added later
+// names its own entry rather than taking a name another kind already claims.
   async readThread() { return { events: [] } },
   send: (config, address: Record<string, string>, text: string) =>
     createWecomSender().sendMessage(config, address as WecomAddress, text),

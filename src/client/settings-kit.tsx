@@ -190,14 +190,22 @@ function RowsField({ field, value, saved, onChange, labels, refreshLabels }: {
   // Summarize a row by its second column only when that column is free text (e.g., a display name), not a select option.
   const named = field.columns[1]?.type === 'text' ? field.columns[1] : undefined
   const rowName = (row: Row) => (named && row[named.key]) || labels[row[key.key] ?? ''] || row[key.key] || ''
+  // A label column next to a picker is for people, not for typing: the id is what the Source uses and the label map
+  // already knows the name for every option it offered, so choosing an id fills the name in.
+  const labelKey = field.columns.find(column => column.key !== key.key && column.type === 'text')?.key
   const cell = (row: Row, index: number, column: Column) => {
     const id = row[key.key] ?? '', change = (next: string) => set(index, { ...row, [column.key]: next })
+    const pick = (next: string) => set(index, {
+      ...row,
+      [key.key]: next,
+      ...(column === key && labelKey && labels[next] ? { [labelKey]: labels[next] } : {}),
+    })
     if (column === key && (savedKeys.has(id) || (!choose && labels[id]))) {
       return <span key={column.key} className={labels[id] ? 'dt-row-label' : 'dt-row-label dt-mono'} title={id}>{labels[id] ?? id}</span>
     }
     if (column === key && choose) {
       return <select key={column.key} className="dt-select" aria-label={choose} required value={id}
-        onChange={event => change(event.target.value)}>
+        onChange={event => pick(event.target.value)}>
         <option value="" disabled>{choose}</option>
         {choices(id).map(([option, name]) => <option key={option} value={option}>{name}</option>)}
       </select>
