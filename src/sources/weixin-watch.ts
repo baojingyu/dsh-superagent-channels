@@ -80,6 +80,14 @@ export async function pollChat(ctx: SourceContext, bridge: BridgeClient, instanc
   const autoReplies = options.autoReplies ?? []
   const cursor = ctx.state.get(KV.chat.history(instance, chat))
   const page = await bridge.messages(chat, cursor)
+  // A sidecar restart used to begin its sequence at zero while this cursor is stored, so every later event was filtered
+  // out and the chat went silent with no error anywhere. The page now carries the backend's head: a cursor ahead of it
+  // means the counter moved backwards, and starting over is the only way to see the messages again. Repeats are absorbed
+  // upstream, which keys a Trigger by its message id.
+  if (page.head && cursor && Number(cursor) > Number(page.head)) {
+    ctx.state.set(KV.chat.history(instance, chat), '')
+    return 0
+  }
   let received = 0
   for (const event of page.events) {
     // The bridge delivers the agent's own messages back as echoes; they never authorize work, but they do say the bot has

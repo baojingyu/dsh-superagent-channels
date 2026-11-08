@@ -81,7 +81,7 @@ export interface BridgeClient {
   status(): Promise<BridgeStatus>
   rooms(): Promise<WxRoom[]>
   members(room: string): Promise<WxPerson[]>
-  messages(room: string, cursor?: string, limit?: number): Promise<{ events: ChatEvent[]; next: string }>
+  messages(room: string, cursor?: string, limit?: number): Promise<{ events: ChatEvent[]; next: string; head?: string }>
   send(message: BridgeSend): Promise<BridgeSendResult>
   /**
    * Downloads the bytes of one message image (`GET /media/<id>`); optional on the seam so a test double without the endpoint
@@ -311,7 +311,8 @@ export function createBridgeClient(options: BridgeOptions): BridgeClient {
         .map(person => ({ id: text(record(person).id), name: text(record(person).name) }))
         .filter(person => person.id !== '')
     },
-    async messages(room: string, cursor?: string, limit?: number): Promise<{ events: ChatEvent[]; next: string }> {
+    async messages(room: string, cursor?: string, limit?: number):
+      Promise<{ events: ChatEvent[]; next: string; head?: string }> {
       const page = Math.min(Math.max(limit ?? DEFAULT_PAGE_SIZE, 1), MAX_PAGE_SIZE)
       const query = new URLSearchParams({ room, limit: String(page) })
       if (cursor) query.set('cursor', cursor)
@@ -320,7 +321,9 @@ export function createBridgeClient(options: BridgeOptions): BridgeClient {
       const body = record(answer.body)
       const wxid = await selfWxid()
       const events = (Array.isArray(body.events) ? body.events : []).map(event => toChatEvent(event, wxid))
-      return { events, next: text(body.next) }
+      // `head` lets the caller notice that the backend's sequence went backwards, which is what a restart looks
+      // like from here; a page without it is a backend that predates the field.
+      return { events, next: text(body.next), ...(text(body.head) ? { head: text(body.head) } : {}) }
     },
     async send(message: BridgeSend): Promise<BridgeSendResult> {
       const answer = await call(BridgeEndpoints.send, {
