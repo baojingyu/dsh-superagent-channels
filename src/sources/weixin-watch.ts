@@ -49,14 +49,30 @@ export function triggerOf(event: ChatEvent, instance: string): Trigger {
   }
 }
 
+/** The first canned reply whose keyword the text names, case-insensitively; `undefined` when none does. */
+function autoReplyFor(text: string, rules: readonly { any: string; reply: string }[]) {
+  const haystack = text.toLowerCase()
+  return rules.find(rule => rule.any !== '' && haystack.includes(rule.any.toLowerCase()))
+}
+
 /** Reads one chat from its stored cursor and hands every message not the agent's own to the Engine. */
-async function pollChat(ctx: SourceContext, bridge: BridgeClient, instance: string, chat: string): Promise<number> {
+export async function pollChat(ctx: SourceContext, bridge: BridgeClient, instance: string, chat: string,
+  autoReplies: readonly { any: string; reply: string }[] = []): Promise<number> {
   const cursor = ctx.state.get(KV.chat.history(instance, chat))
   const page = await bridge.messages(chat, cursor)
   let received = 0
   for (const event of page.events) {
     // The bridge delivers the agent's own messages back as echoes; they never authorize work.
     if (event.ownMessage) continue
+    // A configured template goes out from here, without the agent: its own idempotency key keeps a redelivered page from
+    // posting it twice. The message is still handed over below - a template is not a reason to drop what the person said.
+    const canned = autoReplyFor(event.text, autoReplies)
+    if (canned) {
+      try {
+        await bridge.send({ room: event.chatId, wxid: event.sender.id, text: canned.reply,
+          idempotencyKey: `auto:${instance}:${event.nativeId}` })
+      } catch { /* a canned reply that cannot be sent must not stop the round or lose the message */ }
+    }
     await ctx.receive(triggerOf(event, instance))
     received += 1
   }
@@ -95,7 +111,7 @@ async function pollRound(ctx: SourceContext, config: WeixinConfig, signal: Abort
   let received = 0
   for (const room of config.rooms) {
     signal.throwIfAborted()
-    received += await pollChat(ctx, bridge, instance, room.id)
+    received += await pollChat(ctx, bridge, instance, room.id, config.autoReplies)
   }
   return { received, watching, unresolved }
 }

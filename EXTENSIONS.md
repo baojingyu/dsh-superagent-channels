@@ -94,6 +94,8 @@ are the detail.
 | Inbound media | images, downloaded through the sidecar and judged by magic bytes; groups and direct chats share one `/media` path. A switch turns it off, leaving a `[图片]` placeholder and downloading nothing |
 | Inbound voice | transcribed into text (`to_text`, up to eight seconds of the client's UI per message, degrading to a placeholder). A switch turns it off, leaving `[语音消息]` |
 | Panel configuration | `POST /listen` replaces the chat set and carries `options.voice` / `options.images`; adding a chat or flipping a switch needs no restart |
+| Keywords | a chat message naming one of `keywords` is treated as addressed to the bot **without an `@`** (case-insensitive); whether it becomes work is still the admission model's decision |
+| Canned replies | a match on `autoReplies` sends a fixed text from the polling loop, without the model; the message is **still handed to the model**, so a template never swallows the rest of what a person said |
 | Config from the panel | `POST /listen` replaces the watched set; adding or removing a chat needs no restart |
 
 ### 3.4 DingTalk — `chat/dingtalk`

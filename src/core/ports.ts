@@ -8,9 +8,11 @@ export type GateResult = { admissible: false; reason: string } | { admissible: t
 
 /** Whether a Source receives a Trigger; `observed` when it also receives messages not addressed to the agent, and `row` the receiving scope the Policy's admission table names, such as a chat. */
 export type ScopeResult = { listened: true; observed: boolean; row?: string } | { listened: false; reason: string }
+/** What a scope decision may read: the Trigger's source and meta, plus its text when the kind needs it (keywords). */
+export type ScopeInput = { source: string; meta: Record<string, unknown>; text?: string }
 /** Source configuration as the domain sees it: listening scope per trigger or per recorded Mandate basis. */
 export interface SourceScope {
-  scope(input: { source: string; meta: Record<string, unknown> }): ScopeResult
+  scope(input: ScopeInput): ScopeResult
 }
 
 /** Versioned rules; `gate` decides who may originate work. Source scope is not part of Policy. */

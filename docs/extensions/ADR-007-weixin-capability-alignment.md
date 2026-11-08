@@ -1,6 +1,6 @@
 # ADR-007 微信渠道能力对齐：SiverWXBot 的功能面 vs 本仓库
 
-- **状态**：Proposed（2026-11-08，真机核对完毕，待评审后分期实施）
+- **状态**：Accepted，三期均已实施（2026-11-08）：P1 `7b4e316`、P2 `c4350a8`、P3 本提交
 - **决策范围**：微信来源（`src/sources/chat/weixin/`）的面板字段、sidecar 出站能力、按关键词分流的归属
 - **关联**：ADR-005（L0 后端与 @ 判据）、ADR-006（健康条目键）、`sidecar/wxauto-bridge/contract.md`
 
@@ -70,7 +70,10 @@ Chat 公开成员：AddGroupMembers AtAll CancelCall ChatInfo Close EditFriendIn
 | **P1** | 面板措辞与提示（群与私聊、`姓名` 自动填的说明）；`images` / `voice` 两个开关接到入站渲染 | `kind.ts`、sidecar `_render_text`/`_to_event` 之前的分支 | 0.5 天 |
 | **P2** | `mentionBack`：sidecar `send(..., at=[名])` + 契约字段 + Node 侧按开关传发送人 + **真机群内验证** | sidecar、`bridge.ts`、`contract.md` | 1 天 |
 | **P3** | `keywords` → 准入（命中即 explicit）；`autoReplies` → 由监听循环直接 `/send` | `kind.ts` 的 scope/explicit、`weixin-watch.ts` | 1.5 天 |
-| — | `quoteStyle: 'text'` | 与 P1 同批 | 0.2 天 |
+| **已实施** | P1：措辞 + `voice`/`images` 开关 | `kind.ts`、sidecar `options`、`verify/options-check.py` | 完成 |
+| **已实施** | P2：`mentionBack`（sidecar `at`、契约、面板、`verify/mention-check.py`） | sidecar、`bridge.ts`、`kind.ts` | 完成（真机群内未跑，避免在真实群里发言） |
+| **已实施** | P3：`keywords` + `autoReplies` | `scope()`、`weixin-watch.ts`、`ports.ts` | 完成 |
+| — | `quoteStyle: 'text'` | 现状已是「引用写进正文」，没有独立开关 | 不需要 |
 | — | 出站图片/文件 | 需要核心 `OutboundMessage` 附件模型 | 另立 ADR |
 
 ## 6. 风险
