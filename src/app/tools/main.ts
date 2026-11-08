@@ -7,6 +7,7 @@ import { UserError, followupOwners, key, reasonText, type Decision, type Decisio
 import { IM_WORDS, NOTE_WORDS, wordCount } from '../../infra/text.ts'
 import { AssessmentSchema, EvalReadSchema, WorktreeNameSchema, type MasterAssessor } from '../assessment.ts'
 import { ticketCard } from '../cards.ts'
+import { resolveTicketFile } from './executor.ts'
 import { PromptConfigSchema, savePrompts, type Prompts } from '../prompts.ts'
 import { readResource, type MainResourceHost, type ResourceHost } from '../resources.ts'
 import type { Sessions } from '../sessions.ts'
@@ -29,6 +30,8 @@ export interface MainToolsHost {
   /** Schedules a pass to carry out work queued by an Engine command (such as an Eval or ticket resume). */
   requestPass(): void
   sendReplies(): Promise<void>
+  /** Whether this ticket's Source lets a reply carry files; the operator's switch, read per call. */
+  canSendFiles(ticket: unknown): boolean
   /** Runs an Engine command initiated by the main Session without emitting self-notifications. */
   quietly<T>(run: () => T): T
 }
@@ -227,12 +230,24 @@ export function mainTools(host: MainToolsHost, agent: Agent): Tool[] {
         trigger_id: z.string().optional().describe('The original human question, for an answer only.'),
         ticket_id: z.string().optional(),
         purpose: z.enum(['answer', 'result', 'attention']),
+        files: z.array(z.string().trim().min(1)).max(3).optional()
+          .describe('Files to send with this message, as paths inside the ticket\'s own directory. Needs ticket_id, needs the operator to have enabled file sending for the Source, and refuses anything outside that directory, over 20 MiB, or executable.'),
         human_action: z.string().trim().min(1).optional().describe('Required for attention: the ticket\'s current attention question.'),
         text: z.string().min(1).max(20000),
       }).strict(),
       execute: async args => {
+        // A file leaves the machine only through this gate: the ticket names the directory, the operator's switch says
+        // whether files may go at all, and `resolveTicketFile` refuses anything that is not a plain file inside it.
+        let files: ReturnType<typeof resolveTicketFile>[] = []
+        if (args.files?.length) {
+          const ticket = args.ticket_id ? host.store.tickets.get(args.ticket_id) : undefined
+          if (!ticket) throw new Error('files need ticket_id: they are read from that ticket\'s directory')
+          if (!host.canSendFiles(ticket)) throw new Error('Sending files is off for this Source; the operator must enable it in the panel first')
+          files = args.files.map(path => resolveTicketFile(ticket.execution?.directory, path))
+        }
         const reply = host.engine.reply({ purpose: args.purpose, text: args.text, ...(args.trigger_id ? { triggerId: args.trigger_id } : {}),
-          ...(args.ticket_id ? { ticketId: args.ticket_id } : {}), ...(args.human_action ? { question: args.human_action } : {}) })
+          ...(args.ticket_id ? { ticketId: args.ticket_id } : {}), ...(args.human_action ? { question: args.human_action } : {}),
+          ...files.length ? { files } : {} })
         await host.sendReplies()
         return { status: host.store.replyStatus(reply.id) ?? reply.status }
       },

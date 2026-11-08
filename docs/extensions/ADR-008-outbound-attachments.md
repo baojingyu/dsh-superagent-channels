@@ -47,10 +47,24 @@
 - `ReplyRequest` 的 `answer`/`result`/`attention` 可带 `files`，`Replies` 原样交给 outbox。
 - `SourceChannel.capabilities.files = { maxBytes }`：通道自己声明能不能带文件。
 - 微信通道：`sendFiles` 开关打开时把第一个文件挂在这条回复上，其余按序另发（`/send` 每次一个文件）；关着就只发文字。
-- 工具 `orchestrator_send_file`：读工单目录里的一个文件，作为该工单的 `result` 发出去。
+- **位置：`orchestrator_reply` 的 `files`**（主 Session 回复人的那条），不是 worker 的独立工具。
+  真机第一版把工具放在 worker 侧、`purpose` 固定为 `result`，结果 worker 在**进行中**就想发，两次都被
+  「Ticket is not ready for delivery」拒掉——那条规则本来就是拦「把进展当结果发出去」的。回复人是主 Session 的事，
+  文件跟着那条回复走；worker 侧的工具已删除，避免再把人引到同一个坑里。
+
 - 闸门集中在 `resolveTicketFile`（有专门的测试）：真实路径必须在工单目录内（符号链接也算），普通文件、非空、
   ≤20 MiB、拒绝可执行后缀。
 - `Runtime.canSendFiles(ticket)`：读**面板开关**（默认关）与通道能力，工具在动手前先问它。
+
+## 7. 真机教训（第一版为什么不对）
+
+| 现象 | 原因 |
+|---|---|
+| worker 调 `orchestrator_send_file` 两次都失败，`execute.failed` 写着 `Ticket is not ready for delivery` | 工具把 `purpose` 固定成 `result`，而 `result` 需要先有 verified ready report；worker 想的是「边做边发」 |
+| 微信里只看到「已打包发到本对话（附件 …zip）」，没有附件 | 工具没成功，文本是模型自己说的 |
+
+结论：附件属于**回复**，而回复由主 Session 写进 `orchestrator_reply`；放在那里既符合准入规则，也让「说到」和
+「发到」由同一次调用决定。
 
 ## 5. 结论
 

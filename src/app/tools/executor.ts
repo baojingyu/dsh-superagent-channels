@@ -1,5 +1,4 @@
 /** Executor Session tools for reading ticket context, acknowledging requests, managing threads, handing back out-of-scope triggers, and reporting status. */
-import { createHash } from 'node:crypto'
 import { readFileSync, realpathSync, statSync } from 'node:fs'
 import { basename, resolve, sep } from 'node:path'
 import { z } from 'zod'
@@ -105,25 +104,6 @@ export function executorTools(host: ExecutorToolsHost, ticket: Ticket): Tool[] {
         reason: z.string().trim().min(1).max(300).describe('One sentence on what it asks for beyond this ticket.'),
       }).strict(),
       execute: async args => ({ trigger_id: args.trigger_id, queued: host.engine.handback(ticketId, args.trigger_id, args.reason) }),
-    }),
-    tool({
-      name: 'orchestrator_send_file',
-      description: 'Send one file from this ticket\'s own directory to the conversation the ticket started in. Use it after '
-        + 'reporting ready, for a chart, a document or an image the work produced. It needs the operator to have enabled file '
-        + 'sending for the Source, and refuses anything outside the ticket directory, over 20 MiB, or executable.',
-      schema: z.object({
-        path: z.string().trim().min(1).describe('File to send, relative to this ticket\'s directory (DSH_SUPERAGENT_DIR).'),
-        text: z.string().trim().min(1).max(1000).describe('One short sentence to send with it; Markdown is supported.'),
-      }).strict(),
-      execute: async args => {
-        if (!host.canSendFiles(ticket)) throw new Error('Sending files is off for this Source; the operator must enable it in the panel first')
-        const file = resolveTicketFile(ticket.execution?.directory, args.path)
-        const reply = host.engine.reply({ purpose: 'result', ticketId, text: args.text, files: [file] })
-        if (reply.status !== 'sent') await host.sendReplies()
-        const digest = createHash('sha256').update(Buffer.from(file.data, 'base64')).digest('hex').slice(0, 8)
-        return { file: file.name, bytes: Buffer.from(file.data, 'base64').byteLength, sha256: digest,
-          status: host.store.replyStatus(reply.id) ?? 'pending' }
-      },
     }),
     tool({
       name: 'orchestrator_report',
