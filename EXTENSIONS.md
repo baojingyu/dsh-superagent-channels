@@ -21,8 +21,9 @@ added, and the reference for anyone extending it further.
 | — | **DingTalk** Stream, **WeCom** encrypted callback | `src/sources/chat/{dingtalk,wecom}/*` |
 | one instance per channel | **many instances per channel**, config / health / cursors scoped per instance | `src/sources/instance.ts`, `src/sources/registry.ts` |
 
-Five optional plugins ship **disabled** in `cordis.patch.yml` (`weixin`, `gitlab`, `projex`,
-`dingtalk`, `wecom`) and are built as separate entries (`lib/*-watch.js`), so enabling one is a patch
+Every Source plugin loads (`weixin`, `gitlab`, `projex`, `dingtalk`, `wecom`, `feishu`, `github`) and is built as a
+separate entry (`lib/*-watch.js`), so the panel lists them all and its switch - not the profile - decides whether
+one runs. A Source with no configuration reports `sourceOff` and idles, so enabling one is a switch plus
 change plus a saved instance, not a rebuild of the bundle.
 
 ## 2. The one assumption that had to change
@@ -205,7 +206,8 @@ cost is that renaming a chat changes its id.
    `markdown`, `proactive`. The panel shows these; a wrong value becomes a wrong promise.
 3. Write the `kind` with its schema, its fields (every schema key needs a field), its `scope` rule and
    its environment variables.
-4. Add a `*-watch.ts` plugin entry and a `cordis.patch.yml` insert with `disabled: true`.
+4. Add a `*-watch.ts` plugin entry and a `cordis.patch.yml` insert. Do not ship it `disabled: true`: a kind only
+   exists in the panel once its plugin registers it, and the panel's switch is what turns a Source on.
 5. Add the file rows to `docs/007-architecture.md` — `tests/docs.spec.ts` fails if a module or a spec
    file is missing from those tables.
 6. Add a spec. Live behaviour goes in `tests/live/*.live.spec.ts` behind `LIVE=1`.

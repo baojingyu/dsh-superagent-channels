@@ -18,8 +18,9 @@
 | — | **钉钉** Stream、**企业微信**加密回调 | `src/sources/chat/{dingtalk,wecom}/*` |
 | 一种通道一个实例 | **同种通道多实例**，配置 / 健康 / 游标按实例隔离 | `src/sources/instance.ts`、`src/sources/registry.ts` |
 
-五个可选插件在 `cordis.patch.yml` 里**默认 disabled**（`weixin`、`gitlab`、`projex`、`dingtalk`、`wecom`），
-并各自构建成独立入口（`lib/*-watch.js`），所以启用一个通道 = 改一行 patch + 存一个实例，不用重新打包。
+每个来源插件都会加载（`weixin`、`gitlab`、`projex`、`dingtalk`、`wecom`、`feishu`、`github`），并各自构建成独立入口
+（`lib/*-watch.js`），所以面板能把它们全列出来，跑不跑由卡片上的开关决定、不由 profile 决定。
+没配置的来源报 `sourceOff` 后空转，因此启用一个通道 = 打开开关 + 填它自己的配置，不用重新打包、也不用改 profile。
 
 ## 2. 唯一不得不改的假设
 
@@ -191,7 +192,8 @@ Node 侧只认契约，后端因此可替换。第 4、5 节是细节。
 2. 如实声明 `capabilities` —— `idempotency`（`keyed` / `marker` / `none`）、`maxChars`、`markdown`、`proactive`。
    面板会显示它们；写错就是给出一个错的承诺。
 3. 写 kind：schema、字段（schema 每个键都要有对应字段）、`scope` 规则、环境变量。
-4. 加一个 `*-watch.ts` 插件入口，以及 `cordis.patch.yml` 里 `disabled: true` 的 insert。
+4. 加一个 `*-watch.ts` 插件入口，以及 `cordis.patch.yml` 里的 insert。**不要**给它写 `disabled: true`：
+   kind 只有在插件注册之后才会出现在面板里，而「跑不跑」由面板的开关决定。
 5. 把文件行补进 `docs/007-architecture.md` —— 模块或测试文件缺行，`tests/docs.spec.ts` 会红。
 6. 补 spec。真实行为放 `tests/live/*.live.spec.ts`，由 `LIVE=1` 门控。
 

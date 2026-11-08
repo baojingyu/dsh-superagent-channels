@@ -26,8 +26,9 @@ to detach a copy from the prototype.
 | — | **DingTalk** Stream and **WeCom** encrypted callback |
 | one instance per channel | **many instances per channel**, with config, health and cursors scoped per instance |
 
-The five new plugins ship disabled in `cordis.patch.yml` and are built as separate entries
-(`lib/*-watch.js`), so enabling one is a patch change plus a saved instance.
+Every Source plugin loads and is built as a separate entry (`lib/*-watch.js`), so the panel can list them all;
+its switch decides which ones run, and a Source that is off reports `sourceOff` and idles. Turning one on is a
+switch in the panel plus whatever setup that Source needs - never a profile edit.
 
 Full feature detail — every field, endpoint, idempotency rule, capability state and known gap — is
 in [EXTENSIONS.md](EXTENSIONS.md).
@@ -61,8 +62,8 @@ npm install --ignore-scripts --legacy-peer-deps   # pnpm 11 stalls on ERR_PNPM_I
 ./node_modules/.bin/tsdown                        # produces lib/*-watch.js
 ```
 
-Then follow [SETUP.md](SETUP.md) to install the bundle into a profile, enable a channel in
-`cordis.patch.yml`, and save an instance in the panel (Settings → Source).
+Then follow [SETUP.md](SETUP.md) to install the bundle into a profile, and turn a channel on in the panel
+(Settings → Source). Every Source is listed there already; the ones that are off are collapsed.
 
 Two optional dependencies are not in `package.json` because the canonical lockfile is pnpm's and it
 cannot be regenerated on Windows: `@deepseek-ai/cordis-plugin-include` and

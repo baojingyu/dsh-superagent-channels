@@ -23,8 +23,9 @@ GitLab、云效 Projex、微信、钉钉、企业微信，以及同一种通道�
 | — | **钉钉** Stream 与**企业微信**加密回调 |
 | 一种通道一个实例 | **同种通道多实例**，配置、健康与游标按实例隔离 |
 
-五个新插件在 `cordis.patch.yml` 里默认 `disabled`，并各自构建成独立入口（`lib/*-watch.js`），
-所以启用一个通道 = 改一行 patch + 在面板里存一个实例。
+每个来源插件都会加载，并各自构建成独立入口（`lib/*-watch.js`），所以面板能把它们都列出来；
+跑不跑由卡片上的开关决定，关闭的来源报 `sourceOff` 并空转。启用一个通道 = 打开开关 + 它自己的配置，
+**不需要改 profile**。
 
 逐项功能细节——每个字段、端点、幂等规则、能力状态与已知缺口——见
 [EXTENSIONS.md](EXTENSIONS.md)（中文：[EXTENSIONS.zh-CN.md](EXTENSIONS.zh-CN.md)）。
@@ -56,8 +57,8 @@ npm install --ignore-scripts --legacy-peer-deps   # 本机 pnpm 11 会卡在 ERR
 ./node_modules/.bin/tsdown                        # 产出 lib/*-watch.js
 ```
 
-然后按 [SETUP.md](SETUP.md) 把 bundle 装进 profile，在 `cordis.patch.yml` 里启用一个通道，
-再在面板（Settings → Source）里存一个实例。
+然后按 [SETUP.md](SETUP.md) 把 bundle 装进 profile，在面板（Settings → Source）里打开要用的通道。
+所有来源都会列在那里，未启用的默认收起。
 
 有两个可选依赖不在 `package.json` 里：`@deepseek-ai/cordis-plugin-include` 与
 `@deepseek-ai/dsh-http-proxy`。原因是仓库的规范锁文件是 pnpm 的，而 pnpm 在本机不可用、无法重新生成锁文件。
