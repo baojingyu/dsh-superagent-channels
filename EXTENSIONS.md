@@ -115,6 +115,10 @@ are the detail.
 > listen set) and it attaches again, which `detail` reports as "检测到客户端窗口更换…已重建连接 N 次". A failed attach
 > no longer exits the process: `/health` reports `available:false` with the library's own reason (such as "no signed-in
 > main window found") and retries, so completing the sign-in needs no bridge restart.
+>
+> **The client build matters.** `wxautox4 41.2.3` attaches to the 4.1.9 generation; a client updated to 4.1.15.56 keeps
+> answering "no signed-in main window found" while its window sits visible with the account signed in. `/status`
+> carries `client` for exactly that reason: check the build before blaming the configuration.
 
 ### 3.4 DingTalk — `chat/dingtalk`
 

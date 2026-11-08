@@ -126,6 +126,30 @@ def package_version() -> str:
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 
 
+_CLIENT_VERSION_DIR = re.compile(r"^\d+\.\d+\.\d+\.\d+$")
+
+
+def client_version() -> str:
+    """The installed WeChat build, read from the version directory the installer leaves beside the executable.
+
+    A client update is invisible from the window, and an unsupported build only shows up as "no signed-in main
+    window". One `listdir` costs nothing, needs no elevation, and turns that into something a person can see."""
+    roots = []
+    for variable in ("ProgramFiles", "ProgramFiles(x86)"):
+        base = os.environ.get(variable)
+        if base:
+            roots.append(os.path.join(base, "Tencent", "Weixin"))
+    for root in roots:
+        try:
+            versions = [name for name in os.listdir(root) if _CLIENT_VERSION_DIR.match(name)]
+        except OSError:
+            continue
+        if versions:
+            versions.sort(key=lambda name: tuple(int(part) for part in name.split(".")))
+            return versions[-1]
+    return ""
+
+
 def safe_filename(name: str) -> str:
     """The basename, stripped to characters a file system will not interpret.
 
@@ -811,6 +835,9 @@ class PcUiaBackend(Backend):
     def detail(self) -> str:
         """`/health` 与 `/status` 共用：把当前判据名摆到明面上，改名后一眼能看出来。"""
         parts = []
+        version = client_version()
+        if version:
+            parts.append("客户端 %s" % version)
         name = self._self_display_name()
         if name:
             parts.append("群 @ 判据：@%s" % name)
@@ -1260,6 +1287,9 @@ class PcUiaBackend(Backend):
             "loggedIn": bool(ok), "wxid": self._self_wxid, "name": name,
             "backend": self.name, "available": bool(ok),
         }
+        version = client_version()
+        if version:
+            state["client"] = version
         if self._last_event_at:
             state["lastEventAt"] = self._last_event_at
         detail = "；".join(part for part in (detail, self.detail()) if part)
