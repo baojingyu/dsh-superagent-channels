@@ -25,11 +25,11 @@ describe('weixinKind schema and fields', () => {
   it('validates every field and lists the same keys as fields', () => {
     expect(weixinKind.schema.parse({ tokenFile: '/tmp/weixin.token', selfWxid: 'wxid_self' }))
       .toEqual({ baseUrl: 'http://127.0.0.1:8787', tokenFile: '/tmp/weixin.token', selfWxid: 'wxid_self', rooms: [], atOnly: true, pollSeconds: 5,
-        timeoutSeconds: 30 })
+        timeoutSeconds: 30, voice: true, images: true })
     // The default is deliberately generous: listing chats walks the client's contact pages (~10 s here), so a tight
     // timeout would be reported as "the bridge did not answer" while it is still working.
     expect(weixinKind.fields.map(field => field.key))
-      .toEqual(['baseUrl', 'tokenFile', 'selfWxid', 'rooms', 'atOnly', 'pollSeconds', 'timeoutSeconds'])
+      .toEqual(['baseUrl', 'tokenFile', 'selfWxid', 'rooms', 'atOnly', 'voice', 'images', 'pollSeconds', 'timeoutSeconds'])
     expect(weixinKind.kind).toBe('weixin')
     expect(weixinKind.health).toEqual(['weixin'])
   })

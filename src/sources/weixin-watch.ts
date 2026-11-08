@@ -2,7 +2,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { key, type Trigger } from '../core/index.ts'
 import { KV } from '../kv.ts'
-import { createBridgeClient, type BridgeClient } from './chat/weixin/bridge.ts'
+import { createBridgeClient, type BridgeClient, type BridgeInboundOptions } from './chat/weixin/bridge.ts'
 import { rememberWeixinStatus, SOURCE, weixinKind, type WeixinConfig } from './chat/weixin/kind.ts'
 import type { ChatEvent } from './chat/port.ts'
 import { health, sourceContext, type SourceContext } from './host.ts'
@@ -72,9 +72,10 @@ async function pollChat(ctx: SourceContext, bridge: BridgeClient, instance: stri
  * whose chats someone configured on its own, while a Source with no chats already reads nothing. A backend that cannot
  * change its listen set at runtime answers `undefined` and is left alone.
  */
-export async function reconcileListen(bridge: BridgeClient, rooms: readonly { id: string }[]): Promise<{ watching: number; unresolved: string[] }> {
+export async function reconcileListen(bridge: BridgeClient, rooms: readonly { id: string }[],
+  options?: BridgeInboundOptions): Promise<{ watching: number; unresolved: string[] }> {
   if (rooms.length === 0 || !bridge.listen) return { watching: 0, unresolved: [] }
-  const result = await bridge.listen(rooms.map(room => room.id))
+  const result = await bridge.listen(rooms.map(room => room.id), options)
   return { watching: result.listening.length, unresolved: result.failed.map(entry => entry.room) }
 }
 
@@ -87,7 +88,10 @@ async function pollRound(ctx: SourceContext, config: WeixinConfig, signal: Abort
   // noticed without restarting this plugin.
   const health = await bridge.health()
   rememberWeixinStatus(await bridge.status(), health.capabilities)
-  const { watching, unresolved } = await reconcileListen(bridge, config.rooms)
+  // The switches ride along with the chat set: the sidecar decides what to render as each message arrives, and a
+  // changed switch has to reach it even when no chat changed.
+  const { watching, unresolved } = await reconcileListen(bridge, config.rooms,
+    { voice: config.voice, images: config.images })
   let received = 0
   for (const room of config.rooms) {
     signal.throwIfAborted()
