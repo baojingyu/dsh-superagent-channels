@@ -67,6 +67,10 @@ MAX_OUTBOUND_FILE_BYTES = 20 * 1024 * 1024
 # Base64 inflates by 4/3, and the JSON envelope adds a little on top, so the body ceiling has to be larger than the
 # payload ceiling or the payload ceiling is never reached.
 MAX_SEND_BODY_BYTES = MAX_OUTBOUND_FILE_BYTES * 4 // 3 + 64 * 1024
+# Where an outbound file waits while the client uploads it. Long enough for a slow upload, and swept on the next send
+# rather than deleted when the call returns - see `outbound_path`.
+OUTBOUND_DIR_NAME = "wxbridge-outbound"
+OUTBOUND_FILE_TTL_S = 900.0
 LISTENER_QUIET_S = 600.0
 # At most one re-attach per window: a chat that is simply silent must not turn into a fight with the client.
 LISTENER_REATTACH_GAP_S = 900.0
@@ -127,6 +131,33 @@ _SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 
 
 _CLIENT_VERSION_DIR = re.compile(r"^\d+\.\d+\.\d+\.\d+$")
+
+
+def outbound_path(name: str) -> str:
+    """A path for one outbound file that is not deleted under the client's upload.
+
+    `SendFiles` returns as soon as the client has taken the file; the upload carries on afterwards. Deleting the file when
+    the call returns turned every file over a few kilobytes into "发送中断" in the chat, while images - which the client copies
+    immediately - went through. So the file stays here, and files older than `OUTBOUND_FILE_TTL_S` are swept on the next send.
+    """
+    base = os.path.join(tempfile.gettempdir(), OUTBOUND_DIR_NAME)
+    os.makedirs(base, exist_ok=True)
+    now = time.time()
+    # One directory per send, swept by age: the file keeps the name its sender gave it, because the person on the other side
+    # sees that name and a random prefix is not part of the document.
+    for entry in os.listdir(base):
+        full = os.path.join(base, entry)
+        try:
+            if now - os.path.getmtime(full) > OUTBOUND_FILE_TTL_S:
+                if os.path.isdir(full):
+                    shutil.rmtree(full, ignore_errors=True)
+                else:
+                    os.remove(full)
+        except OSError:
+            pass
+    directory = os.path.join(base, os.urandom(4).hex())
+    os.makedirs(directory, exist_ok=True)
+    return os.path.join(directory, safe_filename(name))
 
 
 def client_version() -> str:
@@ -1842,7 +1873,6 @@ class BridgeHandler(BaseHTTPRequestHandler):
         raw_file = body.get("file")
         if raw_file is None and not text:
             return self._json(400, {"error": "bad_request"})
-        directory = None
         file = None
         if raw_file is not None:
             if not isinstance(raw_file, dict):
@@ -1856,21 +1886,16 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 return self._json(400, {"error": "bad_request"})
             if not payload or len(payload) > MAX_OUTBOUND_FILE_BYTES:
                 return self._json(413, {"error": "too_large"})
-            directory = tempfile.mkdtemp(prefix="wxout-")
-            path = os.path.join(directory, safe_filename(name))
+            path = outbound_path(name)
             with open(path, "wb") as handle:
                 handle.write(payload)
             file = (path, os.path.basename(path))
-        try:
-            msg_id, deduped = self.server.app.sender.send(
-                pick("room"), pick("wxid"), text, pick("quoteId"),
-                (self.headers.get("Idempotency-Key") or "").strip(),
-                [entry for entry in at if entry],
-                file,
-            )
-        finally:
-            if directory:
-                shutil.rmtree(directory, ignore_errors=True)
+        msg_id, deduped = self.server.app.sender.send(
+            pick("room"), pick("wxid"), text, pick("quoteId"),
+            (self.headers.get("Idempotency-Key") or "").strip(),
+            [entry for entry in at if entry],
+            file,
+        )
         self._json(200, {"msgId": msg_id, "deduped": deduped})
 
 

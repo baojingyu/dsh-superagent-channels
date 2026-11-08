@@ -182,6 +182,14 @@ export function createWeixinKind(hooks: WeixinKindHooks = {}): SourceKind<Weixin
         ] },
     ],
     explicit: { zh: '名单内的人 @ 机器人或私聊机器人，总是明确的请求，不需要配置。', en: 'Someone on the list who mentions the bot or messages it directly always makes an explicit request; that needs no setting.' },
+    // The two settings are easy to confuse: "接收的群与私聊" decides what arrives, this list decides who may ask for anything.
+    // Configuring the first and forgetting the second refuses every message, with nothing on screen saying why.
+    warnings(config, part) {
+      const rooms = Array.isArray((config as Partial<WeixinConfig>).rooms) ? (config as WeixinConfig).rooms : []
+      if (rooms.length === 0 || part.allowed.length > 0) return []
+      return [{ zh: '这个来源已经配置了接收会话，但「能发起工作的微信用户」是空的：现在任何人发消息都会被判为「名单外」而拒绝。把要接的人加进上面的名单。',
+        en: 'This Source already receives chats, but the list of people who may originate work is empty: every message is refused as coming from an unlisted sender. Add the people you want to work with above.' }]
+    },
   }
   const channel: SourceChannel<WeixinConfig> = {
     // Declarative transport metadata: message length limit, no Markdown, and whether a send may start a conversation.

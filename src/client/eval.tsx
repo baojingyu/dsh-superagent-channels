@@ -78,6 +78,7 @@ function SourcePart({ source, part, saved, dirty, onChange, reload }: {
   // Syncing saves the Policy block, so require unsaved edits to be saved or discarded first.
   const syncNow = () => { if (dirty) notify(t('syncNeedsSave')); else void run.run() }
   return <div className="dt-part">
+    {(policy.warnings ?? []).map(warning => <p key={localized(t, warning)} className="dt-error" role="status">{localized(t, warning)}</p>)}
     {policy.fields.map(field => <SourceField key={field.key} field={field} value={part[field.key]} saved={saved[field.key]} fact={undefined}
       labels={source.labels}
       onChange={next => onChange({ ...part, [field.key]: next })} />)}

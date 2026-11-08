@@ -20,7 +20,9 @@ export function policyOf(settings: Settings, sources: SourceRegistry, id: string
   const part = sources.policyPart(settings.policy.sources[id] ? id : kind)!
   const config = sources.instance(id)?.config ?? {}
   const sync = policy.sync && { label: policy.sync.label, ready: policy.sync.ready(part), health: health[`sync:${kind}`] }
-  return { policy: { fields: policy.fields, explicit: policy.explicit, ...policy.rows ? { rows: policy.rows(config) } : {}, ...sync
+  const warnings = policy.warnings?.(config, part) ?? []
+  return { policy: { fields: policy.fields, explicit: policy.explicit, ...policy.rows ? { rows: policy.rows(config) } : {},
+    ...warnings.length ? { warnings } : {}, ...sync
     ? { sync } : {} } }
 }
 /**

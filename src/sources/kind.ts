@@ -36,6 +36,11 @@ export interface SourcePolicyPart<P extends Record<string, unknown>> {
   unnamed?: { person: Localized; bot: Localized }
   /** Receiving scopes of the Policy's admission table under `config` (matching `scope().row`); kinds without `rows` use the table's defaults. */
   rows?(config: Record<string, unknown>): AdmissionRowView[]
+  /**
+   * What the panel should warn about between this part and `config` - such as a Source that receives chats while the list of
+   * people who may originate work is empty. The two settings mean different things and nothing else says so.
+   */
+  warnings?(config: Record<string, unknown>, part: P): Localized[]
   /** Optional external roster sync (such as chat members); `ready` reports whether `part` names a target to refresh from. */
   sync?: { label: Localized; ready(part: P): boolean; run(host: SourceHost, part: P, signal: AbortSignal): Promise<P> }
 }

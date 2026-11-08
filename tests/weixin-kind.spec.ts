@@ -206,6 +206,16 @@ describe('weixinKind channel', () => {
 })
 
 describe('weixinKind policy', () => {
+  it('warns when chats are received but nobody may originate work, and stays quiet otherwise', () => {
+    const warnings = weixinKind.policy!.warnings!
+    const rooms = [{ id: 'wxname_person', name: '<成员>' }]
+    expect(warnings({ rooms }, { allowed: [] })).toHaveLength(1)
+    // Nothing configured to receive: no gap to warn about.
+    expect(warnings({ rooms: [] }, { allowed: [] })).toHaveLength(0)
+    // Someone is listed: whatever else is wrong, this is not it.
+    expect(warnings({ rooms }, { allowed: [{ id: 'wxname_person' }] })).toHaveLength(0)
+  })
+
   it('puts allowed first and accepts wxid lists while refusing duplicates and malformed IDs', () => {
     expect(weixinKind.policy!.fields[0]!.key).toBe('allowed')
     expect(weixinKind.policy!.schema.parse({})).toEqual({ allowed: [] })
