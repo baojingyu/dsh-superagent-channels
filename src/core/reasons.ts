@@ -34,16 +34,19 @@ export const said = (text: string): Reason => ({ code: 'said', values: { text } 
  */
 export function personNotice(reasons: readonly Reason[] | Reason | undefined): string {
   const first = [reasons ?? []].flat()[0]
-  switch (first?.code) {
+  // Codes arrive in more than one spelling - `not_a_member` from the gate, `not a member` from a test double, and a
+  // source kind may invent its own - so compare on a normalised form instead of exact strings.
+  const code = String(first?.code ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+  switch (code) {
     case 'not_a_member': return '这条我没有接：你的账号不在允许名单里。'
     case 'admission_ignored': return '这条我没有接：这个来源的准入规则把它判为忽略。'
     case 'no_mention': return '这条我没有接：群里没有 @ 我。'
     case 'said': return '这条我没有接：没看出要我做什么。'
-    case 'startedTicket': return '这条我没有接：已经有一个工单在处理了。'
-    case 'stopUnknown': return '这条我没有接：没有对应的工单可以停。'
-    case 'stopNotExplicit': return '这条我没有接：停止需要工单发起人明确说明。'
-    case 'directionUnsettled': return '这条我没有接：方向还没定，需要先确认要不要动手。'
-    case 'noRuleMatched': return '这条我没有接：没有匹配的准入规则。'
+    case 'startedticket': return '这条我没有接：已经有一个工单在处理了。'
+    case 'stopunknown': return '这条我没有接：没有对应的工单可以停。'
+    case 'stopnotexplicit': return '这条我没有接：停止需要工单发起人明确说明。'
+    case 'directionunsettled': return '这条我没有接：方向还没定，需要先确认要不要动手。'
+    case 'norulematched': return '这条我没有接：没有匹配的准入规则。'
     case 'timeout': return '这条我没有接：判断超时了，请再发一次。'
     default: return '这条我没有接。'
   }

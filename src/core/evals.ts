@@ -316,7 +316,6 @@ export class Evals extends EnginePart {
   }
   /** Record an Eval's Decision; the Thread's own Eval ends with it, while a gate-only one leaves the Thread's Eval going. */
   private finish(thread: Thread, evaluation: Evaluation, outcome: Finished): Decision {
-    if (outcome.kind === 'ignore') this.noticeRefusal(evaluation, outcome.reason)
     const decision = this.record(thread, evaluation, outcome)
     // Direct (gate-only) evaluations do not clear the thread's active evaluation.
     if (thread.evaluating?.id !== evaluation.id) return decision
@@ -340,6 +339,9 @@ export class Evals extends EnginePart {
     }
   }
   private record(thread: Thread, evaluation: Evaluation, outcome: Finished): Decision {
+    // Every Decision passes here - an Eval's ignore, and the gate's own refusal through `ignore()` - so this is the one place
+    // that reaches everyone whose message was not taken up.
+    if (outcome.kind === 'ignore') this.noticeRefusal(evaluation, outcome.reason)
     const at = this.now()
     const decision: Decision = { id: key('decision', evaluation.id), evalId: evaluation.id, threadKey: thread.key, triggerIds: evaluation.triggerIds,
       policyVersion: evaluation.policyVersion, at, kind: outcome.kind, reason: outcome.reason, strength: evaluation.strength,

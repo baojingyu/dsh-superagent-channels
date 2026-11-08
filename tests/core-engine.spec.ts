@@ -71,6 +71,34 @@ function accepted(h: ReturnType<typeof harness>, id = '1', thread = 't1') {
   return decision
 }
 
+describe('refusal notice', () => {
+  const channel = { source: 'chat', thread: 'chat:t1', address: { room: '' } }
+
+  it('tells the person who addressed the agent that the message was not taken, and why', () => {
+    // The gate refuses `guest`; the message is a direct one, so the sender is owed an answer. This is the path the policy
+    // gate takes (`Evals.ignore` -> `record`), which is not the one an Eval's own ignore takes.
+    const h = harness()
+    h.engine.receive(trigger('r1', { actor: guest, addressed: 'direct', channel }))
+    h.pump()
+    const notices = h.outbox.filter(item => item.kind === 'notice')
+    expect(notices).toHaveLength(1)
+    expect(notices[0]!.channel).toEqual(channel)
+    expect(notices[0]!.text).toContain('不在允许名单')
+  })
+
+  it('stays quiet for a message nobody aimed at the agent, and notices each message once', () => {
+    const h = harness()
+    h.engine.receive(trigger('r2', { actor: guest, channel }))
+    h.pump()
+    expect(h.outbox.filter(item => item.kind === 'notice')).toHaveLength(0)
+
+    h.engine.receive(trigger('r3', { actor: guest, addressed: 'mention', channel }))
+    h.pump()
+    h.pump()
+    expect(h.outbox.filter(item => item.kind === 'notice')).toHaveLength(1)
+  })
+})
+
 describe('intake', () => {
   it('stores a trigger once and records source filtering', () => {
     const h = harness()
