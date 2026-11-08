@@ -27,9 +27,9 @@ function fakeAdapter() {
 }
 
 describe('WeCom kind', () => {
-  it('is the wecom kind with its own and the history health entries', () => {
+  it('is the wecom kind with only the health entry it reports', () => {
     expect(wecomKind.kind).toBe('wecom')
-    expect(wecomKind.health).toEqual(['wecom', 'history'])
+    expect(wecomKind.health).toEqual(['wecom'])
     expect(wecomKind.title.en).toBe('WeCom')
     expect(wecomKind.description.zh).toContain('公网入口')
     expect(wecomAdapter.transports).toEqual(['webhook'])

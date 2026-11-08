@@ -74,10 +74,11 @@ const message: OutboundMessage = { id: 'out-1', channel: { source: 'chat-demo', 
   text: 'hi', kind: 'reply' }
 
 describe('chatKind', () => {
-  it('declares the backend and history health entries under the kind ID', () => {
+  it('declares only the health entry it reports, under the kind ID', () => {
     expect(kind.kind).toBe('chat-demo')
-    expect(kind.health).toEqual(['chat-demo', 'history'])
-    expect(kind.health).toContain('history')
+    expect(kind.health).toEqual(['chat-demo'])
+    // A shared `history` entry belongs to the one kind that reports a backfill; another kind naming it is refused.
+    expect(kind.health).not.toContain('history')
     expect(kind.schema.parse({})).toEqual({ chats: [], otherChats: 'none', directMessages: true })
   })
 

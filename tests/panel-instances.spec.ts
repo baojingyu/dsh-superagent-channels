@@ -80,7 +80,7 @@ it('shows one row per instance: two WeCom rows with different ids read their own
   // The two WeCom rows do not see each other's entry, and GitHub never sees a `wecom` entry.
   expect(part(rows, 'wecom-ops', 'wecom').detail).not.toBe(part(rows, 'wecom-hr', 'wecom').detail)
   expect(row(rows, 'github').health.map(item => item.name)).toEqual(['github'])
-  expect(row(rows, 'wecom-ops').health.map(item => item.name)).toEqual(['wecom', 'history'])
+  expect(row(rows, 'wecom-ops').health.map(item => item.name)).toEqual(['wecom'])
   // Restart-sensitive fields are looked up by kind, so both WeCom instances share the kind's (empty) list.
   expect(view.sources.find(item => item.id === 'github')!.restarts).toEqual(SETUP_FIELDS['github'])
   expect(view.sources.filter(item => item.kind === 'wecom').map(item => item.restarts)).toEqual([[], []])

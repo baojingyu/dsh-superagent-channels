@@ -22,9 +22,9 @@ const adapter: ChatAdapter<DingTalkKindConfig> = {
 beforeEach(() => { rememberDingTalkSelfId(undefined); calls.length = 0 })
 
 describe('dingtalkKind identity and schema', () => {
-  it('is the dingtalk kind with its own and the history health entries', () => {
+  it('is the dingtalk kind with only the health entry it reports', () => {
     expect(dingtalkKind.kind).toBe('dingtalk')
-    expect(dingtalkKind.health).toEqual(['dingtalk', 'history'])
+    expect(dingtalkKind.health).toEqual(['dingtalk'])
   })
 
   it('validates clientId/clientSecret/tokenFile/robotCode/atOnly/pollSeconds, and lists the same keys as fields', () => {
