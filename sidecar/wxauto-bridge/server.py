@@ -15,6 +15,7 @@ zlib / struct / queue。后端阶梯见 ADR-005 §2.2：
 from __future__ import annotations
 
 import argparse
+import base64
 import concurrent.futures
 import hashlib
 import hmac
@@ -23,10 +24,13 @@ import json
 import os
 import queue
 import random
+import re
+import shutil
 import signal
 import socketserver
 import struct
 import sys
+import tempfile
 import threading
 import time
 import traceback
@@ -57,6 +61,12 @@ VOICE_TIMEOUT_S = 8.0
 # `[图片]` placeholder in the text.
 INBOUND_DEFAULTS = {"voice": True, "images": True}
 # A listener that has delivered nothing for this long, while it is supposed to be listening, is treated as stale.
+# One outbound file, decoded. WeChat itself refuses large files, and a bridge that accepted a gigabyte would be a way
+# to fill the disk of whatever machine runs it.
+MAX_OUTBOUND_FILE_BYTES = 20 * 1024 * 1024
+# Base64 inflates by 4/3, and the JSON envelope adds a little on top, so the body ceiling has to be larger than the
+# payload ceiling or the payload ceiling is never reached.
+MAX_SEND_BODY_BYTES = MAX_OUTBOUND_FILE_BYTES * 4 // 3 + 64 * 1024
 LISTENER_QUIET_S = 600.0
 # At most one re-attach per window: a chat that is simply silent must not turn into a fight with the client.
 LISTENER_REATTACH_GAP_S = 900.0
@@ -109,6 +119,22 @@ def package_version() -> str:
         except (OSError, ValueError, AttributeError):
             continue
     return VERSION_FALLBACK
+
+
+_SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def safe_filename(name: str) -> str:
+    """The basename, stripped to characters a file system will not interpret.
+
+    `SendFiles` is handed a path we just created, so the name only has to be safe - but a name like `../../x` written
+    into a temp directory would still be a way out of it, so separators never survive.
+    """
+    base = os.path.basename(str(name or "").replace("\\", "/"))
+    cleaned = _SAFE_NAME.sub("_", base).strip("._")
+    if not cleaned:
+        cleaned = "file"
+    return cleaned[:120]
 
 
 def field(obj, name):
@@ -229,7 +255,8 @@ class Backend:
     def messages(self, room: str, cursor: str, limit: int) -> "tuple[list, str, str]":
         raise Unsupported()
 
-    def send(self, room: str, wxid: str, text: str, quote_id: str = "", at: "list[str] | None" = None) -> str:
+    def send(self, room: str, wxid: str, text: str, quote_id: str = "", at: "list[str] | None" = None,
+             file: "tuple[str, str] | None" = None) -> str:
         """只发文本；`at` 是可选的**群内提及**列表（显示名或其 `wxname_` id），单聊忽略。
 
         入站的 `Message.at` 是「拍一拍」，出站的 `SendMsg(at=[...])` 是提及——同名不同义，别混。
@@ -324,7 +351,7 @@ class FakeBackend(Backend):
         page = [dict(item) for item in FAKE_MESSAGES[start:start + limit]]
         return page, str(start + len(page)), str(len(FAKE_MESSAGES))
 
-    def send(self, room, wxid, text, quote_id="", at=None):
+    def send(self, room, wxid, text, quote_id="", at=None, file=None):
         if room and room != FAKE_ROOM:
             raise SendGone(room)
         return "fake_" + os.urandom(5).hex()
@@ -1306,7 +1333,7 @@ class PcUiaBackend(Backend):
             return [], (cursor or "0"), head
         return [event for _, event in page], str(page[-1][0]), head
 
-    def send(self, room, wxid, text, quote_id="", at=None):
+    def send(self, room, wxid, text, quote_id="", at=None, file=None):
         """只发文本，且在**主线程**上发（跨线程调微信会让监听失效）。
 
         `at` 只对群有用：单聊没有"提及"，传了也只会让客户端困惑，所以这里直接丢掉。群里的条目可以是
@@ -1331,7 +1358,11 @@ class PcUiaBackend(Backend):
                 if name and name not in mentions:
                     mentions.append(name)
         try:
-            self._executor.call(lambda wx: wx.SendMsg(text, who=target, **({"at": mentions} if mentions else {})))
+            if text:
+                self._executor.call(lambda wx: wx.SendMsg(text, who=target, **({"at": mentions} if mentions else {})))
+            if file is not None:
+                path, name = file
+                self._executor.call(lambda wx: wx.SendFiles(filepath=path, who=target))
         except Unavailable:
             raise
         except BaseException as error:
@@ -1415,7 +1446,7 @@ class PadBackend(Backend):
     def messages(self, room, cursor, limit):
         raise Unsupported(self.reason)
 
-    def send(self, room, wxid, text, quote_id="", at=None):
+    def send(self, room, wxid, text, quote_id="", at=None, file=None):
         raise Unsupported(self.reason)
 
     def media(self, media_id):
@@ -1438,7 +1469,7 @@ class Sender:
         self._idem = TTLCache(IDEM_TTL_S, IDEM_MAX_ITEMS)
 
     def send(self, room: str, wxid: str, text: str, quote_id: str, key: str,
-             at: "list[str] | None" = None) -> "tuple[str, bool]":
+             at: "list[str] | None" = None, file: "tuple[str, str] | None" = None) -> "tuple[str, bool]":
         with self.lock:
             if key:
                 cached = self._idem.get(key)
@@ -1447,7 +1478,7 @@ class Sender:
             wait = self._next_at - time.monotonic()
             if wait > 0:
                 time.sleep(wait)
-            msg_id = self.backend.send(room, wxid, text, quote_id, at)
+            msg_id = self.backend.send(room, wxid, text, quote_id, at, file)
             self._next_at = time.monotonic() + SEND_MIN_INTERVAL_S + random.uniform(0.0, SEND_JITTER_S)
             if key:
                 self._idem.put(key, msg_id)
@@ -1669,8 +1700,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length") or 0)
         except (TypeError, ValueError):
             length = 0
-        if length <= 0 or length > MAX_BODY_BYTES:
-            return self._json(400, {"error": "bad_request"})
+        if length <= 0 or length > MAX_SEND_BODY_BYTES:
+            return self._json(413, {"error": "too_large"})
         try:
             body = json.loads(self.rfile.read(length).decode("utf-8"))
         except (UnicodeDecodeError, ValueError):
@@ -1685,11 +1716,39 @@ class BridgeHandler(BaseHTTPRequestHandler):
             at = [at]
         if not isinstance(at, list) or any(not isinstance(entry, str) for entry in at):
             return self._json(400, {"error": "bad_request"})
-        msg_id, deduped = self.server.app.sender.send(
-            pick("room"), pick("wxid"), pick("text"), pick("quoteId"),
-            (self.headers.get("Idempotency-Key") or "").strip(),
-            [entry for entry in at if entry],
-        )
+        text = pick("text")
+        raw_file = body.get("file")
+        if raw_file is None and not text:
+            return self._json(400, {"error": "bad_request"})
+        directory = None
+        file = None
+        if raw_file is not None:
+            if not isinstance(raw_file, dict):
+                return self._json(400, {"error": "bad_request"})
+            name, data = raw_file.get("name"), raw_file.get("data")
+            if not isinstance(name, str) or not isinstance(data, str) or not data:
+                return self._json(400, {"error": "bad_request"})
+            try:
+                payload = base64.b64decode(data, validate=True)
+            except (ValueError, TypeError):
+                return self._json(400, {"error": "bad_request"})
+            if not payload or len(payload) > MAX_OUTBOUND_FILE_BYTES:
+                return self._json(413, {"error": "too_large"})
+            directory = tempfile.mkdtemp(prefix="wxout-")
+            path = os.path.join(directory, safe_filename(name))
+            with open(path, "wb") as handle:
+                handle.write(payload)
+            file = (path, os.path.basename(path))
+        try:
+            msg_id, deduped = self.server.app.sender.send(
+                pick("room"), pick("wxid"), text, pick("quoteId"),
+                (self.headers.get("Idempotency-Key") or "").strip(),
+                [entry for entry in at if entry],
+                file,
+            )
+        finally:
+            if directory:
+                shutil.rmtree(directory, ignore_errors=True)
         self._json(200, {"msgId": msg_id, "deduped": deduped})
 
 

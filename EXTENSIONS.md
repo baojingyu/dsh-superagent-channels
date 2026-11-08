@@ -91,6 +91,7 @@ are the detail.
 | Identity | `selfWxid` is the account whose `@`s count; chats and senders are the sidecar's ids |
 | Credentials | the sidecar's bearer token in a file, owner-only |
 | Group `@` | decided on `ats`, never on the message body — see §5.2 |
+| Outbound (files) | `/send` takes one optional `file` (base64, ≤ 20 MiB, name reduced to a basename); verified on the live client, where it arrives as an image message. **The core has no attachment model yet** (`OutboundMessage` carries only `text`), so the model cannot send one by itself - see ADR-008 for the trade-off |
 | Outbound | text, **keyed** idempotency (the OutboundMessage id is sent as `Idempotency-Key`), ≥1 s serialized spacing. A group reply may mention the sender under a switch (`mentionBack`), resolved from the sender's id to the display name the sidecar observed; **no native quote** - the client library's `SendMsg` takes no quote argument, see ADR-007 |
 | Inbound media | images, downloaded through the sidecar and judged by magic bytes; groups and direct chats share one `/media` path. A switch turns it off, leaving a `[图片]` placeholder and downloading nothing |
 | Inbound voice | transcribed into text (`to_text`, up to eight seconds of the client's UI per message, degrading to a placeholder). A switch turns it off, leaving `[语音消息]` |
