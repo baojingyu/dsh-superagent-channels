@@ -71,6 +71,8 @@ LISTENER_QUIET_S = 600.0
 # At most one re-attach per window: a chat that is simply silent must not turn into a fight with the client.
 LISTENER_REATTACH_GAP_S = 900.0
 WATCHDOG_TICK_S = 60.0
+# How often the main loop asks whether the client it attached to still exists.
+MAINTAIN_TICK_S = 30.0
 ISO_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 # 非文本消息的空 content 占位：绝不产出 `text: ""` 的空事件
@@ -541,8 +543,11 @@ class _MainThreadExecutor:
     HTTP 由后台线程服务（见 `main()`），顺带满足 ADR-005「UI 串行化」。
     """
 
-    def __init__(self, setup) -> None:
+    def __init__(self, setup, maintain=None) -> None:
         self._setup = setup
+        # Runs on the main thread between calls; returns the client to use from now on, which lets a stale attach be
+        # replaced without stopping the process.
+        self._maintain = maintain
         self._queue: "queue.Queue" = queue.Queue()
         self._ready = threading.Event()
         self._wx = None
@@ -556,15 +561,22 @@ class _MainThreadExecutor:
         try:
             self._wx = self._setup()
         except BaseException as error:  # noqa: BLE001 —— 由 probe() 转成 available:false
+            # Not fatal: the client may be switching accounts or still opening its window. The loop stays up so `/health`
+            # can say why, and the maintenance tick keeps trying.
             self._error = error
-            self._ready.set()
-            return
         self._ready.set()
         while True:
             try:
                 # 带超时：主线程无限阻塞在 Queue.get() 上时收不到 SIGBREAK/SIGINT。
                 item = self._queue.get(timeout=0.2)
             except queue.Empty:
+                if self._maintain is not None:
+                    try:
+                        self._wx = self._maintain(self._wx) or self._wx
+                        if self._wx is not None:
+                            self._error = None
+                    except BaseException as error:  # noqa: BLE001 —— 维护失败不能停掉主循环
+                        self._error = error
                 continue
             if item is None:
                 return
@@ -587,6 +599,10 @@ class _MainThreadExecutor:
             ctypes.windll.ole32.CoInitializeEx(None, 0x2)  # STA；已初始化也无妨
         except BaseException:
             pass
+
+    @property
+    def client(self):
+        return self._wx
 
     def wait_ready(self, timeout: float) -> bool:
         return self._ready.wait(timeout)
@@ -649,6 +665,10 @@ class PcUiaBackend(Backend):
         self._last_inbound_at = time.monotonic()
         self._last_reattach_at = 0.0
         self._reattach_count = 0
+        # The window we attached to, and how many times a different one replaced it (an account switch or a re-login).
+        self._hwnd = 0
+        self._account_switch_count = 0
+        self._last_maintain_at = 0.0
         self._watchdog: "threading.Thread | None" = None
         # Chat id -> the client's own `chat_type`. A direct chat reports `room: ""` in its events while
         # the panel stores the person's id, so the mapping between the two has to be remembered.
@@ -804,6 +824,9 @@ class PcUiaBackend(Backend):
             parts.append("监听 %d 个会话，最近事件 %d 秒前" % (len(self._listen_names), quiet))
         if self._reattach_count:
             parts.append("监听已自动重挂 %d 次（客户端界面卡住，或另一个 UI 自动化工具抢过窗口）" % self._reattach_count)
+        switches = int(getattr(self, "_account_switch_count", 0))
+        if switches:
+            parts.append("检测到客户端窗口更换（换号/重新登录），已重建连接 %d 次" % switches)
         return "；".join(parts)
 
     # -- 挂载与监听（全部在主线程上执行） ---------------------------------
@@ -812,6 +835,7 @@ class PcUiaBackend(Backend):
         from wxautox4.wx import WeChat  # noqa: PLC0415 —— 只在这个后端、这个时刻导入
 
         wx = WeChat(version=WECHAT_VERSION)
+        self._hwnd = int(getattr(getattr(wx, "_api", None), "HWND", 0) or 0)
         self._refresh_identity(wx, force=True)
         if not self._self_wxid or not self._self_name:
             raise RuntimeError("已 attach 客户端但拿不到 id/display_name（%s）"
@@ -825,6 +849,68 @@ class PcUiaBackend(Backend):
         except TypeError:
             wx.AddListenChat(name, self._on_message)
         self._room_id_for(name)
+
+    def _window_alive(self, wx) -> bool:
+        """Whether the client window this process attached to still exists.
+
+        A signed-out or switched account closes that window and opens another; the object we hold keeps answering from its
+        own cache, which is why the identity and the chat list both looked frozen. One `IsWindow` call settles it.
+        """
+        if os.name != "nt":
+            return True
+        hwnd = int(getattr(self, "_hwnd", 0) or 0)
+        if not hwnd:
+            return True
+        try:
+            import ctypes  # noqa: PLC0415
+
+            return bool(ctypes.WinDLL("user32").IsWindow(hwnd))
+        except BaseException:
+            return True
+
+    def _reset_for_new_account(self) -> None:
+        """Drop everything that belongs to the account that just went away. **Main thread only.**"""
+        with self._queue_lock:
+            self._queue.clear()
+        self._room_names.clear()
+        self._observed.clear()
+        self._chat_kind.clear()
+        self._rooms_cache = []
+        self._rooms_cache_at = 0.0
+        self._recent_groups_cache = []
+        self._recent_groups_at = 0.0
+        self._listen_names = []
+        self._listening = False
+        self._self_wxid = ""
+        self._self_name = ""
+        self._self_name_at = 0.0
+        self._self_name_note = ""
+        self._hwnd = 0
+        self._account_switch_count = int(getattr(self, "_account_switch_count", 0)) + 1
+        self._last_inbound_at = time.monotonic()
+        self._last_reattach_at = self._last_inbound_at
+
+    def _maintain(self, wx):
+        """**Main thread only.** Attach when there is no client, replace one whose window is gone, else keep the listener honest."""
+        now = time.monotonic()
+        if now - float(getattr(self, "_last_maintain_at", 0.0)) < MAINTAIN_TICK_S:
+            return wx
+        self._last_maintain_at = now
+        if wx is None:
+            self._reset_for_new_account()
+            attached = self._setup_wx()
+            self._probe = None      # 让 `/health` 重新问一次，而不是继续报旧失败
+            return attached
+        if self._window_alive(wx):
+            self._reattach_if_quiet(wx)
+            return wx
+        self._reset_for_new_account()
+        try:
+            return self._setup_wx()
+        except BaseException:
+            if self.verbose:
+                traceback.print_exc()
+            return wx
 
     def _reattach_if_quiet(self, wx) -> None:
         """Re-attach a listener that has gone silent. **Main thread only.**
@@ -1112,7 +1198,7 @@ class PcUiaBackend(Backend):
     def prepare(self) -> None:
         # 先把执行器建好，避免 /health 抢在 run_main_loop 之前看到 None。
         if self._executor is None:
-            self._executor = _MainThreadExecutor(self._setup_wx)
+            self._executor = _MainThreadExecutor(self._setup_wx, self._maintain)
 
     def run_main_loop(self) -> None:
         """主线程：attach + 监听，然后循环执行 HTTP 线程提交的微信调用。"""
@@ -1131,6 +1217,12 @@ class PcUiaBackend(Backend):
                 self._probe = (False, "attach 超过 %ss 未返回（客户端窗口不在当前交互式会话？见 ADR-005 §6 前置 4）"
                                % PROBE_TIMEOUT_S)
                 return self._probe
+            # A failed attach is retried in the background, so its reason must not be cached as the final answer.
+            if executor.client is None:
+                error = executor.error
+                return False, ("attach 失败：%s: %s（每 %ss 重试一次；换号后请确认客户端已登录并只开一个主窗口）"
+                               % (type(error).__name__, error, MAINTAIN_TICK_S) if error else
+                               "attach 尚未完成；每 %ss 重试一次" % MAINTAIN_TICK_S)
             if executor.error is not None:
                 self._probe = (False, "%s: %s" % (type(executor.error).__name__, executor.error))
                 return self._probe

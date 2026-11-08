@@ -109,6 +109,12 @@ are the detail.
 > attach: every watched chat is removed and re-added and `StartListening` is called again, at most once per fifteen
 > minutes. `/health`'s `detail` reports `recent event K s ago` and `re-attached M times`; a rising M means something
 > else is taking the window.
+>
+> **Switching accounts replaces the window.** Every thirty seconds the sidecar checks that the window it attached to
+> still exists; when it does not, everything cached per account goes (chats, groups, members, the event queue, the
+> listen set) and it attaches again, which `detail` reports as "检测到客户端窗口更换…已重建连接 N 次". A failed attach
+> no longer exits the process: `/health` reports `available:false` with the library's own reason (such as "no signed-in
+> main window found") and retries, so completing the sign-in needs no bridge restart.
 
 ### 3.4 DingTalk — `chat/dingtalk`
 
