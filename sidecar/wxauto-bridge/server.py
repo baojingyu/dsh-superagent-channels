@@ -791,13 +791,9 @@ class PcUiaBackend(Backend):
         `wxname_…` 只能靠「对候选名算一次哈希」反查回显示名，没有反函数。
         """
         names = [n for n in self._room_names.values() if n]
-        try:
-            for item in wx.GetAllRecentGroups() or []:
-                name = item[0] if isinstance(item, (list, tuple)) and item else field(item, "name")
-                if isinstance(name, str) and name:
-                    names.append(name)
-        except BaseException:
-            pass
+        # The cached half: this list is expensive and opens the client's contact window, so it is shared with
+        # `/rooms` and refreshed on its own schedule rather than on every lookup.
+        names.extend(self._recent_groups(wx))
         try:
             for item in wx.GetSession() or []:
                 name = field(item, "name")
@@ -848,24 +844,44 @@ class PcUiaBackend(Backend):
 
     def _apply_listen(self, wx, requested: "list[str]") -> dict:
         """集合替换（幂等）：只对差异发微信调用；完全相同时一个调用都不发。"""
-        self._refresh_identity(wx, force=True)  # 运维刚改完名就会存面板，这里是最自然的刷新点
         failed = []
-        candidates = self._candidate_names(wx)
-        by_id = {wxname(name): name for name in candidates}
+        # Resolve from what is already known first: `/rooms` and every earlier `/listen` recorded id → name, so the
+        # common case needs no client call at all.
         target: "OrderedDict[str, str]" = OrderedDict()
+        unresolved = []
         for entry in requested:
             if entry.startswith("wxname_"):
-                name = by_id.get(entry) or self._room_names.get(entry)
+                name = self._room_names.get(entry)
                 if not name:
-                    failed.append({"room": entry, "detail": "无法把 id 解析回显示名（候选表里没有）"})
+                    unresolved.append(entry)
                     continue
             else:
                 name = entry
-            target[wxname(name)] = name
+            if name:
+                target[wxname(name)] = name
 
         current: "OrderedDict[str, str]" = OrderedDict()
         for name in self._listen_names:
             current[wxname(name)] = name
+
+        # The polling loop pushes the same configuration every few seconds. When it is unchanged and every id was
+        # resolvable, this returns without touching the client: `GetAllRecentGroups()` opens the contact window, and
+        # calling it on a timer makes that window reopen and scroll for ever.
+        if not unresolved and list(target) == list(current):
+            return {"listening": [{"id": room_id, "name": name} for room_id, name in current.items()],
+                    "added": [], "removed": [], "failed": []}
+
+        # A change is worth the client's UI; the identity refresh rides along with it, which is also the moment an
+        # operator has just renamed the account.
+        self._refresh_identity(wx, force=True)
+        if unresolved:
+            by_id = {wxname(name): name for name in self._candidate_names(wx)}
+            for entry in unresolved:
+                name = by_id.get(entry)
+                if not name:
+                    failed.append({"room": entry, "detail": "无法把 id 解析回显示名（候选表里没有）"})
+                    continue
+                target[wxname(name)] = name
 
         added, removed = [], []
         for room_id, name in target.items():
