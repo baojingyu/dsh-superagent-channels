@@ -82,7 +82,7 @@ Node 侧只认契约，后端因此可替换。第 4、5 节是细节。
 | 身份 | `selfWxid` 是「谁的 `@` 算数」；会话与发送人用 sidecar 给的 id |
 | 凭据 | sidecar 的 bearer token 放在文件里，owner-only |
 | 群 `@` | 只看 `ats`，绝不看消息正文 —— 见 §5.2 |
-| 出站 | 文本，**keyed 幂等**（OutboundMessage 的 id 作为 `Idempotency-Key` 发出），支持引用回复，进程内串行且间隔 ≥1 秒 |
+| 出站 | 文本，**keyed 幂等**（OutboundMessage 的 id 作为 `Idempotency-Key` 发出），进程内串行且间隔 ≥1 秒。**不带 @、也没有原生引用**：客户端库的 `SendMsg` 没有 quote 参数，见 ADR-007 |
 | 入站媒体 | 图片，经 sidecar 下载，按魔数判定；群与单聊走同一条 `/media` 链路 |
 | 面板配置 | `POST /listen` 集合替换；增删会话不用重启 |
 
