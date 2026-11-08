@@ -936,8 +936,9 @@ describe('the Executor\'s parts', () => {
     expect(reportRelay(ticket, { state: 'blocked', summary: 'need input', question: 'Which color?' }))
       .toMatchObject({ id: 'attention:t1:a1', text: expect.stringContaining('"kind":"worker_attention"') })
     const ready = reportRelay({ ...ticket, attention: undefined } as unknown as Ticket, { state: 'ready', summary: 'Done',
-      answers: 'tr9' })!
+      answers: 'tr9', files: ['promo-kit/out.docx'] })!
     expect(ready.id).toMatch(/^report:/)
-    expect(JSON.parse(ready.text)).toMatchObject({ kind: 'worker_report', ticket: { ticket_id: 't1' }, trigger_id: 'tr1', state: 'ready', answer_to: 'tr9', summary: 'Done' })
+    expect(JSON.parse(ready.text)).toMatchObject({ files: ['promo-kit/out.docx'] })
+        expect(JSON.parse(ready.text)).toMatchObject({ kind: 'worker_report', ticket: { ticket_id: 't1' }, trigger_id: 'tr1', state: 'ready', answer_to: 'tr9', summary: 'Done' })
   })
 })

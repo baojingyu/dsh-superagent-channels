@@ -56,6 +56,15 @@
   ≤20 MiB、拒绝可执行后缀。
 - `Runtime.canSendFiles(ticket)`：读**面板开关**（默认关）与通道能力，工具在动手前先问它。
 
+## 6.1 第二版：文件从「报告」来，不靠模型临场记得
+
+第一版把工具放在 worker 侧且固定 `result`，被「未 ready」拒；第二版挪到主 Session 的 `orchestrator_reply`，但真机上
+worker 仍在调**已删除**的旧工具名，得到 `UNKNOWN_TOOL`，于是它对用户说「这个环境没有附件上传通道」——能力在，工具不在。
+
+所以现在的链路是：**worker 在 ready 报告的 `files` 里声明产出物**（相对工单目录）→ 报告存进 assignment → 转给主 Session
+的 relay 带上这份清单 → 结果回复**默认自动附上**（也可以显式给 `files`）。`sendFiles` 开关与 `resolveTicketFile` 的
+边界照旧。这样即使模型忘了说，产出物也会跟着结果走；模型也没有「看起来能做但一定失败」的工具可调用。
+
 ## 7. 真机教训（第一版为什么不对）
 
 | 现象 | 原因 |

@@ -83,7 +83,7 @@ Node 侧只认契约，后端因此可替换。第 4、5 节是细节。
 | 身份 | `selfWxid` 是「谁的 `@` 算数」；会话与发送人用 sidecar 给的 id |
 | 凭据 | sidecar 的 bearer token 放在文件里，owner-only |
 | 群 `@` | 只看 `ats`，绝不看消息正文 —— 见 §5.2 |
-| 出站（文件） | `/send` 的 `file` 可带一个文件/图片（base64，≤20 MiB，文件名只留 basename）；真机验过发出后是图片消息。核心侧已有附件模型（`OutboundMessage.files`）；文件随**主 Session 的 `orchestrator_reply`**（`files` 参数）发出：**只允许工单目录内的文件**、≤20 MiB、拒绝可执行后缀，且受面板开关 `sendFiles`（默认关）约束——见 ADR-008 |
+| 出站（文件） | `/send` 的 `file` 可带一个文件/图片（base64，≤20 MiB，文件名只留 basename）；真机验过发出后是图片消息。核心侧已有附件模型（`OutboundMessage.files`）。**worker 在 ready 报告里用 `files` 声明产出的文件**（相对工单目录），主 Session 的结果回复**默认自动附上**它们（也可在 `orchestrator_reply` 显式给 `files`）：**只允许工单目录内的文件**、≤20 MiB、拒绝可执行后缀，且受面板开关 `sendFiles`（默认关）约束——见 ADR-008 |
 | 出站 | 文本，**keyed 幂等**（OutboundMessage 的 id 作为 `Idempotency-Key` 发出），进程内串行且间隔 ≥1 秒。群里可按开关带 @（`mentionBack`，按发送人 id 解析成显示名）；**没有原生引用**——客户端库的 `SendMsg` 没有 quote 参数，见 ADR-007 |
 | 入站媒体 | 图片，经 sidecar 下载，按魔数判定；群与单聊走同一条 `/media` 链路。面板可关（关掉只在正文留 `[图片]`，不下载） |
 | 入站语音 | 转写为文字（`to_text`，每条最多占用客户端 UI 8 秒，失败降级为占位）。面板可关，关掉正文是 `[语音消息]` |

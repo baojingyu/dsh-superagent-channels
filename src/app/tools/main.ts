@@ -239,11 +239,16 @@ export function mainTools(host: MainToolsHost, agent: Agent): Tool[] {
         // A file leaves the machine only through this gate: the ticket names the directory, the operator's switch says
         // whether files may go at all, and `resolveTicketFile` refuses anything that is not a plain file inside it.
         let files: ReturnType<typeof resolveTicketFile>[] = []
-        if (args.files?.length) {
+        if (args.files?.length || args.purpose === 'result') {
           const ticket = args.ticket_id ? host.store.tickets.get(args.ticket_id) : undefined
-          if (!ticket) throw new Error('files need ticket_id: they are read from that ticket\'s directory')
-          if (!host.canSendFiles(ticket)) throw new Error('Sending files is off for this Source; the operator must enable it in the panel first')
-          files = args.files.map(path => resolveTicketFile(ticket.execution?.directory, path))
+          // A result attaches what the ready report declared unless the caller names its own list: the report is where the
+          // worker says what it produced, and relying on a model to repeat it is how a finished file goes missing.
+          const declared = args.files?.length ? args.files : (ticket?.assignments.at(-1)?.report?.files ?? [])
+          if (declared.length) {
+            if (!ticket) throw new Error('files need ticket_id: they are read from that ticket\'s directory')
+            if (!host.canSendFiles(ticket)) throw new Error('Sending files is off for this Source; the operator must enable it in the panel first')
+            files = declared.map(path => resolveTicketFile(ticket.execution?.directory, path))
+          }
         }
         const reply = host.engine.reply({ purpose: args.purpose, text: args.text, ...(args.trigger_id ? { triggerId: args.trigger_id } : {}),
           ...(args.ticket_id ? { ticketId: args.ticket_id } : {}), ...(args.human_action ? { question: args.human_action } : {}),
