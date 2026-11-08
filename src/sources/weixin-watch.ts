@@ -49,6 +49,25 @@ export function triggerOf(event: ChatEvent, instance: string): Trigger {
   }
 }
 
+/** Everything the loop needs to answer a message besides the message itself. */
+export interface PollOptions {
+  autoReplies?: readonly { any: string; reply: string }[]
+  /** Send a receipt the moment a message addresses the bot, before any model is asked. */
+  acknowledge?: boolean
+  ackText?: string
+  /** Seconds between "still working" notes while nothing has come back; 0 turns them off. */
+  progressAfterSeconds?: number
+}
+
+/** Per chat: when the last receipt went out, so a burst of messages gets one receipt rather than five. */
+const lastReceiptAt = new Map<string, number>()
+/** Messages whose receipt is out and which the bot has not answered yet: `id -> {chat, owner, at, notes}`. */
+const awaiting = new Map<string, { chat: string; owner: string; at: number; notes: number }>()
+
+const RECEIPT_GAP_MS = 30_000
+const MAX_PROGRESS_NOTES = 3
+const AWAIT_TTL_MS = 60 * 60_000
+
 /** The first canned reply whose keyword the text names, case-insensitively; `undefined` when none does. */
 function autoReplyFor(text: string, rules: readonly { any: string; reply: string }[]) {
   const haystack = text.toLowerCase()
@@ -57,13 +76,33 @@ function autoReplyFor(text: string, rules: readonly { any: string; reply: string
 
 /** Reads one chat from its stored cursor and hands every message not the agent's own to the Engine. */
 export async function pollChat(ctx: SourceContext, bridge: BridgeClient, instance: string, chat: string,
-  autoReplies: readonly { any: string; reply: string }[] = []): Promise<number> {
+  options: PollOptions = {}): Promise<number> {
+  const autoReplies = options.autoReplies ?? []
   const cursor = ctx.state.get(KV.chat.history(instance, chat))
   const page = await bridge.messages(chat, cursor)
   let received = 0
   for (const event of page.events) {
-    // The bridge delivers the agent's own messages back as echoes; they never authorize work.
-    if (event.ownMessage) continue
+    // The bridge delivers the agent's own messages back as echoes; they never authorize work, but they do say the bot has
+    // answered this chat, so the "still working" notes for it stop here.
+    if (event.ownMessage) {
+      for (const [id, pending] of awaiting) if (pending.chat === chat && pending.owner === instance) awaiting.delete(id)
+      continue
+    }
+    // A receipt goes out before the model is asked anything: the assessor takes from 53 s to over two minutes here, and a
+    // follow-up on an existing ticket never produced one at all. Only a message that addresses the bot is receipted, and
+    // at most one per chat per half minute, so a burst of messages gets one "收到" rather than five.
+    if (options.acknowledge && (event.mentionsAgent || event.direct)) {
+      const key = `${instance}:${chat}`
+      const last = lastReceiptAt.get(key) ?? 0
+      if (Date.now() - last >= RECEIPT_GAP_MS) {
+        lastReceiptAt.set(key, Date.now())
+        try {
+          await bridge.send({ room: event.chatId, wxid: event.sender.id,
+            text: options.ackText || '收到，正在处理，请稍等。', idempotencyKey: `ack:${instance}:${event.nativeId}` })
+          awaiting.set(`${instance}:${event.nativeId}`, { chat, owner: instance, at: Date.now(), notes: 0 })
+        } catch { /* a receipt that cannot be sent must not stop the message being handed over */ }
+      }
+    }
     // A configured template goes out from here, without the agent: its own idempotency key keeps a redelivered page from
     // posting it twice. The message is still handed over below - a template is not a reason to drop what the person said.
     const canned = autoReplyFor(event.text, autoReplies)
@@ -75,6 +114,21 @@ export async function pollChat(ctx: SourceContext, bridge: BridgeClient, instanc
     }
     await ctx.receive(triggerOf(event, instance))
     received += 1
+  }
+  // One "still working" note per due message, after the page is handled: a person who asked for something long-running
+  // should learn that it is still running rather than guess. It stops as soon as the bot speaks in that chat.
+  const every = (options.progressAfterSeconds ?? 0) * 1000
+  if (every > 0) {
+    for (const [id, pending] of awaiting) {
+      if (pending.chat !== chat || pending.owner !== instance) continue
+      if (Date.now() - pending.at > AWAIT_TTL_MS || pending.notes >= MAX_PROGRESS_NOTES) { awaiting.delete(id); continue }
+      if (Date.now() - pending.at < every * (pending.notes + 1)) continue
+      pending.notes += 1
+      try {
+        await bridge.send({ room: chat, wxid: '', text: `还在处理中，完成后会在这里告诉你（进度提醒 ${pending.notes}/3）。`,
+          idempotencyKey: `note:${id}:${pending.notes}` })
+      } catch { /* best effort, like the receipt */ }
+    }
   }
   // The cursor advances only after the page is handed over, so a stopped poll reads the same page again.
   if (page.next !== cursor) ctx.state.set(KV.chat.history(instance, chat), page.next)
@@ -111,7 +165,9 @@ async function pollRound(ctx: SourceContext, config: WeixinConfig, signal: Abort
   let received = 0
   for (const room of config.rooms) {
     signal.throwIfAborted()
-    received += await pollChat(ctx, bridge, instance, room.id, config.autoReplies)
+    received += await pollChat(ctx, bridge, instance, room.id, {
+      autoReplies: config.autoReplies, acknowledge: config.acknowledge,
+      ackText: config.ackText, progressAfterSeconds: config.progressAfterSeconds })
   }
   return { received, watching, unresolved }
 }

@@ -73,8 +73,19 @@ Chat 公开成员：AddGroupMembers AtAll CancelCall ChatInfo Close EditFriendIn
 | **已实施** | P1：措辞 + `voice`/`images` 开关 | `kind.ts`、sidecar `options`、`verify/options-check.py` | 完成 |
 | **已实施** | P2：`mentionBack`（sidecar `at`、契约、面板、`verify/mention-check.py`） | sidecar、`bridge.ts`、`kind.ts` | 完成（真机群内未跑，避免在真实群里发言） |
 | **已实施** | P3：`keywords` + `autoReplies` | `scope()`、`weixin-watch.ts`、`ports.ts` | 完成 |
+| **已实施** | P4：即时回执 + 处理中提醒（`acknowledge`/`ackText`/`progressAfterSeconds`） | `weixin-watch.ts` 的 `pollChat`、`kind.ts` | 完成 |
 | — | `quoteStyle: 'text'` | 现状已是「引用写进正文」，没有独立开关 | 不需要 |
 | — | 出站图片/文件 | 需要核心 `OutboundMessage` 附件模型 | 另立 ADR |
+
+## 5.1 P4 的依据（实测时间线，来自 `state/superagent/orchestrator.sqlite`）
+
+| 消息 | 系统动作 | 时延 |
+|---|---|---|
+| 07:14 一条「test」 | 07:14:53 判定 ignore | 53 秒，无回执（正确：没有请求） |
+| 07:14 「用网页做一个…」 | 07:16:09 判定 accept，同时发出回执 | **2 分 09 秒** |
+| 07:30 「发布到公网…」 | 07:32:00 并入已有工单，**没有任何回执** | 2 分钟全程无声 |
+
+结论：等待感来自两处——**评估本身就是几十秒到两分钟**，以及**追加到已有工单的消息不带回执**。所以回执由源侧在评估前发出，并对「机器人还没在这个会话里开口」补处理中提醒。缩短评估本身不在本期范围（涉及模型选择与提示词规模）。
 
 ## 6. 风险
 

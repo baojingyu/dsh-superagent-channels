@@ -36,6 +36,12 @@ export const WeixinConfigSchema = z.object({
   timeoutSeconds: z.number().int().min(5).max(300).default(30),
   /** Phrases that admit a group message without an `@`. Matched case-insensitively inside the text. */
   keywords: z.array(z.object({ any: z.string().trim().min(1).max(50) }).strict()).default([]),
+  /** Send a receipt the moment a message addresses the bot, before the model is asked. */
+  acknowledge: z.boolean().default(true),
+  /** What that receipt says. Kept short: it goes out before anything has been understood. */
+  ackText: z.string().trim().min(1).max(200).default('收到，正在处理，请稍等。'),
+  /** Seconds between "still working" notes while the bot has said nothing; 0 turns them off. */
+  progressAfterSeconds: z.number().int().min(0).max(3600).default(180),
   /** Fixed replies sent from the polling loop when a message names one; the agent still sees the message. */
   autoReplies: z.array(z.object({
     any: z.string().trim().min(1).max(50),
@@ -85,6 +91,12 @@ const Fields: FieldSpec[] = [
       { key: 'any', type: 'text', label: { zh: '关键词', en: 'Keyword' } },
       { key: 'reply', type: 'text', label: { zh: '回复内容', en: 'Reply' } },
     ] },
+  { key: 'acknowledge', type: 'switch', label: { zh: '收到就先回一句', en: 'Acknowledge on receipt' },
+    hint: { zh: '有人 @ 机器人或私聊机器人时，**在评估之前**立刻回一句回执，避免「不知道到底收没收到」。评估本身要几十秒到两分钟，回执不改变它，只是让你不用干等。同一会话 30 秒内只回一次。', en: 'When someone mentions the bot or messages it directly, send a receipt immediately - before the assessment, which itself takes from tens of seconds to two minutes. One receipt per chat per 30 seconds.' } },
+  { key: 'ackText', type: 'text', label: { zh: '回执内容', en: 'Receipt text' },
+    hint: { zh: '回执只表示「收到了」，此时还没读懂你要做什么，所以别写具体承诺。', en: 'A receipt only says it arrived; nothing has been understood yet, so do not promise anything specific.' } },
+  { key: 'progressAfterSeconds', type: 'number', advanced: true, min: 0, max: 3600, label: { zh: '处理中提醒 / 秒', en: 'Still-working note / s' },
+    hint: { zh: '发出回执后，机器人在这个会话里一直没说话，就每隔这么久补一句「还在处理中」（最多 3 次）。机器人一开口就停。填 0 关闭。', en: 'After the receipt, if the bot has said nothing in that chat, add a "still working" note at this interval (at most 3). It stops as soon as the bot speaks. 0 turns it off.' } },
   { key: 'mentionBack', type: 'switch', label: { zh: '回复时 @ 发言人', en: 'Mention the sender in a reply' },
     hint: { zh: '仅对群聊生效：回复群里找机器人的那个人时带上 @，让对方确实收到提醒。私聊没有 @ 这一说，开了也不会带。', en: 'Groups only: a reply to the person who addressed the bot carries an @, so they are actually notified. A direct message has no mention to make, so this does nothing there.' } },
   { key: 'voice', type: 'switch', label: { zh: '转写语音消息', en: 'Transcribe voice messages' },
