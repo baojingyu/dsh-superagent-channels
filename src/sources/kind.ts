@@ -108,7 +108,7 @@ export interface SourceKind<C extends Record<string, unknown> = Record<string, u
   /** Health entry names owned by this kind under `health[...]`; no other kind or core loop may report them. */
   health: string[]
   /** Listening rule for a trigger (or recorded Mandate basis) of this kind; kinds without `scope` listen to everything they produce and observe none of it. */
-  scope?(input: { meta: Record<string, unknown> }, config: C): ScopeResult
+  scope?(input: { meta: Record<string, unknown>; text?: string }, config: C): ScopeResult
   /** Outbound reply adapter; kinds without `channel` produce no replies or channel checks. */
   channel?: SourceChannel<C>
   /** Bounded context reader for assessments; assessments of a kind without `threadContext` read none. */

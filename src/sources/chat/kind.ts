@@ -57,7 +57,7 @@ export function chatKind<C extends Record<string, unknown>>(adapter: ChatAdapter
     // a callback or listener transport does not - because a default instance claims its entries by bare name and a
     // second kind naming the same one is refused at registration, which stops the whole plugin from starting.
     health: [meta.host],
-    scope({ meta: inbound }, config): ScopeResult {
+    scope({ meta: inbound }: { meta: Record<string, unknown> }, config): ScopeResult {
       const settings = scopeConfig(config)
       if (inbound.direct === true) {
         return settings.directMessages === false

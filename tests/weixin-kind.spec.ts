@@ -25,11 +25,12 @@ describe('weixinKind schema and fields', () => {
   it('validates every field and lists the same keys as fields', () => {
     expect(weixinKind.schema.parse({ tokenFile: '/tmp/weixin.token', selfWxid: 'wxid_self' }))
       .toEqual({ baseUrl: 'http://127.0.0.1:8787', tokenFile: '/tmp/weixin.token', selfWxid: 'wxid_self', rooms: [], atOnly: true, pollSeconds: 5,
-        timeoutSeconds: 30, mentionBack: true, voice: true, images: true })
+        timeoutSeconds: 30, keywords: [], autoReplies: [], mentionBack: true, voice: true, images: true })
     // The default is deliberately generous: listing chats walks the client's contact pages (~10 s here), so a tight
     // timeout would be reported as "the bridge did not answer" while it is still working.
     expect(weixinKind.fields.map(field => field.key))
-      .toEqual(['baseUrl', 'tokenFile', 'selfWxid', 'rooms', 'atOnly', 'mentionBack', 'voice', 'images', 'pollSeconds', 'timeoutSeconds'])
+      .toEqual(['baseUrl', 'tokenFile', 'selfWxid', 'rooms', 'atOnly', 'keywords', 'autoReplies', 'mentionBack', 'voice',
+        'images', 'pollSeconds', 'timeoutSeconds'])
     expect(weixinKind.kind).toBe('weixin')
     expect(weixinKind.health).toEqual(['weixin'])
   })
@@ -76,6 +77,22 @@ describe('weixinKind scope', () => {
     expect(scope({ meta: { room: 'room-1', ats: ['wxid_b'] } }, { ...config, atOnly: false }))
       .toEqual({ listened: true, observed: true, row: 'groupAmbient' })
   })
+  it('admits an un-@ed group message when its text names a configured keyword', () => {
+    const withKeywords = { ...config, keywords: [{ any: '订单' }] }
+    // The keyword says the group was talking about something this Source cares about, so the message is listened to; it is
+    // still an ambient row, because no one mentioned the agent.
+    expect(scope({ meta: { room: 'room-1', ats: [] }, text: '帮我查一下订单状态' }, withKeywords))
+      .toEqual({ listened: true, observed: true, row: 'groupAmbient' })
+    // Case-insensitive, and a miss still filters.
+    expect(scope({ meta: { room: 'room-1', ats: [] }, text: 'ORDER 已发货' }, { ...config, keywords: [{ any: 'order' }] }))
+      .toEqual({ listened: true, observed: true, row: 'groupAmbient' })
+    expect(scope({ meta: { room: 'room-1', ats: [] }, text: '今天天气不错' }, withKeywords))
+      .toEqual({ listened: false, reason: 'group_ambient', observed: true, row: 'groupAmbient' })
+    // A keyword does not fabricate a mention: an addressed message keeps its stronger row.
+    expect(scope({ meta: { room: 'room-1', ats: ['wxid_self'] }, text: '订单' }, withKeywords))
+      .toEqual({ listened: true, observed: true, row: 'groupAddressed' })
+  })
+
   it('always receives a direct message', () => {
     expect(scope({ meta: {} }, config)).toEqual({ listened: true, observed: false, row: 'directMessages' })
     expect(scope({ meta: { room: '', ats: ['wxid_b'] } }, config)).toEqual({ listened: true, observed: false, row: 'directMessages' })

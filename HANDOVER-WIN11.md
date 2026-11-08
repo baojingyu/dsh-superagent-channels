@@ -235,7 +235,7 @@ curl.exe -s -H "Authorization: Bearer dev-only" 127.0.0.1:8787/health
 | --- | --- | --- | --- |
 | GitLab | `hostUrl`、`project`(group/name)、`tokenFile`、`organizationId?`、`pollSeconds` | PAT（scope `api`），一行纯文本 | 自建实例写 `https://gitlab.example.com` |
 | 云效 Projex | `organizationId`、`project`、`tokenFile`、`categories`、`writeBack`(默认 false)、`pollSeconds` | `pt-…` 个人访问令牌 | `assignedTo` 是阿里云 accountID，配置里必须存机器人自己的 accountID |
-| 微信 | `baseUrl`、`tokenFile`、`selfWxid`、`rooms[{id,name}]`、`atOnly`、`mentionBack`、`voice`、`images`、`pollSeconds`、`timeoutSeconds` | sidecar 的 Bearer token | `tokenFile` 与 sidecar 启动时的 `--token` 必须一致 |
+| 微信 | `baseUrl`、`tokenFile`、`selfWxid`、`rooms[{id,name}]`、`atOnly`、`keywords[{any}]`、`autoReplies[{any,reply}]`、`mentionBack`、`voice`、`images`、`pollSeconds`、`timeoutSeconds` | sidecar 的 Bearer token | `tokenFile` 与 sidecar 启动时的 `--token` 必须一致 |
 | 钉钉 | `clientId`、`clientSecret`、`tokenFile?`、`robotCode?`、`atOnly`、`pollSeconds` | 可选（clientSecret 可放进文件） | 需要 `dingtalk-stream` SDK 注入 `connect`，否则只注册不启动 |
 | 企业微信 | `corpId`、`corpSecret`、`agentId`、`tokenFile?`、`encodingAesKeyFile?`、`atOnly`、`pollSeconds` | 可选 | 回调需公网反代；`encodingAesKeyFile` 是 43 字符的 EncodingAESKey |
 

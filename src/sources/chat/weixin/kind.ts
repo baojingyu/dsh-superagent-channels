@@ -34,6 +34,13 @@ export const WeixinConfigSchema = z.object({
    * account. Too small a value looks like "the bridge did not answer" while it is still working.
    */
   timeoutSeconds: z.number().int().min(5).max(300).default(30),
+  /** Phrases that admit a group message without an `@`. Matched case-insensitively inside the text. */
+  keywords: z.array(z.object({ any: z.string().trim().min(1).max(50) }).strict()).default([]),
+  /** Fixed replies sent from the polling loop when a message names one; the agent still sees the message. */
+  autoReplies: z.array(z.object({
+    any: z.string().trim().min(1).max(50),
+    reply: z.string().trim().min(1).max(2000),
+  }).strict()).default([]),
   /** Whether a group reply mentions the person who addressed the bot. A direct message has no mention to make. */
   mentionBack: z.boolean().default(true),
   /** Whether a voice message is transcribed before Eval sees it. Transcription drives the client UI. */
@@ -42,6 +49,13 @@ export const WeixinConfigSchema = z.object({
   images: z.boolean().default(true),
 }).strict()
 export type WeixinConfig = z.infer<typeof WeixinConfigSchema>
+
+/** The first configured keyword the text names, case-insensitively; `undefined` when none does. */
+function keywordHit(text: string | undefined, keywords: readonly { any: string }[]): string | undefined {
+  if (!text || keywords.length === 0) return undefined
+  const haystack = text.toLowerCase()
+  return keywords.find(item => item.any !== '' && haystack.includes(item.any.toLowerCase()))?.any
+}
 
 const Fields: FieldSpec[] = [
   { key: 'baseUrl', type: 'text', label: { zh: '桥地址', en: 'Bridge URL' },
@@ -60,6 +74,17 @@ const Fields: FieldSpec[] = [
     ] },
   { key: 'atOnly', type: 'switch', label: { zh: '仅接收 @ 的消息', en: 'Receive only @s' },
     hint: { zh: '开启时只接收 @ 机器人的群消息；关闭时也接收其余消息，交评估按规则推断。后端完全无法判定群 @ 时（能力为 none），开启会让群消息全部被过滤，此时应关闭并靠规则与名单准入。', en: 'On receives only messages that mention the bot; off also receives the rest, from which Eval may infer work under the rules. A backend that cannot detect mentions at all (capability `none`) filters every group message while this is on, so turn it off and rely on the rules and the sender list.' } },
+  { key: 'keywords', type: 'rows', label: { zh: '关键词（不 @ 也算找机器人）', en: 'Keywords (admitted without an @)' },
+    hint: { zh: '群消息正文里出现任一个关键词，就当作在找机器人，不需要 @；是否成为可接的工作仍由准入模型判断。大小写不敏感。', en: 'A group message whose text names any of these is treated as addressed to the bot without an @; whether it becomes work is still the admission model\'s decision. Case-insensitive.' },
+    columns: [
+      { key: 'any', type: 'text', label: { zh: '关键词', en: 'Keyword' } },
+    ] },
+  { key: 'autoReplies', type: 'rows', label: { zh: '关键词自动回复', en: 'Canned keyword replies' },
+    hint: { zh: '命中即由轮询循环直接回固定文字，不经过模型。**这条消息仍会交给模型**——用模板顶掉一个人说的话，剩下的内容就丢了。', en: 'On a match the polling loop sends this fixed text itself, without the model. The message is still handed to the model: answering a person with a template and dropping the rest of what they said loses it.' },
+    columns: [
+      { key: 'any', type: 'text', label: { zh: '关键词', en: 'Keyword' } },
+      { key: 'reply', type: 'text', label: { zh: '回复内容', en: 'Reply' } },
+    ] },
   { key: 'mentionBack', type: 'switch', label: { zh: '回复时 @ 发言人', en: 'Mention the sender in a reply' },
     hint: { zh: '仅对群聊生效：回复群里找机器人的那个人时带上 @，让对方确实收到提醒。私聊没有 @ 这一说，开了也不会带。', en: 'Groups only: a reply to the person who addressed the bot carries an @, so they are actually notified. A direct message has no mention to make, so this does nothing there.' } },
   { key: 'voice', type: 'switch', label: { zh: '转写语音消息', en: 'Transcribe voice messages' },
@@ -174,18 +199,22 @@ export function createWeixinKind(hooks: WeixinKindHooks = {}): SourceKind<Weixin
     // `group_ambient` there would claim we looked and found no `@`; the honest reason is that we cannot look, which also
     // tells an operator that the Policy's mention row is unavailable rather than simply unmatched. `markup` backends do
     // produce `ats`, so they take the same path as `structured` ones; only `facts` distinguishes how strong the proof is.
-    scope({ meta }, config): WeixinScopeResult {
+    scope(input, config): WeixinScopeResult {
+      const { meta } = input
       const room = typeof meta.room === 'string' ? meta.room : ''
       if (!room) return { listened: true, observed: false, row: 'directMessages' }
+      // A keyword admits the message the way an `@` does: it says the group was talking about something this Source cares
+      // about. It does not claim a mention, so the row still says ambient and the admission model still decides the rest.
+      const keyword = keywordHit(input.text, config.keywords)
       if (capabilitiesOf()?.mentions === 'none') {
-        return config.atOnly
+        return config.atOnly && !keyword
           ? { listened: false, reason: 'mentions_unsupported', observed: true, row: 'groupAmbient' }
           : { listened: true, observed: true, row: 'groupAmbient' }
       }
       const ats = Array.isArray(meta.ats) ? meta.ats.filter((id): id is string => typeof id === 'string') : []
       const addressed = ats.includes(config.selfWxid)
       const row = addressed ? 'groupAddressed' : 'groupAmbient'
-      return addressed || !config.atOnly
+      return addressed || !config.atOnly || keyword
         ? { listened: true, observed: true, row }
         : { listened: false, reason: 'group_ambient', observed: true, row }
     },
