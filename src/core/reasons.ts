@@ -35,7 +35,9 @@ export const said = (text: string): Reason => ({ code: 'said', values: { text } 
 export function personNotice(reasons: readonly Reason[] | Reason | undefined): string {
   const first = [reasons ?? []].flat()[0]
   switch (first?.code) {
-    case 'senderNotMember': return '这条我没有接：你的账号不在允许名单里。'
+    case 'not_a_member': return '这条我没有接：你的账号不在允许名单里。'
+    case 'admission_ignored': return '这条我没有接：这个来源的准入规则把它判为忽略。'
+    case 'no_mention': return '这条我没有接：群里没有 @ 我。'
     case 'said': return '这条我没有接：没看出要我做什么。'
     case 'startedTicket': return '这条我没有接：已经有一个工单在处理了。'
     case 'stopUnknown': return '这条我没有接：没有对应的工单可以停。'
