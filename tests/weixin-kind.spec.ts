@@ -122,6 +122,17 @@ describe('weixinKind channel', () => {
     expect(weixinKind.channel!.allowed!({ room: 'room-2' }, config)).toBe(false)
   })
 
+  it('allows a reply to a direct message by the person, because a direct chat carries no room', () => {
+    // A direct message is one conversation per person and its events have `room: ''`, so the address falls back to the
+    // sender. The configuration names that person, which is what the row in the panel holds.
+    const withPerson = { ...config, rooms: [{ id: 'wxname_person', name: '<成员>' }] }
+    expect(weixinKind.channel!.allowed!({ room: '', wxid: 'wxname_person' }, withPerson)).toBe(true)
+    expect(weixinKind.channel!.allowed!({ room: '', wxid: 'wxname_stranger' }, withPerson)).toBe(false)
+    // A group reply is still judged on the room alone.
+    expect(weixinKind.channel!.allowed!({ room: 'room-1', wxid: 'wxname_person' }, config)).toBe(true)
+    expect(weixinKind.channel!.allowed!({ room: 'room-2', wxid: 'wxname_person' }, config)).toBe(false)
+  })
+
   it('sends through the bridge, passing the message ID as the Idempotency-Key', async () => {
     const sent: unknown[] = []
     const kind = createWeixinKind({ client: () => fakeBridge(sent) })

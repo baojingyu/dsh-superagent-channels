@@ -132,8 +132,9 @@ export function createWeixinKind(hooks: WeixinKindHooks = {}): SourceKind<Weixin
     // A retried send carries the OutboundMessage ID as the sidecar's Idempotency-Key and the sidecar answers `deduped`, so a
     // conversation is keyed: a retry returns the message already sent instead of posting a second one (not echo-matched).
     capabilities: { idempotency: 'keyed', maxChars: 2000, markdown: false, proactive: true },
-    // A reply goes only to a chat the Source still receives.
-    allowed: (address, config) => config.rooms.some(room => room.id === address.room),
+    // A reply goes only to a chat the Source still receives. A direct message carries no room - the direct
+    // stream is one conversation per person - so the person's id is what the configuration names.
+    allowed: (address, config) => config.rooms.some(room => room.id === (address.room || address.wxid)),
     send: async (host: ChannelHost, message: OutboundMessage): Promise<'sent' | 'gone'> => {
       const { room = '', wxid = '', quoteId } = message.channel.address
       const result = await bridgeFor(host.config as WeixinConfig).send({
