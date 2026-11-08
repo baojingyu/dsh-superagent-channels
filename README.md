@@ -21,7 +21,7 @@ to detach a copy from the prototype.
 | Upstream | This edition |
 | --- | --- |
 | only GitHub | **GitLab** (self-hosted): merge requests, notes, pipelines |
-| only Feishu | **WeChat** personal account: group `@` and direct messages, images, voice transcripts, **instant receipt and still-working notes**, **keyword listening and canned replies**, **mention the sender in a reply**, per-chat switches for images and voice; **a listener that re-attaches itself**, and **a cursor that survives a restart** |
+| only Feishu | **WeChat** personal account: group `@` and direct messages, images, voice transcripts, **instant receipt and still-working notes**, **keyword listening and canned replies**, **mention the sender in a reply**, per-chat switches for images and voice; **a reply that follows the assessment** (a refusal says why), **a listener that re-attaches itself**, and **a cursor that survives a restart** |
 | no work items | **Yunxiao Projex**: requirement / bug / task, comments, paging |
 | — | **DingTalk** Stream and **WeCom** encrypted callback |
 | one instance per channel | **many instances per channel**, with config, health and cursors scoped per instance |

@@ -487,6 +487,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/work-port.spec.ts` | `workKind`'s category-to-row mapping and its outbound replies over a stub `WorkAdapter` |
 | `tests/weixin-bridge.spec.ts` | The Weixin bridge client over a stub `fetch`: its six endpoints, the bearer token file's mode, the event mapping, the idempotency key and the failure codes |
 | `tests/weixin-watch.spec.ts` | The Weixin polling loop's listen set: the configured ids it pushes each round, the chats the backend could not resolve, and the two cases where it must send nothing |
+| `tests/person-notice.spec.ts` | `personNotice`: the one line a person gets when their message is refused, per reason code and the fallback |
 | `tests/outbound-file.spec.ts` | `resolveTicketFile`, the gate between a ticket's model and the machine's files: a path that climbs out, a symlink that leaves the directory, an executable, an empty file, an oversized one, and a ticket with no directory |
 | `tests/weixin-kind.spec.ts` | The Weixin `SourceKind`: its schema and fields, the structured `@` scope rule, the Channel and policy, the environment and its facts |
 | `tests/hosting-gitlab.spec.ts` | The GitLab adapter and the hosting HTTP client: the merge request, note and pipeline mappings, paging, idempotent replies, and the token and path checks |

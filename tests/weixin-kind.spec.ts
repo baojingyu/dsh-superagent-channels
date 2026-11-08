@@ -25,7 +25,7 @@ describe('weixinKind schema and fields', () => {
   it('validates every field and lists the same keys as fields', () => {
     expect(weixinKind.schema.parse({ tokenFile: '/tmp/weixin.token', selfWxid: 'wxid_self' }))
       .toEqual({ baseUrl: 'http://127.0.0.1:8787', tokenFile: '/tmp/weixin.token', selfWxid: 'wxid_self', rooms: [], atOnly: true, pollSeconds: 5,
-        timeoutSeconds: 30, keywords: [], autoReplies: [], acknowledge: true, ackText: '收到，正在处理，请稍等。',
+        timeoutSeconds: 30, keywords: [], autoReplies: [], acknowledge: false, ackText: '收到，正在处理，请稍等。',
         progressAfterSeconds: 180, sendFiles: false, mentionBack: true, voice: true, images: true })
     // The default is deliberately generous: listing chats walks the client's contact pages (~10 s here), so a tight
     // timeout would be reported as "the bridge did not answer" while it is still working.

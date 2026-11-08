@@ -4,7 +4,7 @@ import { UserError } from './errors.ts'
 import { liveTicket, threadKey } from './model.ts'
 import type { Decision, DecisionKind, Evaluation, Mandate, MandateBasis, Strength, Thread, Trigger } from './model.ts'
 import type { AssessmentOutcome, Candidate, Policy } from './ports.ts'
-import { said, type Reason } from './reasons.ts'
+import { personNotice, said, type Reason } from './reasons.ts'
 import { EnginePart, type EngineOptions } from './part.ts'
 import type { Tickets } from './tickets.ts'
 
@@ -316,6 +316,7 @@ export class Evals extends EnginePart {
   }
   /** Record an Eval's Decision; the Thread's own Eval ends with it, while a gate-only one leaves the Thread's Eval going. */
   private finish(thread: Thread, evaluation: Evaluation, outcome: Finished): Decision {
+    if (outcome.kind === 'ignore') this.noticeRefusal(evaluation, outcome.reason)
     const decision = this.record(thread, evaluation, outcome)
     // Direct (gate-only) evaluations do not clear the thread's active evaluation.
     if (thread.evaluating?.id !== evaluation.id) return decision
@@ -323,6 +324,20 @@ export class Evals extends EnginePart {
     this.repo.threads.save(thread)
     this.options.assessor.release?.(evaluation.id)
     return decision
+  }
+  /**
+   * Tell someone who addressed the agent that their message was not taken up, and why in one line.
+   *
+   * Only an addressed human: an ambient group message nobody aimed at the bot gets no notice, or a busy group would be
+   * answered on every line. The outbox id keeps a repeated ignore of the same message to one notice.
+   */
+  private noticeRefusal(evaluation: Evaluation, reasons: Reason[]): void {
+    for (const triggerId of evaluation.triggerIds) {
+      const trigger = this.repo.triggers.get(triggerId)
+      if (!trigger?.channel || !trigger.human || !trigger.addressed) continue
+      this.options.outbox.send({ id: key('refused', trigger.id), channel: trigger.channel,
+        text: personNotice(reasons), kind: 'notice' })
+    }
   }
   private record(thread: Thread, evaluation: Evaluation, outcome: Finished): Decision {
     const at = this.now()

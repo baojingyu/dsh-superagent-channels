@@ -38,8 +38,12 @@ export const WeixinConfigSchema = z.object({
   keywords: z.array(z.object({ any: z.string().trim().min(1).max(50) }).strict()).default([]),
   /** Whether a ticket's model may send a file from its working directory to this conversation. */
   sendFiles: z.boolean().default(false),
-  /** Send a receipt the moment a message addresses the bot, before the model is asked. */
-  acknowledge: z.boolean().default(true),
+  /**
+   * Send a receipt the moment a message addresses the bot, *before* the model is asked. Off by default: a message can be
+   * ignored after that receipt, and "on it" followed by silence reads exactly like work in progress. With it off, a refused
+   * message gets one line explaining that it was not taken, and an accepted one gets the acceptance's own reply.
+   */
+  acknowledge: z.boolean().default(false),
   /** What that receipt says. Kept short: it goes out before anything has been understood. */
   ackText: z.string().trim().min(1).max(200).default('收到，正在处理，请稍等。'),
   /** Seconds between "still working" notes while the bot has said nothing; 0 turns them off. */
@@ -96,7 +100,7 @@ const Fields: FieldSpec[] = [
   { key: 'sendFiles', type: 'switch', label: { zh: '允许模型回传文件', en: 'Let the model send files' },
     hint: { zh: '开启后，工单里的模型可以把**它自己工作目录内**的文件（≤20 MiB、非可执行文件）回传到这个会话。默认关闭——这等于给模型一条把文件发出去的通道。', en: 'When on, the model working a ticket may send a file from **its own working directory** (≤ 20 MiB, not an executable) to this conversation. Off by default: it is a channel for files to leave the machine.' } },
   { key: 'acknowledge', type: 'switch', label: { zh: '收到就先回一句', en: 'Acknowledge on receipt' },
-    hint: { zh: '有人 @ 机器人或私聊机器人时，**在评估之前**立刻回一句回执，避免「不知道到底收没收到」。评估本身要几十秒到两分钟，回执不改变它，只是让你不用干等。同一会话 30 秒内只回一次。', en: 'When someone mentions the bot or messages it directly, send a receipt immediately - before the assessment, which itself takes from tens of seconds to two minutes. One receipt per chat per 30 seconds.' } },
+    hint: { zh: '开启时，有人 @ 机器人或私聊机器人就**在评估之前**立刻回一句「收到」。默认关闭：评估可能把这条判为忽略，那样「收到」会让人以为在干活。关闭后改为**评估完按结果回**——被忽略的会收到一句「这条我没有接：…」，被接受的由接受时的回执回复。', en: 'On: a receipt goes out immediately when someone mentions the bot or messages it directly, before the assessment. Off by default, because the assessment may ignore the message and "on it" then reads as work in progress. Off: the reply follows the decision - a refused message gets one line saying it was not taken, an accepted one gets the acceptance reply.' } },
   { key: 'ackText', type: 'text', label: { zh: '回执内容', en: 'Receipt text' },
     hint: { zh: '回执只表示「收到了」，此时还没读懂你要做什么，所以别写具体承诺。', en: 'A receipt only says it arrived; nothing has been understood yet, so do not promise anything specific.' } },
   { key: 'progressAfterSeconds', type: 'number', advanced: true, min: 0, max: 3600, label: { zh: '处理中提醒 / 秒', en: 'Still-working note / s' },
