@@ -154,7 +154,7 @@ export function createWeixinKind(hooks: WeixinKindHooks = {}): SourceKind<Weixin
     schema: WeixinPolicySchema,
     fields: [
       { key: 'allowed', type: 'rows', label: { zh: '能发起工作的微信用户', en: 'WeChat users who may originate work' },
-        hint: { zh: '点「刷新会话列表」会把桥见过的发送人也一起载入，然后从这里挑人。', en: 'Refreshing the chat list also loads the senders the bridge has seen, so pick a person from here.' },
+        hint: { zh: '这里是**授权**：名单里的人 @ 机器人或私聊机器人，才算明确请求。它与「接收的群与私聊」是两件事——那个列表决定消息**收不收得到**，这个名单决定收到后能不能**变成可接的工作**，所以想接某人私聊时两处都要加他。两个列表的候选都只含桥真见过的对象：先让他在微信里发一条消息（或你打开一次他的会话），再点「刷新会话列表」。', en: 'This list is **authorization**: someone on it who mentions the bot or messages it directly makes an explicit request. It is a different setting from "Chats and direct messages", which decides whether a message is received at all, so a person whose direct messages you want both received and acted on has to be in both. Both pickers only hold what the bridge has actually seen: have them send one message (or open their chat once), then refresh.' },
         columns: [
           { key: 'id', type: 'text', label: { zh: '用户 ID', en: 'User ID' }, pattern: '^[A-Za-z0-9_\-]+$',
             choose: { zh: '选择桥见过的发送人', en: 'Choose a sender the bridge has seen' } },
