@@ -61,6 +61,8 @@ export interface BridgeMedia { bytes: Uint8Array; mime: string }
  * not resolve. A partial failure is still a success, because the chats it could add are watching; only an unusable backend
  * fails the call.
  */
+/** What the inbound renderer should do. Absent means the backend's own default, which is on. */
+export interface BridgeInboundOptions { voice?: boolean; images?: boolean }
 export interface BridgeListenResult {
   listening: WxRoom[]
   added: string[]
@@ -86,7 +88,7 @@ export interface BridgeClient {
    * reason as `media`: a backend that cannot change its listen set at runtime still satisfies the client, and the polling
    * loop then simply does not ask it to.
    */
-  listen?(rooms: readonly string[]): Promise<BridgeListenResult>
+  listen?(rooms: readonly string[], options?: BridgeInboundOptions): Promise<BridgeListenResult>
 }
 
 /** Request options whose headers stay a plain record, so the bearer and idempotency headers can be merged safely. */
@@ -328,11 +330,11 @@ export function createBridgeClient(options: BridgeOptions): BridgeClient {
     // The set is replaced, not merged: a chat removed from the configuration must stop being watched, or the backend keeps
     // driving the client's UI for a Source that no longer reads it. Names and ids are both accepted by the sidecar, so the
     // caller sends whatever the configuration holds without having to know which kind of backend it reached.
-    async listen(rooms: readonly string[]): Promise<BridgeListenResult> {
+    async listen(rooms: readonly string[], options?: BridgeInboundOptions): Promise<BridgeListenResult> {
       const answer = await call(BridgeEndpoints.listen, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ rooms: [...rooms] }),
+        body: JSON.stringify({ rooms: [...rooms], ...(options ? { options } : {}) }),
       })
       if (answer.status !== 200) throw failure(answer.status, answer.body, `POST ${BridgeEndpoints.listen}`)
       const body = record(answer.body)

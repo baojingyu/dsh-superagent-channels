@@ -91,7 +91,9 @@ are the detail.
 | Credentials | the sidecar's bearer token in a file, owner-only |
 | Group `@` | decided on `ats`, never on the message body — see §5.2 |
 | Outbound | text, **keyed** idempotency (the OutboundMessage id is sent as `Idempotency-Key`), ≥1 s serialized spacing. **No @ and no native quote**: the client library's `SendMsg` takes no quote argument, see ADR-007 |
-| Inbound media | images, downloaded through the sidecar and judged by magic bytes; groups and direct chats share one `/media` path |
+| Inbound media | images, downloaded through the sidecar and judged by magic bytes; groups and direct chats share one `/media` path. A switch turns it off, leaving a `[图片]` placeholder and downloading nothing |
+| Inbound voice | transcribed into text (`to_text`, up to eight seconds of the client's UI per message, degrading to a placeholder). A switch turns it off, leaving `[语音消息]` |
+| Panel configuration | `POST /listen` replaces the chat set and carries `options.voice` / `options.images`; adding a chat or flipping a switch needs no restart |
 | Config from the panel | `POST /listen` replaces the watched set; adding or removing a chat needs no restart |
 
 ### 3.4 DingTalk — `chat/dingtalk`

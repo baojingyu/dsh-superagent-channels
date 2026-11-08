@@ -34,6 +34,10 @@ export const WeixinConfigSchema = z.object({
    * account. Too small a value looks like "the bridge did not answer" while it is still working.
    */
   timeoutSeconds: z.number().int().min(5).max(300).default(30),
+  /** Whether a voice message is transcribed before Eval sees it. Transcription drives the client UI. */
+  voice: z.boolean().default(true),
+  /** Whether images are fetched as attachments; off keeps the `[图片]` placeholder and downloads nothing. */
+  images: z.boolean().default(true),
 }).strict()
 export type WeixinConfig = z.infer<typeof WeixinConfigSchema>
 
@@ -44,8 +48,8 @@ const Fields: FieldSpec[] = [
     hint: { zh: '保存 sidecar bearer token 的文件路径；文件权限必须是 0600，否则客户端拒绝读取。', en: 'Path of the file holding the sidecar bearer token; it must have mode 0600 or the client refuses to read it.' } },
   { key: 'selfWxid', type: 'text', pattern: '^[A-Za-z0-9_\\-]+$', label: { zh: '本账号 wxid', en: 'This account wxid' },
     hint: { zh: '群 @ 判定和自消息识别都以它为准，昵称改了也不会失效。', en: 'Group @-detection and own-message detection are judged against it, so a renamed account still works.' } },
-  { key: 'rooms', type: 'rows', label: { zh: '接收的群', en: 'Chats' },
-    hint: { zh: '只接收这些群里发给机器人的消息；群 ID 必须是桥给出的稳定 ID（没有稳定 ID 的后端会给出 wxname_ 开头的标识），不能填昵称。点「刷新会话列表」从桥能看到的会话里挑，再保存；第二列的「名字」只是面板上给人看的标签，选中会话后会自动填，留空也可以。', en: 'Receives only the messages to the bot in these chats; the chat ID must be the stable ID the bridge reports (a backend without stable IDs names them wxname_…), never a nickname. Press "Refresh chats" to pick from what the bridge can see, then save.' },
+  { key: 'rooms', type: 'rows', label: { zh: '接收的群与私聊', en: 'Chats and direct messages' },
+    hint: { zh: '只接收这些会话里发给机器人的消息。选**群**＝群聊（按 @ 判定），选**一个人**＝私聊（私聊不需要 @，收到就当作找机器人）。ID 必须是桥给出的稳定标识（形如 wxname_…），不能填昵称；点「刷新会话列表」从桥能看到的会话里挑，再保存。第二列的「名字」只是给人看的标签，选中后会自动填，留空也可以。', en: 'Receives only the messages to the bot in these chats; the chat ID must be the stable ID the bridge reports (a backend without stable IDs names them wxname_…), never a nickname. Press "Refresh chats" to pick from what the bridge can see, then save.' },
     columns: [
       { key: 'id', type: 'text', label: { zh: '群 ID', en: 'Chat ID' }, pattern: '^[A-Za-z0-9_\-]+$',
         choose: { zh: '选择桥能看到的会话', en: 'Choose a chat the bridge can see' },
@@ -54,6 +58,10 @@ const Fields: FieldSpec[] = [
     ] },
   { key: 'atOnly', type: 'switch', label: { zh: '仅接收 @ 的消息', en: 'Receive only @s' },
     hint: { zh: '开启时只接收 @ 机器人的群消息；关闭时也接收其余消息，交评估按规则推断。后端完全无法判定群 @ 时（能力为 none），开启会让群消息全部被过滤，此时应关闭并靠规则与名单准入。', en: 'On receives only messages that mention the bot; off also receives the rest, from which Eval may infer work under the rules. A backend that cannot detect mentions at all (capability `none`) filters every group message while this is on, so turn it off and rely on the rules and the sender list.' } },
+  { key: 'voice', type: 'switch', label: { zh: '转写语音消息', en: 'Transcribe voice messages' },
+    hint: { zh: '开启时语音会转成文字再交给评估；转写要驱动客户端界面，每条最多占用 8 秒，因此可以在不需要时关掉（关掉后文字是「[语音消息]」占位）。', en: 'On transcribes voice into text before Eval sees it; transcription drives the client UI and may hold it for up to eight seconds per message, so it can be turned off - the text then stays a `[语音消息]` placeholder.' } },
+  { key: 'images', type: 'switch', label: { zh: '接收图片', en: 'Receive images' },
+    hint: { zh: '开启时图片会作为附件交给模型；关闭时只在文字里留「[图片]」占位，不下载任何字节。', en: 'On hands images to the model as attachments; off leaves a `[图片]` placeholder in the text and downloads nothing.' } },
   { key: 'pollSeconds', type: 'number', advanced: true, min: 5, max: 3600, label: { zh: '轮询间隔 / 秒', en: 'Poll interval / s' },
     hint: { zh: '轮询传输向桥询问新消息的间隔。', en: 'How often the polling transport asks the bridge for new messages.' } },
   { key: 'timeoutSeconds', type: 'number', advanced: true, min: 5, max: 300, label: { zh: '桥请求超时 / 秒', en: 'Bridge request timeout / s' },

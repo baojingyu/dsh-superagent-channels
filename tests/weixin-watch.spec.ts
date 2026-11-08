@@ -1,10 +1,11 @@
 /** weixin-watch: the listen set it pushes to the backend each round, and what it reports back about it. */
 import { describe, expect, it } from 'vitest'
-import type { BridgeClient, BridgeListenResult } from '../src/sources/chat/weixin/bridge.ts'
+import type { BridgeClient, BridgeInboundOptions, BridgeListenResult } from '../src/sources/chat/weixin/bridge.ts'
 import { reconcileListen } from '../src/sources/weixin-watch.ts'
 
 /** A bridge stub that records every `/listen` call, so a test can prove the call was made or skipped. */
-function stub(result: BridgeListenResult = { listening: [], added: [], removed: [], failed: [] }, calls: string[][] = []): BridgeClient {
+function stub(result: BridgeListenResult = { listening: [], added: [], removed: [], failed: [] }, calls: string[][] = [],
+  options: (BridgeInboundOptions | undefined)[] = []): BridgeClient {
   return {
     async health() { return { ok: true, available: true } },
     async status() { return { loggedIn: true, wxid: 'wxid_self', name: '助手' } },
@@ -12,7 +13,7 @@ function stub(result: BridgeListenResult = { listening: [], added: [], removed: 
     async members() { return [] },
     async messages() { return { events: [], next: '' } },
     async send() { return { msgId: 'srv-1', deduped: false } },
-    async listen(rooms) { calls.push([...rooms]); return result },
+    async listen(rooms, inbound) { calls.push([...rooms]); options.push(inbound); return result },
   }
 }
 
@@ -25,6 +26,20 @@ describe('reconcileListen', () => {
     await expect(reconcileListen(bridge, rooms)).resolves.toEqual({ watching: 2, unresolved: [] })
     // The id is what the configuration holds; the sidecar is what resolves it to a display name.
     expect(calls).toEqual([['wxname_aa', 'wxname_bb']])
+  })
+
+  it('carries the inbound switches with the chat set, so a changed switch reaches the sidecar', async () => {
+    const calls: string[][] = []
+    const options: (BridgeInboundOptions | undefined)[] = []
+    await reconcileListen(stub(undefined, calls, options), rooms, { voice: false, images: true })
+    expect(calls).toEqual([['wxname_aa', 'wxname_bb']])
+    expect(options).toEqual([{ voice: false, images: true }])
+  })
+
+  it('sends no options for a caller that names none, which the backend reads as its defaults', async () => {
+    const options: (BridgeInboundOptions | undefined)[] = []
+    await reconcileListen(stub(undefined, [], options), rooms)
+    expect(options).toEqual([undefined])
   })
 
   it('names the chats the backend could not resolve, instead of counting them as watched', async () => {

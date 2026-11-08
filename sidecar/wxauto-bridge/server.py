@@ -52,6 +52,10 @@ RECENT_GROUPS_TTL_S = 300.0
 # After a slow or failed collection, wait this long before paying for it again.
 RECENT_GROUPS_RETRY_S = 60.0
 VOICE_TIMEOUT_S = 8.0
+# What the inbound renderer does unless `/listen` says otherwise. Turning voice transcription off spares the
+# client's UI up to VOICE_TIMEOUT_S per voice message; turning images off keeps `media` empty and leaves the
+# `[图片]` placeholder in the text.
+INBOUND_DEFAULTS = {"voice": True, "images": True}
 ISO_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 # 非文本消息的空 content 占位：绝不产出 `text: ""` 的空事件
@@ -227,8 +231,8 @@ class Backend:
     def media(self, media_id: str) -> "tuple[bytes, str]":
         raise MediaUnsupported()
 
-    def listen(self, rooms: "list[str]") -> dict:
-        """集合替换式下发监听配置；返回 {listening, added, removed, failed}。"""
+    def listen(self, rooms: "list[str]", options: "dict | None" = None) -> dict:
+        """集合替换式下发监听配置；`options` 可选（`voice` / `images`），返回 {listening, added, removed, failed}。"""
         raise Unsupported()
 
 
@@ -322,7 +326,7 @@ class FakeBackend(Backend):
             return self._png, "image/png"
         raise MediaGone(media_id)
 
-    def listen(self, rooms):
+    def listen(self, rooms, options=None):
         """幂等且**不改变固定数据集**：认识的会话报在 listening 里，不认识的进 failed。
 
         fake 的 /rooms 与 /messages 是写死的契约参考数据，`/listen` 只做“认不认得”的答复，
@@ -607,6 +611,8 @@ class PcUiaBackend(Backend):
         # Chat id -> the client's own `chat_type`. A direct chat reports `room: ""` in its events while
         # the panel stores the person's id, so the mapping between the two has to be remembered.
         self._chat_kind: "dict[str, str]" = {}
+        # What `/listen` last asked the inbound renderer to do; `INBOUND_DEFAULTS` until someone says otherwise.
+        self._options: "dict[str, bool]" = dict(INBOUND_DEFAULTS)
         self._rooms_note = ""
         self._rooms_cache = []        # last answer /rooms served, so a repeat press is instant
         self._rooms_cache_at = 0.0
@@ -842,8 +848,13 @@ class PcUiaBackend(Backend):
 
         threading.Thread(target=run, daemon=True, name="wxbridge-warm-rooms").start()
 
-    def _apply_listen(self, wx, requested: "list[str]") -> dict:
-        """集合替换（幂等）：只对差异发微信调用；完全相同时一个调用都不发。"""
+    def _apply_listen(self, wx, requested: "list[str]", options: "dict | None" = None) -> dict:
+        """集合替换（幂等）：只对差异发微信调用；集合与选项都相同时一个调用都不发。"""
+        changes = {name: value for name, value in (options or {}).items()
+                   if name in INBOUND_DEFAULTS and isinstance(value, bool)}
+        chosen = {**self._options, **changes}
+        options_changed = chosen != self._options
+        self._options = chosen
         failed = []
         # Resolve from what is already known first: `/rooms` and every earlier `/listen` recorded id → name, so the
         # common case needs no client call at all.
@@ -867,7 +878,7 @@ class PcUiaBackend(Backend):
         # The polling loop pushes the same configuration every few seconds. When it is unchanged and every id was
         # resolvable, this returns without touching the client: `GetAllRecentGroups()` opens the contact window, and
         # calling it on a timer makes that window reopen and scroll for ever.
-        if not unresolved and list(target) == list(current):
+        if not unresolved and list(target) == list(current) and not options_changed:
             return {"listening": [{"id": room_id, "name": name} for room_id, name in current.items()],
                     "added": [], "removed": [], "failed": []}
 
@@ -937,6 +948,8 @@ class PcUiaBackend(Backend):
         text = content.strip() if isinstance(content, str) else ""
 
         if kind == "voice":
+            if not self._options.get("voice", True):
+                return (text + "（语音未转写）") if text else PLACEHOLDERS["voice"]
             transcribed = self._transcribe(msg)
             if transcribed:
                 return transcribed
@@ -1196,7 +1209,8 @@ class PcUiaBackend(Backend):
             "ats": marked_mentions(msg, self._self_name, self._self_wxid),
             "own": own,
             "quoteId": "",
-            "media": [{"id": "%s#0" % native, "kind": "image"}] if downloadable else [],
+            "media": [{"id": "%s#0" % native, "kind": "image"}]
+            if downloadable and self._options.get("images", True) else [],
         }
 
     def messages(self, room, cursor, limit):
@@ -1253,12 +1267,14 @@ class PcUiaBackend(Backend):
         except BaseException as error:
             raise MediaGone("download failed: %s" % error)
 
-    def listen(self, rooms):
+    def listen(self, rooms, options=None):
         """`POST /listen`：集合替换式下发。微信调用全部走主线程执行器。"""
         self._require()
         requested = [room for room in rooms if isinstance(room, str) and room]
+        changes = {name: value for name, value in (options or {}).items()
+                   if name in INBOUND_DEFAULTS and isinstance(value, bool)}
         try:
-            return self._executor.call(lambda wx: self._apply_listen(wx, requested), timeout=30.0)
+            return self._executor.call(lambda wx: self._apply_listen(wx, requested, changes), timeout=30.0)
         except Unavailable:
             raise
         except BaseException as error:
@@ -1314,7 +1330,7 @@ class PadBackend(Backend):
     def media(self, media_id):
         raise MediaUnsupported(self.reason)
 
-    def listen(self, rooms):
+    def listen(self, rooms, options=None):
         raise Unsupported(self.reason)
 
 
@@ -1548,7 +1564,13 @@ class BridgeHandler(BaseHTTPRequestHandler):
         rooms = body.get("rooms")
         if not isinstance(rooms, list) or any(not isinstance(room, str) for room in rooms):
             return self._json(400, {"error": "bad_request"})
-        self._json(200, self.server.app.backend.listen(rooms))
+        options = body.get("options", {})
+        if not isinstance(options, dict):
+            return self._json(400, {"error": "bad_request"})
+        for name, value in options.items():
+            if name in INBOUND_DEFAULTS and not isinstance(value, bool):
+                return self._json(400, {"error": "bad_request"})
+        self._json(200, self.server.app.backend.listen(rooms, options))
 
     def _send_message(self) -> None:
         try:
