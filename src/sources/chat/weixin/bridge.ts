@@ -44,13 +44,19 @@ export interface BridgeStatus {
   available?: boolean
   lastEventAt?: string
 }
-/** `POST /send` input; `quoteId` replies to that message and `idempotencyKey` is the OutboundMessage ID. */
+/**
+ * `POST /send` input; `quoteId` replies to that message and `idempotencyKey` is the OutboundMessage ID.
+ *
+ * `at` names the people to mention in the message. Entries are `wxname_…` ids or display names, and only a group has
+ * mentions at all - a direct message carries the audience already, and the sidecar drops `at` for one.
+ */
 export interface BridgeSend {
   room: string
   wxid: string
   text: string
   quoteId?: string
   idempotencyKey?: string
+  at?: readonly string[]
 }
 /** `POST /send` outcome: the bridge's message ID (possibly a cached one), or `gone` when the conversation cannot receive it. */
 export type BridgeSendResult = { msgId: string; deduped: boolean } | 'gone'
@@ -320,7 +326,10 @@ export function createBridgeClient(options: BridgeOptions): BridgeClient {
       const answer = await call(BridgeEndpoints.send, {
         method: 'POST',
         headers: { 'content-type': 'application/json', ...(message.idempotencyKey ? { 'Idempotency-Key': message.idempotencyKey } : {}) },
-        body: JSON.stringify({ room: message.room, wxid: message.wxid, text: message.text, quoteId: message.quoteId ?? '' }),
+        body: JSON.stringify({
+          room: message.room, wxid: message.wxid, text: message.text, quoteId: message.quoteId ?? '',
+          ...(message.at?.length ? { at: [...message.at] } : {}),
+        }),
       })
       const body = record(answer.body)
       if (answer.status === 200) return { msgId: text(body.msgId), deduped: body.deduped === true }

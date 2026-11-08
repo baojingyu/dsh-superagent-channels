@@ -25,11 +25,11 @@ describe('weixinKind schema and fields', () => {
   it('validates every field and lists the same keys as fields', () => {
     expect(weixinKind.schema.parse({ tokenFile: '/tmp/weixin.token', selfWxid: 'wxid_self' }))
       .toEqual({ baseUrl: 'http://127.0.0.1:8787', tokenFile: '/tmp/weixin.token', selfWxid: 'wxid_self', rooms: [], atOnly: true, pollSeconds: 5,
-        timeoutSeconds: 30, voice: true, images: true })
+        timeoutSeconds: 30, mentionBack: true, voice: true, images: true })
     // The default is deliberately generous: listing chats walks the client's contact pages (~10 s here), so a tight
     // timeout would be reported as "the bridge did not answer" while it is still working.
     expect(weixinKind.fields.map(field => field.key))
-      .toEqual(['baseUrl', 'tokenFile', 'selfWxid', 'rooms', 'atOnly', 'voice', 'images', 'pollSeconds', 'timeoutSeconds'])
+      .toEqual(['baseUrl', 'tokenFile', 'selfWxid', 'rooms', 'atOnly', 'mentionBack', 'voice', 'images', 'pollSeconds', 'timeoutSeconds'])
     expect(weixinKind.kind).toBe('weixin')
     expect(weixinKind.health).toEqual(['weixin'])
   })
@@ -137,7 +137,28 @@ describe('weixinKind channel', () => {
     const sent: unknown[] = []
     const kind = createWeixinKind({ client: () => fakeBridge(sent) })
     await expect(kind.channel!.send(host, message)).resolves.toBe('sent')
-    expect(sent).toEqual([{ room: 'room-1', wxid: 'wxid_alice', text: '已修复，见 MR !37', quoteId: 'm1', idempotencyKey: 'out-9' }])
+    // A group reply mentions the sender by id: the sidecar resolves the display name it observed for that id.
+    expect(sent).toEqual([{ room: 'room-1', wxid: 'wxid_alice', text: '已修复，见 MR !37', quoteId: 'm1',
+      at: ['wxid_alice'], idempotencyKey: 'out-9' }])
+  })
+
+  it('mentions the sender only in a group, and only while the switch is on', async () => {
+    const group: unknown[] = []
+    await createWeixinKind({ client: () => fakeBridge(group) }).channel!.send(host, message)
+    expect(group).toMatchObject([{ at: ['wxid_alice'] }])
+
+    // A direct message has no audience to mention: `room` is empty, so nothing is asked for.
+    const direct: unknown[] = []
+    await createWeixinKind({ client: () => fakeBridge(direct) }).channel!.send(host, {
+      ...message, channel: { ...message.channel, address: { wxid: 'wxname_person' } },
+    })
+    expect(direct).not.toMatchObject([{ at: expect.anything() }])
+
+    // Switched off in the panel: the reply is the text alone.
+    const quiet: unknown[] = []
+    const off = { ...host, config: { ...(host.config as Record<string, unknown>), mentionBack: false } }
+    await createWeixinKind({ client: () => fakeBridge(quiet) }).channel!.send(off, message)
+    expect(quiet).not.toMatchObject([{ at: expect.anything() }])
   })
 
   it("maps a bridge 'gone' to the channel's gone result", async () => {
