@@ -58,7 +58,9 @@ export interface SourceChannel<C> {
   /** Whether a reply may still go to `address`; without it, every address may receive replies. */
   allowed?(address: Record<string, string>, config: C): boolean
   /** What the channel can carry: message length, Markdown, how a retried message stays idempotent, and whether it may open a conversation. */
-  capabilities?: { maxChars?: number; markdown?: boolean; idempotency: 'keyed' | 'marker' | 'echo' | 'none'; proactive?: boolean }
+  capabilities?: { maxChars?: number; markdown?: boolean; idempotency: 'keyed' | 'marker' | 'echo' | 'none'; proactive?: boolean
+    /** Present when the channel can carry files; `maxBytes` is what it accepts decoded. */
+    files?: { maxBytes: number } }
   /**
    * Sends a message idempotently by ID; returns `'gone'` when the target conversation no longer accepts replies.
    * @throws when delivery failed but may succeed on a later retry.

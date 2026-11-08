@@ -162,6 +162,16 @@ export class Runtime extends Service implements SourceHost {
       this.toolHost = { context: ctx, engine, store, prompts, sessions, settings: this.settings, assessor, resources,
         get github() { return runtime.context({ kind: 'github', health: ['github'] }) },
         requestPass: () => { passes.request() }, sendReplies: () => outbox.sent(),
+        // The operator's switch, not a static capability: a Source that carries files can still have them turned off.
+        canSendFiles: (ticket: Ticket) => {
+          const ref = ticket.channels[0]
+          if (!ref) return false
+          const instance = store.settings().sources[ref.source]
+          if (!instance || instance.enabled === false) return false
+          const kind = this.sources.kind(instance.kind ?? ref.source)
+          if (!kind?.channel?.capabilities?.files) return false
+          return (instance.config as { sendFiles?: boolean }).sendFiles === true
+        },
         quietly: run => { this.quiet++; try { return run() } finally { this.quiet-- } } }
       this.ready = this.initialize()
     } catch (error) {

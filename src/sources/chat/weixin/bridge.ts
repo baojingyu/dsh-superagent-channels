@@ -57,6 +57,8 @@ export interface BridgeSend {
   quoteId?: string
   idempotencyKey?: string
   at?: readonly string[]
+  /** One file, base64. `POST /send` accepts exactly one per call; a message with more is sent as several calls. */
+  file?: { name: string; data: string }
 }
 /** `POST /send` outcome: the bridge's message ID (possibly a cached one), or `gone` when the conversation cannot receive it. */
 export type BridgeSendResult = { msgId: string; deduped: boolean } | 'gone'
@@ -332,6 +334,7 @@ export function createBridgeClient(options: BridgeOptions): BridgeClient {
         body: JSON.stringify({
           room: message.room, wxid: message.wxid, text: message.text, quoteId: message.quoteId ?? '',
           ...(message.at?.length ? { at: [...message.at] } : {}),
+          ...(message.file ? { file: message.file } : {}),
         }),
       })
       const body = record(answer.body)

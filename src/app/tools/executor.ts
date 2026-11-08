@@ -1,4 +1,7 @@
 /** Executor Session tools for reading ticket context, acknowledging requests, managing threads, handing back out-of-scope triggers, and reporting status. */
+import { createHash } from 'node:crypto'
+import { readFileSync, realpathSync, statSync } from 'node:fs'
+import { basename, resolve, sep } from 'node:path'
 import { z } from 'zod'
 import { liveTicket, type EngineForExecutor, type Ticket } from '../../core/index.ts'
 import { IM_WORDS } from '../../infra/text.ts'
@@ -10,6 +13,36 @@ import { reportRelay, threadFollowedNotice } from '../notices.ts'
 import type { Sessions } from '../sessions.ts'
 import { AcknowledgementSchema, readTool, tool, type Tool } from './tool.ts'
 
+/** One outbound file, base64, as the outbox record keeps it. */
+const MAX_OUTBOUND_FILE_BYTES = 20 * 1024 * 1024
+/** A file whose extension invites double-clicking it is refused however it got into the worktree. */
+const REFUSED_EXTENSIONS = /\.(exe|msi|bat|cmd|com|pif|scr|vbs|vbe|js|jse|wsf|wsh|ps1|psm1|dll|jar|sh|lnk)$/i
+
+export interface ResolvedOutboundFile { name: string; data: string }
+
+/**
+ * Read one file a ticket's model wants to send, or refuse.
+ *
+ * The value sent out of the machine is exactly what this returns, so the checks are the security boundary: the path is
+ * resolved through symlinks and must land inside the ticket's own directory, the file must be a regular non-empty file
+ * under the size cap, and an executable extension is refused outright.
+ */
+export function resolveTicketFile(root: string | undefined, requested: string, maxBytes = MAX_OUTBOUND_FILE_BYTES): ResolvedOutboundFile {
+  if (!root) throw new Error('This ticket has no execution directory, so it has no files to send')
+  const base = realpathSync(root)
+  const target = realpathSync(resolve(base, requested))
+  const inside = base.endsWith(sep) ? base : base + sep
+  if (target !== base && !target.startsWith(inside)) {
+    throw new Error(`Refusing to send ${requested}: it is outside this ticket's directory`)
+  }
+  const stats = statSync(target)
+  if (!stats.isFile()) throw new Error(`Refusing to send ${requested}: it is not a regular file`)
+  if (stats.size === 0) throw new Error(`Refusing to send ${requested}: it is empty`)
+  if (stats.size > maxBytes) throw new Error(`Refusing to send ${requested}: ${stats.size} bytes is over the ${maxBytes} cap`)
+  if (REFUSED_EXTENSIONS.test(target)) throw new Error(`Refusing to send ${requested}: executables are not sendable`)
+  return { name: basename(target), data: readFileSync(target).toString('base64') }
+}
+
 export interface ExecutorToolsHost {
   readonly engine: Pick<EngineForExecutor, 'report' | 'reply' | 'markUnrelated' | 'handback' | 'followForContext'>
   readonly store: Pick<Store, 'tickets' | 'replyStatus' | 'atomic'>
@@ -18,6 +51,8 @@ export interface ExecutorToolsHost {
   /** GitHub Source context whose pull-request rules govern claiming a reported PR. */
   readonly github: SourceContext
   sendReplies(): Promise<void>
+  /** Whether this ticket's Source lets the model send files at all; the operator's switch, read per call. */
+  canSendFiles(ticket: Ticket): boolean
 }
 
 export function executorTools(host: ExecutorToolsHost, ticket: Ticket): Tool[] {
@@ -70,6 +105,25 @@ export function executorTools(host: ExecutorToolsHost, ticket: Ticket): Tool[] {
         reason: z.string().trim().min(1).max(300).describe('One sentence on what it asks for beyond this ticket.'),
       }).strict(),
       execute: async args => ({ trigger_id: args.trigger_id, queued: host.engine.handback(ticketId, args.trigger_id, args.reason) }),
+    }),
+    tool({
+      name: 'orchestrator_send_file',
+      description: 'Send one file from this ticket\'s own directory to the conversation the ticket started in. Use it after '
+        + 'reporting ready, for a chart, a document or an image the work produced. It needs the operator to have enabled file '
+        + 'sending for the Source, and refuses anything outside the ticket directory, over 20 MiB, or executable.',
+      schema: z.object({
+        path: z.string().trim().min(1).describe('File to send, relative to this ticket\'s directory (DSH_SUPERAGENT_DIR).'),
+        text: z.string().trim().min(1).max(1000).describe('One short sentence to send with it; Markdown is supported.'),
+      }).strict(),
+      execute: async args => {
+        if (!host.canSendFiles(ticket)) throw new Error('Sending files is off for this Source; the operator must enable it in the panel first')
+        const file = resolveTicketFile(ticket.execution?.directory, args.path)
+        const reply = host.engine.reply({ purpose: 'result', ticketId, text: args.text, files: [file] })
+        if (reply.status !== 'sent') await host.sendReplies()
+        const digest = createHash('sha256').update(Buffer.from(file.data, 'base64')).digest('hex').slice(0, 8)
+        return { file: file.name, bytes: Buffer.from(file.data, 'base64').byteLength, sha256: digest,
+          status: host.store.replyStatus(reply.id) ?? 'pending' }
+      },
     }),
     tool({
       name: 'orchestrator_report',

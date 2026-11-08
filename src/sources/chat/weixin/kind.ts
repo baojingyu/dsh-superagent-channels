@@ -36,6 +36,8 @@ export const WeixinConfigSchema = z.object({
   timeoutSeconds: z.number().int().min(5).max(300).default(30),
   /** Phrases that admit a group message without an `@`. Matched case-insensitively inside the text. */
   keywords: z.array(z.object({ any: z.string().trim().min(1).max(50) }).strict()).default([]),
+  /** Whether a ticket's model may send a file from its working directory to this conversation. */
+  sendFiles: z.boolean().default(false),
   /** Send a receipt the moment a message addresses the bot, before the model is asked. */
   acknowledge: z.boolean().default(true),
   /** What that receipt says. Kept short: it goes out before anything has been understood. */
@@ -91,6 +93,8 @@ const Fields: FieldSpec[] = [
       { key: 'any', type: 'text', label: { zh: '关键词', en: 'Keyword' } },
       { key: 'reply', type: 'text', label: { zh: '回复内容', en: 'Reply' } },
     ] },
+  { key: 'sendFiles', type: 'switch', label: { zh: '允许模型回传文件', en: 'Let the model send files' },
+    hint: { zh: '开启后，工单里的模型可以把**它自己工作目录内**的文件（≤20 MiB、非可执行文件）回传到这个会话。默认关闭——这等于给模型一条把文件发出去的通道。', en: 'When on, the model working a ticket may send a file from **its own working directory** (≤ 20 MiB, not an executable) to this conversation. Off by default: it is a channel for files to leave the machine.' } },
   { key: 'acknowledge', type: 'switch', label: { zh: '收到就先回一句', en: 'Acknowledge on receipt' },
     hint: { zh: '有人 @ 机器人或私聊机器人时，**在评估之前**立刻回一句回执，避免「不知道到底收没收到」。评估本身要几十秒到两分钟，回执不改变它，只是让你不用干等。同一会话 30 秒内只回一次。', en: 'When someone mentions the bot or messages it directly, send a receipt immediately - before the assessment, which itself takes from tens of seconds to two minutes. One receipt per chat per 30 seconds.' } },
   { key: 'ackText', type: 'text', label: { zh: '回执内容', en: 'Receipt text' },
@@ -180,7 +184,8 @@ export function createWeixinKind(hooks: WeixinKindHooks = {}): SourceKind<Weixin
     // Nothing reads it yet; the sidecar enforces these, and it reports what it can carry.
     // A retried send carries the OutboundMessage ID as the sidecar's Idempotency-Key and the sidecar answers `deduped`, so a
     // conversation is keyed: a retry returns the message already sent instead of posting a second one (not echo-matched).
-    capabilities: { idempotency: 'keyed', maxChars: 2000, markdown: false, proactive: true },
+    capabilities: { idempotency: 'keyed', maxChars: 2000, markdown: false, proactive: true,
+      files: { maxBytes: 20 * 1024 * 1024 } },
     // A reply goes only to a chat the Source still receives. A direct message carries no room - the direct
     // stream is one conversation per person - so the person's id is what the configuration names.
     allowed: (address, config) => config.rooms.some(room => room.id === (address.room || address.wxid)),
@@ -190,10 +195,20 @@ export function createWeixinKind(hooks: WeixinKindHooks = {}): SourceKind<Weixin
       // A mention only exists in a group, and it names the sender by id: the sidecar knows the display name it observed
       // for that id, so a rewritten nickname cannot make the reply mention the wrong person.
       const at = config.mentionBack && room && wxid ? { at: [wxid] } : {}
-      const result = await bridgeFor(config).send({
-        room, wxid, text: message.text, ...(quoteId ? { quoteId } : {}), ...at, idempotencyKey: message.id,
+      // Files only leave when the operator turned it on; the tool that produces them refuses earlier, and this is the
+      // second guard for anything else that puts files on a message.
+      const files = config.sendFiles === true ? message.files ?? [] : []
+      const bridge = bridgeFor(config)
+      const result = await bridge.send({
+        room, wxid, text: message.text, ...(quoteId ? { quoteId } : {}), ...at,
+        ...(files[0] ? { file: files[0] } : {}), idempotencyKey: message.id,
       })
-      return result === 'gone' ? 'gone' : 'sent'
+      if (result === 'gone') return 'gone'
+      // `/send` carries one file per call, so the rest follow, each keyed by its own position.
+      for (const [index, file] of files.slice(1).entries()) {
+        await bridge.send({ room, wxid, text: '', file, idempotencyKey: `${message.id}:file${index + 2}` })
+      }
+      return 'sent'
     },
     // The sidecar exposes no deep link; the panel names the source instead.
     link: () => ({ url: '', label: { zh: '微信', en: 'WeChat' } }),

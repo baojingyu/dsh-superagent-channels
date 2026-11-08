@@ -1,6 +1,6 @@
 # ADR-008 微信出站附件：桥已经能发，模型还不能用它发
 
-- **状态**：Proposed（2026-11-08；桥层已实现并真机验证，核心层待评审）
+- **状态**：Accepted 并按方案 A 实施（2026-11-08；桥层真机验证，核心层见 §6）
 - **决策范围**：`OutboundMessage` 是否引入附件、由谁决定发什么文件、以及目录/大小护栏
 - **关联**：ADR-007（微信能力对齐，其「出站图片/文件」一项指向本文）
 
@@ -39,6 +39,18 @@
 3. **次数与频率**：沿用 sidecar 的 ≥1 秒发送间隔；每个工单设上限（如 20 个附件），防刷屏。
 4. **默认关闭**：面板开关 `sendFiles`，默认关；开启时提示「模型可以把你工作区里的文件发到这个会话」。
 5. **可审计**：每次发送记一条 `outbound file` 事件（名字、大小、sha256 前 8 位），进 `/health`/工单日志，便于事后追。
+
+## 6. 方案 A 已实施的内容
+
+- `OutboundFile { name, data(base64) }`；`OutboundMessage.files`；base64 而不是字节，因为回复先落 outbox 再发送，
+  字节数组过不了那条 JSON 记录。
+- `ReplyRequest` 的 `answer`/`result`/`attention` 可带 `files`，`Replies` 原样交给 outbox。
+- `SourceChannel.capabilities.files = { maxBytes }`：通道自己声明能不能带文件。
+- 微信通道：`sendFiles` 开关打开时把第一个文件挂在这条回复上，其余按序另发（`/send` 每次一个文件）；关着就只发文字。
+- 工具 `orchestrator_send_file`：读工单目录里的一个文件，作为该工单的 `result` 发出去。
+- 闸门集中在 `resolveTicketFile`（有专门的测试）：真实路径必须在工单目录内（符号链接也算），普通文件、非空、
+  ≤20 MiB、拒绝可执行后缀。
+- `Runtime.canSendFiles(ticket)`：读**面板开关**（默认关）与通道能力，工具在动手前先问它。
 
 ## 5. 结论
 

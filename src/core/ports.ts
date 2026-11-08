@@ -70,8 +70,18 @@ export interface Executor {
   stop(ticket: Ticket, assignment: Assignment, reason: string): void
 }
 
+/** One file to send with a message. `data` is base64 so the outbox record keeps it through a restart. */
+export interface OutboundFile { name: string; data: string }
 /** A message for a Channel; `ticketId` names the Ticket it is for, when there is one. */
-export interface OutboundMessage { id: string; channel: ChannelRef; text: string; kind: 'acknowledgement' | 'reply' | 'notice'; ticketId?: string }
+export interface OutboundMessage {
+  id: string
+  channel: ChannelRef
+  text: string
+  kind: 'acknowledgement' | 'reply' | 'notice'
+  ticketId?: string
+  /** Files to send with it, when the channel declares support; base64 so the outbox record keeps them. */
+  files?: OutboundFile[]
+}
 /** A queued message waits (`pending`), went out (`sent`), or was dropped because its conversation can never receive it (`dropped`). */
 export type ReplyStatus = 'pending' | 'sent' | 'dropped'
 /** The messages queued for Channels; the Engine queues them inside its commands, and a sender delivers them later. */
