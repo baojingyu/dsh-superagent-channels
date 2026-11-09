@@ -147,7 +147,12 @@ function startLauncher(config: Record<string, unknown>): number | undefined {
   const launcher = launcherOf(config)
   if (!launcher) return undefined
   if (!existsSync(launcher)) throw new Error(`桥启动器不存在：${launcher}`)
-  const child = spawn(launcher, [], { detached: true, stdio: 'ignore', windowsHide: true, cwd: dirname(launcher) })
+  const options = { detached: true, stdio: 'ignore' as const, windowsHide: true, cwd: dirname(launcher) }
+  // A .cmd/.bat is not an executable image; it runs through the command processor. The argv stays explicit either way, so nothing
+  // in the path or arguments is re-parsed as shell syntax by this plugin.
+  const child = /\.(cmd|bat)$/i.test(launcher)
+    ? spawn(process.env.ComSpec ?? 'cmd.exe', ['/c', launcher], options)
+    : spawn(launcher, [], options)
   child.unref()
   return child.pid
 }
