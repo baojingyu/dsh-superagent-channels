@@ -39,9 +39,12 @@ export interface ProjexAdapter extends WorkAdapter<ProjexConfig> {
   writeBack: boolean
 }
 
-const DEFAULT_MAX_RESULTS = 100
-/** Safety cap on pages consumed per category per poll; see the `SearchWorkitems` window TODO in `listWorkItems`. */
-const MAX_PAGES = 10
+/**
+ * Items per page. The search endpoint takes `perPage` up to 200 and ignores `maxResults`, so a poll reads whole pages.
+ */
+const PAGE_SIZE = 100
+/** Safety cap on pages consumed per category per poll: 5 × 100 items is a week of a busy project. */
+const MAX_PAGES = 5
 /** Work category to the API's `category` code; categories without a code (risk/topic/request) are not polled. */
 const API_CATEGORY: Readonly<Record<string, string>> = { requirement: 'Req', bug: 'Bug', task: 'Task' }
 
@@ -76,7 +79,7 @@ export const projexAdapter: ProjexAdapter = createProjexAdapter()
 /** Client of the unbound template: refuses every call until a work kind binds a real client and organization. */
 function unconfiguredApi(): YunxiaoApi {
   const fail = async (): Promise<never> => { throw new Error('Projex adapter is not configured: pass an api or a tokenFile') }
-  return { get: fail, post: fail }
+  return { get: fail, post: fail, put: fail }
 }
 
 /** Web page of one Projex work item. */
@@ -102,28 +105,72 @@ export function categoryOf(value: unknown): WorkCategory {
  * Maps one raw Yunxiao work item to the normalized shape. `assignedTo` is an Aliyun accountID, not a nickname:
  * it becomes `assignee.id` and never `assignee.name`, so callers must never compare it to a display name.
  */
-export function mapWorkItem(raw: Record<string, unknown>, project: string): WorkItem {
-  const key = String(raw.identifier ?? raw.id ?? '')
-  const assignee = personOf(raw.assignedTo)
-  const stage = raw.statusStageIdentifier
+export function mapWorkItem(raw: Record<string, unknown>, project: string, requested?: string): WorkItem {
+  // `id` is the stable handle the API uses; `serialNumber` (`ESFX-6209`) is what people and the web page name. The search
+  // response carries no `identifier`, and its `status` is an object rather than a string.
+  const key = String(raw.id ?? raw.identifier ?? '')
+  const serial = String(raw.serialNumber ?? key)
+  const status = raw.status && typeof raw.status === 'object' ? raw.status as Record<string, unknown> : {}
+  const stage = raw.statusStageId ?? raw.statusStageIdentifier
   const updatedAt = raw.gmtModified ?? raw.updatedAt
+  const space = raw.space && typeof raw.space === 'object' ? raw.space as Record<string, unknown> : {}
+  const sprint = raw.sprint && typeof raw.sprint === 'object' ? raw.sprint as Record<string, unknown> : {}
+  const assignee = personOf(raw.assignedTo)
   return {
     key,
-    serial: String(raw.serialNumber ?? key),
-    category: categoryOf(raw.categoryIdentifier),
+    serial,
+    category: categoryOf(raw.categoryId ?? raw.categoryIdentifier ?? requested),
     title: String(raw.subject ?? raw.title ?? ''),
     body: String(raw.description ?? ''),
     author: personOf(raw.creator ?? raw.author) ?? { id: '' },
     ...(assignee ? { assignee } : {}),
-    status: { id: String(raw.statusIdentifier ?? ''), name: String(raw.status ?? raw.statusName ?? ''),
+    status: { id: String(status.id ?? raw.statusIdentifier ?? ''),
+      name: String(status.displayName ?? status.name ?? raw.statusName ?? ''),
       ...(typeof stage === 'string' && stage ? { stage } : {}) },
-    url: projexPage(project, key),
+    url: projexPage(String(space.id ?? project), serial),
     createdAt: isoFromMs(raw.gmtCreate ?? raw.createdAt),
     updatedAt: isoFromMs(updatedAt),
-    ...(raw.parentIdentifier ? { parent: String(raw.parentIdentifier) } : {}),
-    ...(raw.sprintIdentifier ? { sprint: String(raw.sprintIdentifier) } : {}),
+    ...(raw.parentId ?? raw.parentIdentifier ? { parent: String(raw.parentId ?? raw.parentIdentifier) } : {}),
+    ...(sprint.id ?? raw.sprintIdentifier ? { sprint: String(sprint.id ?? raw.sprintIdentifier) } : {}),
     ...(raw.finishTime ? { doneAt: isoFromMs(raw.finishTime) } : {}),
   }
+}
+
+/**
+ * A comment's text. Projex returns `content` as a JSON string carrying `htmlValue`, so a plain read would store the JSON;
+ * tags are stripped because every Channel here is text-first.
+ */
+export function noteBody(raw: Record<string, unknown>): string {
+  const content = raw.content ?? raw.body
+  if (typeof content !== 'string') return ''
+  const trimmed = content.trim()
+  if (trimmed.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(trimmed) as Record<string, unknown>
+      if (typeof parsed.htmlValue === 'string') return stripTags(parsed.htmlValue)
+    } catch {
+      /* Plain text that happens to start with a brace. */
+    }
+  }
+  return trimmed
+}
+
+const ENTITIES: Readonly<Record<string, string>> = { '&nbsp;': ' ', '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"' }
+/** Rendered HTML to readable text: paragraphs and breaks become newlines, entities become their characters. */
+export function stripTags(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li|h[1-6])>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&(nbsp|amp|lt|gt|quot);/g, entity => ENTITIES[entity] ?? entity)
+    .replace(/\n{2,}/g, '\n')
+    .trim()
+}
+
+/** A response body's items: a bare array (what the search endpoint returns) or a named envelope. */
+function itemsOf(body: unknown, key: string): Record<string, unknown>[] {
+  const values = Array.isArray(body) ? body : pageOf(body, key).values
+  return values.filter((item): item is Record<string, unknown> => !!item && typeof item === 'object')
 }
 
 /** Maps one raw Yunxiao comment to a WorkNote. */
@@ -131,8 +178,9 @@ export function mapNote(raw: Record<string, unknown>): WorkNote {
   const updatedAt = raw.gmtModified ?? raw.updatedAt
   return {
     id: String(raw.id ?? raw.commentId ?? ''),
-    body: String(raw.content ?? raw.body ?? ''),
-    author: personOf(raw.creator ?? raw.author) ?? { id: '' },
+    body: noteBody(raw),
+    // A comment names its author `user`; `creator`/`author` stay for the older shape.
+    author: personOf(raw.user ?? raw.creator ?? raw.author) ?? { id: '' },
     at: isoFromMs(raw.gmtCreate ?? raw.createdAt),
     ...(updatedAt ? { updatedAt: isoFromMs(updatedAt) } : {}),
   }
@@ -163,20 +211,21 @@ async function listWorkItems(adapter: ProjexAdapter, project: string, since: str
   const codes = apiCategories(categories)
   if (codes.length === 0) return { items: [] }
   const items: WorkItem[] = []
-  // TODO: SearchWorkitems caps page*perPage at 10000 (perPage=200 allows 50 pages). Split the time window per
-  // category before the window is exhausted; the current loop only follows nextToken with a safety cap.
+  const cutoff = since ? Date.parse(since) : Number.NaN
   for (const category of codes) {
-    let nextToken: string | undefined
-    for (let page = 0; page < MAX_PAGES; page += 1) {
-      const query: Record<string, string | number> = { spaceType: 'Project', spaceIdentifier: project, category,
-        maxResults: DEFAULT_MAX_RESULTS }
-      if (nextToken) query.nextToken = nextToken
-      if (since) query.conditions = conditionsOf(since)
-      const { body } = await adapter.api.get(listPath(adapter.organization), query)
-      const result = pageOf(body, 'workitems')
-      items.push(...result.values.map(raw => mapWorkItem(raw, project)))
-      nextToken = result.next
-      if (!nextToken) break
+    for (let page = 1; page <= MAX_PAGES; page += 1) {
+      // `conditions` is rejected by this endpoint, so the modification filter runs below. The endpoint answers newest first,
+      // which lets a page that holds something older than the cutoff end the loop.
+      const { body } = await adapter.api.post(searchPath(adapter.organization),
+        { category, spaceId: project, page, perPage: PAGE_SIZE, ...(since ? { conditions: conditionsOf(since) } : {}) })
+      const raw = itemsOf(body, 'workitems')
+      let older = false
+      for (const entry of raw) {
+        const item = mapWorkItem(entry, project, category)
+        if (!Number.isNaN(cutoff) && Date.parse(item.updatedAt) < cutoff) { older = true; continue }
+        items.push(item)
+      }
+      if (raw.length < PAGE_SIZE || older) break
     }
   }
   return { items }
@@ -188,17 +237,17 @@ async function readWorkItem(adapter: ProjexAdapter, project: string, key: string
 }
 
 async function listNotes(adapter: ProjexAdapter, project: string, key: string, cursor: string | undefined): Promise<WorkNotePage> {
-  const query: Record<string, string | number> = { maxResults: DEFAULT_MAX_RESULTS }
-  if (cursor) query.nextToken = cursor
-  const { body } = await adapter.api.get(commentsPath(adapter.organization, key), query)
-  const result = pageOf(body, 'comments')
-  return { notes: result.values.map(mapNote), ...(result.next ? { next: result.next } : {}) }
+  const page = cursor ? Math.max(1, Number(cursor) || 1) : 1
+  const { body } = await adapter.api.get(commentsPath(adapter.organization, key), { page, perPage: PAGE_SIZE })
+  const values = itemsOf(body, 'comments')
+  return { notes: values.map(mapNote), ...(values.length >= PAGE_SIZE ? { next: String(page + 1) } : {}) }
 }
 
 /** Posts a comment unless one already carries `marker`; returns `'gone'` when the item no longer accepts comments. */
 async function postNote(adapter: ProjexAdapter, item: WorkItem, text: string, marker: string): Promise<'sent' | 'gone'> {
-  const existing = await adapter.api.get(commentsPath(adapter.organization, item.key), { maxResults: DEFAULT_MAX_RESULTS })
-  const mine = pageOf(existing.body, 'comments').values.some(comment => String(comment.content ?? comment.body ?? '').includes(marker))
+  const existing = await adapter.api.get(commentsPath(adapter.organization, item.key), { page: 1, perPage: PAGE_SIZE })
+  const mine = itemsOf(existing.body, 'comments').some(comment =>
+    JSON.stringify(comment).includes(marker) || noteBody(comment).includes(marker))
   if (mine) return 'sent'
   try {
     await adapter.api.post(commentsPath(adapter.organization, item.key), { content: `${text}\n\n${marker}` })
@@ -210,7 +259,11 @@ async function postNote(adapter: ProjexAdapter, item: WorkItem, text: string, ma
 }
 
 async function writeStatus(adapter: ProjexAdapter, item: WorkItem, stage: string): Promise<void> {
-  await adapter.api.post(statusPath(adapter.organization, item.key), { statusStageIdentifier: stage })
+  // `POST /workitems/{id}/status` was never a route, and `{statusStageId}` is not a field. The update is a `PUT` carrying
+  // `status`, whose value is a status **id**; a bare stage number is only usable when it is the item's own stage.
+  const status = /^[0-9]+$/.test(stage) && item.status.stage === stage ? item.status.id : stage
+  if (!status) throw new Error('Projex needs a status id to write back, and this item reports none')
+  await adapter.api.put(itemPath(adapter.organization, item.key), { status })
 }
 
 /** The API codes of the requested categories, deduplicated and preserving request order. */
@@ -224,11 +277,13 @@ function apiCategories(categories: readonly string[]): string[] {
 
 /** Conditions filter on `gmtModified`, because the host has no updated-after parameter. */
 function conditionsOf(since: string): string {
-  return JSON.stringify({ conditionGroups: [{ conditions: [{ fieldIdentifier: 'gmtModified', operator: 'MORE_THAN', value: [since] }] }] })
+  // An array of arrays, with the field's class and input format spelled out; the flatter shape answers 400.
+  return JSON.stringify({ conditionGroups: [[{ fieldIdentifier: 'gmtModified', operator: 'MORE_THAN', value: [since],
+    className: 'dateTime', format: 'input' }]] })
 }
 
 const orgPath = (organization: string): string => `/oapi/v1/projex/organizations/${encodeURIComponent(organization)}`
-const listPath = (organization: string): string => `${orgPath(organization)}/listWorkitems`
+const searchPath = (organization: string): string => `${orgPath(organization)}/workitems:search`
 const itemPath = (organization: string, key: string): string => `${orgPath(organization)}/workitems/${encodeURIComponent(key)}`
 const commentsPath = (organization: string, key: string): string => `${itemPath(organization, key)}/comments`
 const statusPath = (organization: string, key: string): string => `${itemPath(organization, key)}/status`

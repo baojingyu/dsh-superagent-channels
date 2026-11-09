@@ -87,6 +87,7 @@ Node 侧只认契约，后端因此可替换。第 4、5 节是细节。
 | 出站 | 文本，**keyed 幂等**（OutboundMessage 的 id 作为 `Idempotency-Key` 发出），进程内串行且间隔 ≥1 秒。群里可按开关带 @（`mentionBack`，按发送人 id 解析成显示名）；**没有原生引用**——客户端库的 `SendMsg` 没有 quote 参数，见 ADR-007 |
 | 入站媒体 | 图片，经 sidecar 下载，按魔数判定；群与单聊走同一条 `/media` 链路。面板可关（关掉只在正文留 `[图片]`，不下载） |
 | 入站语音 | 转写为文字（`to_text`，每条最多占用客户端 UI 8 秒，失败降级为占位）。面板可关，关掉正文是 `[语音消息]` |
+| 云效 Projex 的接口 | 轮询走 `POST /oapi/v1/projex/organizations/{org}/workitems:search`：项目以 `spaceId` 传入，裸数组响应，`page`/`perPage` 分页；时间窗用 `conditionGroups`（数组套数组 + `className: dateTime`/`format: input`）。旧路径 `GET /listWorkitems` 已在网关上下线，会一直返回 404。评论正文是 `content` 里的 `htmlValue` JSON，作者字段是 `user`；状态回写是 `PUT /workitems/{id}` 带 `{status: <statusId>}`（`POST .../status` 同样不存在） |
 | 执行目录的根目录 | 必须是**绝对路径**：`/srv/work`、`D:\Work`、`D:/Work`、`\\server\share` 都行；相对路径会被拒；留空则用 `<stateDir>\work`。2026-11-09 之前只接受以 `/` 开头的路径（schema 与输入框 pattern 两处），Windows 盘符路径填不进去 |
 | state 目录锁 | 一个 state 目录只允许一个 dsh-superagent。锁超过 `LOCK_STALE_MS`（5 秒，持有者每 2.5 秒刷新）就算陈旧，会被先清掉再取；真被占用时最多等 6 秒，失败信息写明「关掉另一个实例」或「删掉 `<stateDir>.lock`」。**重启时最常见的故障就在这里**：旧进程被杀后锁还在，新进程在 30 秒内会被判「已被持有」，整个插件不生效（面板显示「没有响应」） |
 | state 目录锁 | 一个 state 目录只允许一个 dsh-superagent。锁超过 `LOCK_STALE_MS`（5 秒，持有者每 2.5 秒刷新）就算陈旧，会被先清掉再取；真被占用时最多等 6 秒，失败信息写明「关掉另一个实例」或「删掉 `<stateDir>.lock`」。**重启时最常见的故障就在这里**：旧进程被杀后锁还在，新进程在 30 秒内会被判「已被持有」，整个插件不生效（面板显示「没有响应」） |

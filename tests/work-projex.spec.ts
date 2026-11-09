@@ -20,6 +20,7 @@ function stubApi(respond: Responder): { api: YunxiaoApi; calls: Recorded[] } {
   const api: YunxiaoApi = {
     get: async (path, query) => { const call: Recorded = { method: 'get', path, query }; calls.push(call); return respond(call) },
     post: async (path, body) => { const call: Recorded = { method: 'post', path, body }; calls.push(call); return respond(call) },
+    put: async (path, body) => { const call: Recorded = { method: 'put' as unknown as 'post', path, body }; calls.push(call); return respond(call) },
   }
   return { api, calls }
 }
@@ -27,18 +28,23 @@ const ok = (body: unknown): YunxiaoResult => ({ status: 200, body })
 const commands = (): Commands => new Commands(() => testDeployment(), {}, new AbortController().signal)
 const workItem: WorkItem = { key: 'AB-12', serial: 'AB-12', category: 'bug', title: 'Login fails', body: '',
   author: { id: 'acc-9' }, status: { id: 's1', name: '处理中' }, url: '', createdAt: '', updatedAt: '' }
-const rawItem = { identifier: 'AB-12', serialNumber: 'ABCD-12', subject: 'Login fails', description: 'Repro steps',
-  categoryIdentifier: 'Bug', status: '处理中', statusIdentifier: 's1', statusStageIdentifier: 'in_progress',
+/** A work item as `POST workitems:search` returns it (measured against a live organisation, 2026-11-09). */
+const rawItem = { id: '8813b032fee93e13ecc69fc6af', serialNumber: 'ESFX-6209', categoryId: 'Bug',
+  subject: 'Login fails', description: 'Repro steps',
+  status: { id: 's1', name: '处理中', displayName: '处理中' }, statusStageId: 'in_progress',
   gmtCreate: 1730000000000, gmtModified: 1730000100000, finishTime: 1730000200000,
-  assignedTo: 'acc-001', creator: 'acc-777', parentIdentifier: 'AB-1', sprintIdentifier: 'S1' }
+  space: { id: 'proj-1', name: 'Welltivity产研' }, sprint: { id: 'S1', name: '202611' },
+  assignedTo: { id: 'acc-001' }, creator: { id: 'acc-777' }, parentId: 'AB-1' }
 
 describe('Projex mapping', () => {
   it('maps identifiers, the status stage, and millisecond timestamps to the normalized work item', () => {
     const item = mapWorkItem(rawItem, 'proj-1')
-    expect(item).toMatchObject({ key: 'AB-12', serial: 'ABCD-12', category: 'bug', title: 'Login fails', body: 'Repro steps',
-      status: { id: 's1', name: '处理中', stage: 'in_progress' }, parent: 'AB-1', sprint: 'S1',
+    // `id` is the handle the API takes; the serial is the name people use, and it is what the web page is addressed by.
+    expect(item).toMatchObject({ key: '8813b032fee93e13ecc69fc6af', serial: 'ESFX-6209', category: 'bug',
+      title: 'Login fails', body: 'Repro steps', status: { id: 's1', name: '处理中', stage: 'in_progress' },
+      parent: 'AB-1', sprint: 'S1',
       createdAt: new Date(1730000000000).toISOString(), updatedAt: new Date(1730000100000).toISOString(),
-      doneAt: new Date(1730000200000).toISOString(), url: projexPage('proj-1', 'AB-12') })
+      doneAt: new Date(1730000200000).toISOString(), url: projexPage('proj-1', 'ESFX-6209') })
     expect(item.author).toEqual({ id: 'acc-777' })
   })
   it('keeps assignedTo as an accountID in assignee.id and never invents a display name', () => {
@@ -67,31 +73,38 @@ describe('Projex mapping', () => {
 })
 
 describe('Projex listWorkItems', () => {
-  it('follows nextToken and passes it back to the next page of the same category', async () => {
-    const { api, calls } = stubApi(call => call.query?.nextToken === 'n1'
-      ? ok({ workitems: [{ identifier: 'B-2', categoryIdentifier: 'Bug' }] })
-      : ok({ workitems: [{ identifier: 'B-1', categoryIdentifier: 'Bug' }], nextToken: 'n1' }))
+  it('posts the search with the project as spaceId and reads the bare array it answers', async () => {
+    // `listWorkitems` and `GET workitems` both answer 404; `workitems:search` answers 200 with an array, not an envelope.
+    const { api, calls } = stubApi(() => ok([{ id: 'B-1', categoryId: 'Bug' }, { id: 'B-2', categoryId: 'Bug' }]))
     const adapter = createProjexAdapter({ api, organization: 'org-1' })
     const page = await adapter.listWorkItems(commands(), 'proj-1', '', ['bug'])
     expect(page.items.map(item => item.key)).toEqual(['B-1', 'B-2'])
-    expect(calls).toHaveLength(2)
-    expect(calls[0]).toMatchObject({ method: 'get', path: '/oapi/v1/projex/organizations/org-1/listWorkitems',
-      query: { spaceType: 'Project', spaceIdentifier: 'proj-1', category: 'Bug', maxResults: 100 } })
-    expect(calls[0]!.query?.nextToken).toBeUndefined()
-    expect(calls[1]!.query?.nextToken).toBe('n1')
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toMatchObject({ method: 'post', path: '/oapi/v1/projex/organizations/org-1/workitems:search',
+      body: { category: 'Bug', spaceId: 'proj-1', page: 1, perPage: 100 } })
   })
   it('maps requested categories to Req|Bug|Task and drops categories the host cannot poll', async () => {
-    const { api, calls } = stubApi(() => ok({ workitems: [] }))
+    const { api, calls } = stubApi(() => ok([]))
     const adapter = createProjexAdapter({ api, organization: 'org-1' })
     await adapter.listWorkItems(commands(), 'proj-1', '', ['requirement', 'bug', 'task', 'risk'])
-    expect(calls.map(call => call.query?.category)).toEqual(['Req', 'Bug', 'Task'])
-    expect(calls.every(call => call.path === '/oapi/v1/projex/organizations/org-1/listWorkitems')).toBe(true)
+    expect(calls.map(call => (call.body as { category: string }).category)).toEqual(['Req', 'Bug', 'Task'])
+    expect(calls.every(call => call.path === '/oapi/v1/projex/organizations/org-1/workitems:search')).toBe(true)
   })
-  it('adds the gmtModified conditions when a watermark is given, and makes no call with no categories', async () => {
-    const { api, calls } = stubApi(() => ok({ workitems: [] }))
+  it('sends the modification window in the shape the endpoint accepts, and still filters what comes back', async () => {
+    // `conditionGroups` is an array of arrays with the field's class and format; the flatter shape answers 400. The cutoff is
+    // kept as a second net, because the server-side window is inclusive of the boundary.
+    const { api, calls } = stubApi(() => ok([
+      { id: 'new', gmtModified: Date.parse('2026-02-01T00:00:00.000Z') },
+      { id: 'old', gmtModified: Date.parse('2026-01-01T00:00:00.000Z') },
+    ]))
     const adapter = createProjexAdapter({ api, organization: 'org-1' })
-    await adapter.listWorkItems(commands(), 'proj-1', '2026-01-01T00:00:00.000Z', ['bug'])
-    expect(String(calls[0]!.query?.conditions)).toContain('gmtModified')
+    const page = await adapter.listWorkItems(commands(), 'proj-1', '2026-01-15T00:00:00.000Z', ['bug'])
+    expect(page.items.map(item => item.key)).toEqual(['new'])
+    expect(calls).toHaveLength(1)
+    const conditions = JSON.parse(String((calls[0]!.body as Record<string, unknown>).conditions)) as
+      { conditionGroups: { fieldIdentifier: string; className: string; format: string }[][] }
+    expect(conditions.conditionGroups[0]![0]).toMatchObject({ fieldIdentifier: 'gmtModified', className: 'dateTime',
+      format: 'input' })
     const before = calls.length
     expect(await adapter.listWorkItems(commands(), 'proj-1', '', [])).toEqual({ items: [] })
     expect(calls).toHaveLength(before)
@@ -103,21 +116,26 @@ describe('Projex reads and comments', () => {
     const { api, calls } = stubApi(() => ok({ result: rawItem }))
     const adapter = createProjexAdapter({ api, organization: 'org-1' })
     const item = await adapter.readWorkItem(commands(), 'proj-1', 'AB-12')
-    expect(item.key).toBe('AB-12')
-    expect(item.serial).toBe('ABCD-12')
+    expect(item.key).toBe('8813b032fee93e13ecc69fc6af')
+    expect(item.serial).toBe('ESFX-6209')
+    // The API takes either the id or the serial in the item path; the adapter keeps the handle a person used.
     expect(calls[0]!.path).toBe('/oapi/v1/projex/organizations/org-1/workitems/AB-12')
   })
-  it('lists comments with the cursor as nextToken and maps each note', async () => {
-    const { api, calls } = stubApi(() => ok({ comments: [{ id: 'c1', content: 'hi', creator: 'acc-9', gmtCreate: 1730000000000 }], nextToken: 'c2' }))
+  it('lists comments by page and maps each note, reading RICHTEXT content and the `user` author', async () => {
+    const richtext = JSON.stringify({ htmlValue: '<article><p>看看这里</p><p>再试一次</p></article>' })
+    const { api, calls } = stubApi(() => ok([{ id: 'c1', content: richtext, user: { id: 'acc-9', name: '郑超' },
+      gmtCreate: 1730000000000 }]))
     const adapter = createProjexAdapter({ api, organization: 'org-1' })
-    const page = await adapter.listNotes(commands(), 'proj-1', 'AB-12', 'c1')
+    const page = await adapter.listNotes(commands(), 'proj-1', 'AB-12', '2')
     expect(calls[0]).toMatchObject({ path: '/oapi/v1/projex/organizations/org-1/workitems/AB-12/comments',
-      query: { maxResults: 100, nextToken: 'c1' } })
-    expect(page).toEqual({ notes: [{ id: 'c1', body: 'hi', author: { id: 'acc-9' }, at: new Date(1730000000000).toISOString() }], next: 'c2' })
+      query: { page: 2, perPage: 100 } })
+    // A short page ends the listing; the cursor counts pages, not opaque tokens.
+    expect(page).toEqual({ notes: [{ id: 'c1', body: '看看这里\n再试一次', author: { id: 'acc-9', name: '郑超' },
+      at: new Date(1730000000000).toISOString() }] })
   })
   it('does not post when a comment already carries the marker', async () => {
     const marker = '<!-- dsh-superagent:r1 -->'
-    const { api, calls } = stubApi(() => ok({ comments: [{ id: 'c1', content: `done ${marker}` }] }))
+    const { api, calls } = stubApi(() => ok([{ id: 'c1', content: `done ${marker}` }]))
     const adapter = createProjexAdapter({ api, organization: 'org-1' })
     expect(await adapter.postNote(commands(), workItem, 'done', marker)).toBe('sent')
     expect(calls).toHaveLength(1)
@@ -125,14 +143,14 @@ describe('Projex reads and comments', () => {
   })
   it('posts the comment with the marker appended when no comment carries it', async () => {
     const marker = '<!-- dsh-superagent:r1 -->'
-    const { api, calls } = stubApi(call => call.method === 'post' ? ok({}) : ok({ comments: [] }))
+    const { api, calls } = stubApi(call => call.method === 'post' ? ok({}) : ok([]))
     const adapter = createProjexAdapter({ api, organization: 'org-1' })
     expect(await adapter.postNote(commands(), workItem, 'done', marker)).toBe('sent')
     expect(calls[1]).toMatchObject({ method: 'post', path: '/oapi/v1/projex/organizations/org-1/workitems/AB-12/comments',
       body: { content: `done\n\n${marker}` } })
   })
   it('reports gone when the item no longer accepts comments', async () => {
-    const { api } = stubApi(call => { if (call.method === 'post') throw new YunxiaoHttpError(410, 'item gone'); return ok({ comments: [] }) })
+    const { api } = stubApi(call => { if (call.method === 'post') throw new YunxiaoHttpError(410, 'item gone'); return ok([]) })
     const adapter = createProjexAdapter({ api, organization: 'org-1' })
     expect(await adapter.postNote(commands(), workItem, 'done', '<!-- dsh-superagent:r1 -->')).toBe('gone')
   })
@@ -144,12 +162,14 @@ describe('Projex status write-back', () => {
     expect(adapter.setStatus).toBeUndefined()
     expect(projexAdapter.host).toBe('projex')
   })
-  it('posts the status stage when write-back is enabled', async () => {
+  it('writes the status back with a PUT of the status id, the only route and field that exist', async () => {
+    // `POST /workitems/{id}/status` answers 404 and `{statusStageId}` is not a field; `PUT` with `{status: <id>}` answers 204.
     const { api, calls } = stubApi(() => ok({}))
     const adapter = createProjexAdapter({ api, organization: 'org-1', writeBack: true })
-    await adapter.setStatus!(commands(), workItem, 'done')
-    expect(calls[0]).toMatchObject({ method: 'post', path: '/oapi/v1/projex/organizations/org-1/workitems/AB-12/status',
-      body: { statusStageIdentifier: 'done' } })
+    await adapter.setStatus!(commands(), workItem, 'status-done')
+    expect(calls[0]).toMatchObject({ path: '/oapi/v1/projex/organizations/org-1/workitems/AB-12',
+      body: { status: 'status-done' } })
+    expect(calls[0]!.method).toBe('put')
   })
 })
 

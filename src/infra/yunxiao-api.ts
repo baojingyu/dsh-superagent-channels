@@ -12,6 +12,8 @@ export type YunxiaoQuery = Record<string, string | number | boolean | readonly (
 export interface YunxiaoApi {
   get(path: string, query?: YunxiaoQuery): Promise<YunxiaoResult>
   post(path: string, body: unknown): Promise<YunxiaoResult>
+  /** Update in place; Projex's write-back is a `PUT` on the work item. */
+  put(path: string, body: unknown): Promise<YunxiaoResult>
 }
 
 /** Everything the client needs: where to call, whose token to read, and which organizations are allowed. */
@@ -57,7 +59,7 @@ export function createYunxiaoApi(options: YunxiaoApiOptions): YunxiaoApi {
   const baseUrl = checkBaseUrl(options.baseUrl ?? DEFAULT_BASE_URL)
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const fetchFn = options.fetchFn ?? fetch
-  const send = async (method: 'GET' | 'POST', path: string, query?: YunxiaoQuery, body?: unknown): Promise<YunxiaoResult> => {
+  const send = async (method: 'GET' | 'POST' | 'PUT', path: string, query?: YunxiaoQuery, body?: unknown): Promise<YunxiaoResult> => {
     if (!path.startsWith(API_PREFIX)) throw new Error(`Yunxiao path must start with ${API_PREFIX}`)
     // Refuse a path that could leave its organization before the URL is built, then again on the built URL's normalized path.
     checkPath(path, options.orgWhitelist)
@@ -81,7 +83,11 @@ export function createYunxiaoApi(options: YunxiaoApiOptions): YunxiaoApi {
     }
     return { status: response.status, body: parsed }
   }
-  return { get: (path, query) => send('GET', path, query), post: (path, body) => send('POST', path, undefined, body) }
+  return {
+    get: (path, query) => send('GET', path, query),
+    post: (path, body) => send('POST', path, undefined, body),
+    put: (path, body) => send('PUT', path, undefined, body),
+  }
 }
 
 /**

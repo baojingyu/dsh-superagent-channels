@@ -496,7 +496,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/weixin-kind.spec.ts` | The Weixin `SourceKind`: its schema and fields, the structured `@` scope rule, the Channel and policy, the environment and its facts |
 | `tests/hosting-gitlab.spec.ts` | The GitLab adapter and the hosting HTTP client: the merge request, note and pipeline mappings, paging, idempotent replies, and the token and path checks |
 | `tests/hosting-gitlab-kind.spec.ts` | The GitLab hosting `SourceKind`: its identity, schema and fields, its environment and its scope rows |
-| `tests/work-projex.spec.ts` | The Projex adapter: work items and notes by category, `nextToken` paging, idempotent replies, and the Yunxiao client's checks |
+| `tests/work-projex.spec.ts` | The Projex adapter: work items and notes by category, `workitems:search` paging, idempotent replies, and the Yunxiao client's checks |
 | `tests/work-projex-kind.spec.ts` | The Projex work `SourceKind`: its identity and fields, its schema, its scope rows, its environment and Channel capabilities |
 | `tests/dingtalk-adapter.spec.ts` | The DingTalk adapter over injected `fetch`/`connect`: the stream-event parse, the sessionWebhook and oapi sends, the idempotency marker, the failure codes and the stream's abort |
 | `tests/dingtalk-kind.spec.ts` | The DingTalk `SourceKind`: its identity and schema, its fields, its policy, its capabilities and its `@`-based scope |
@@ -508,6 +508,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/panel-instances.spec.ts` | The panel's data layer for several instances of one kind: the rows and health of two chat instances, deleting one, and a legacy Source without `kind` |
 | `tests/live/weixin-bridge.live.spec.ts` | The Weixin bridge against a real local sidecar (only with `LIVE=1`): health, status, rooms, members, messages, idempotent sends, and the token and permission failures |
 | `tests/live/gitlab-contract.live.spec.ts` | The GitLab.com contract read-only (only with `LIVE=1`): merge request and note mapping, and an unauthorized token's error that never names the token |
+| `tests/live/projex-contract.live.spec.ts` | The Projex contract read-only against one real organisation (only with `LIVE=1`): every polled category lists through `workitems:search`, an item reads by both its id and its serial, and a comment comes back as text rather than the JSON envelope the API stores |
 | `tests/live/thirdparty-errors.live.spec.ts` | WeCom, DingTalk and Yunxiao authentication failures (only with `LIVE=1`): the providers' error codes and that no secret appears in the message |
 | `tests/weixin-media.spec.ts` | The Weixin media path over injected `fetch` and fake attachments: the magic-byte sniffing, the size and deployment refusals, the attachment commit, and the ThreadContext's message and image reads |
 
