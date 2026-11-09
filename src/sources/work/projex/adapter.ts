@@ -121,7 +121,7 @@ export function mapWorkItem(raw: Record<string, unknown>, project: string, reque
     serial,
     category: categoryOf(raw.categoryId ?? raw.categoryIdentifier ?? requested),
     title: String(raw.subject ?? raw.title ?? ''),
-    body: String(raw.description ?? ''),
+    body: workBody(raw),
     author: personOf(raw.creator ?? raw.author) ?? { id: '' },
     ...(assignee ? { assignee } : {}),
     status: { id: String(status.id ?? raw.statusIdentifier ?? ''),
@@ -134,6 +134,14 @@ export function mapWorkItem(raw: Record<string, unknown>, project: string, reque
     ...(sprint.id ?? raw.sprintIdentifier ? { sprint: String(sprint.id ?? raw.sprintIdentifier) } : {}),
     ...(raw.finishTime ? { doneAt: isoFromMs(raw.finishTime) } : {}),
   }
+}
+
+/**
+ * A work item's body. The detail endpoint returns `description` as a RICHTEXT JSON string carrying `htmlValue` - the same shape a
+ * comment has - and the list endpoint returns it empty, so both forms have to be handled here.
+ */
+export function workBody(raw: Record<string, unknown>): string {
+  return noteBody({ content: raw.description ?? raw.body })
 }
 
 /**

@@ -47,6 +47,15 @@ describe('Projex mapping', () => {
       doneAt: new Date(1730000200000).toISOString(), url: projexPage('proj-1', 'ESFX-6209') })
     expect(item.author).toEqual({ id: 'acc-777' })
   })
+  it('reads a RICHTEXT description as text, because that is how the detail endpoint returns it', () => {
+    // The search endpoint answers `description: ''`; the detail endpoint answers a JSON string with `htmlValue`.
+    const rich = JSON.stringify({ htmlValue: '<article><p>把贪吃蛇的国内访问网址告诉我</p><p>谢谢</p></article>' })
+    const item = mapWorkItem({ ...rawItem, description: rich, formatType: 'RICHTEXT' }, 'proj-1')
+    expect(item.body).toBe('把贪吃蛇的国内访问网址告诉我\n谢谢')
+    // Plain text and an absent description still behave.
+    expect(mapWorkItem({ ...rawItem, description: 'plain words' }, 'proj-1').body).toBe('plain words')
+    expect(mapWorkItem({ ...rawItem, description: '' }, 'proj-1').body).toBe('')
+  })
   it('keeps assignedTo as an accountID in assignee.id and never invents a display name', () => {
     expect(mapWorkItem(rawItem, 'proj-1').assignee).toEqual({ id: 'acc-001' })
     expect(mapWorkItem(rawItem, 'proj-1').assignee?.name).toBeUndefined()

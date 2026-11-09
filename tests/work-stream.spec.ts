@@ -101,6 +101,30 @@ describe('pollWorkItems', () => {
     expect(trigger.actor).toEqual({ source: 'projex-rdc', id: 'acc-1' })
   })
 
+  it('reads an item whose list row has no body, so the trigger carries what the person actually wrote', async () => {
+    // Projex's search endpoint returns `description: ''` while the detail endpoint has the text; the body is where the request
+    // lives, so a listed item without one is read once before it is handed over.
+    const listed = item({ key: 'AB-7', serial: 'PROJ-7', body: '', title: '【test】接收验证2', updatedAt: '2026-11-09T06:49:26.000Z' })
+    const detail = item({ key: 'AB-7', serial: 'PROJ-7', body: '把贪吃蛇的国内访问网址告诉我', title: '【test】接收验证2',
+      updatedAt: '2026-11-09T06:49:26.000Z' })
+    const reads: string[] = []
+    const { adapter } = fakeAdapter(() => [listed])
+    adapter.readWorkItem = async (_commands, _project, key) => { reads.push(key); return detail }
+    const { ctx, received } = fakeContext({ projex: { project: 'proj-1' } })
+    await pollWorkItems(ctx, adapter, { instance: 'projex', project: 'proj-1', categories: ['bug'] })
+    expect(reads).toEqual(['AB-7'])
+    expect(received[0]!.text).toBe('把贪吃蛇的国内访问网址告诉我')
+  })
+
+  it('keeps the listed item when the detail read fails, because the title still asks for something', async () => {
+    const listed = item({ key: 'AB-8', serial: 'PROJ-8', body: '', title: '修一下登录', updatedAt: '2026-11-09T07:00:00.000Z' })
+    const { adapter } = fakeAdapter(() => [listed])
+    adapter.readWorkItem = async () => { throw new Error('detail unavailable') }
+    const { ctx, received } = fakeContext({ projex: { project: 'proj-1' } })
+    await pollWorkItems(ctx, adapter, { instance: 'projex', project: 'proj-1', categories: ['bug'] })
+    expect(received[0]!.text).toBe('修一下登录')
+  })
+
   it('stops before polling when the signal is already aborted', async () => {
     const { adapter, calls } = fakeAdapter()
     const { ctx, received, store } = fakeContext({ projex: { project: 'proj-1' } })

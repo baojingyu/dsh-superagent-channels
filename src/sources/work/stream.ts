@@ -88,8 +88,19 @@ async function pollCategory(ctx: SourceContext, adapter: WorkAdapter, instance: 
   category: string, signal?: AbortSignal): Promise<number> {
   const page = await adapter.listWorkItems(ctx.commands, project, since, [category], signal)
   let received = 0
-  for (const item of page.items) {
+  for (const listed of page.items) {
     if (signal?.aborted) break
+    // A list endpoint may omit the body (Projex's search returns `description: ''`) while the detail endpoint has it, and the
+    // body is where a person writes what they want. Reading it once per new item is the difference between working from the
+    // instruction and working from the title.
+    let item = listed
+    if (!listed.body.trim()) {
+      try {
+        item = await adapter.readWorkItem(ctx.commands, project, listed.key)
+      } catch {
+        /* An unreadable detail keeps the listed item: the title still makes a usable request. */
+      }
+    }
     const trigger = workTrigger(item, instance, project)
     // The Engine would also answer 'duplicate'; the local check keeps a repeated page from re-entering the queue.
     if (ctx.triggers.get(trigger.id)) continue
