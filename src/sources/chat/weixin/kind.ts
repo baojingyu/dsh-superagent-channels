@@ -16,10 +16,11 @@ const RoomsSchema = z.array(z.object({
   id: z.string().trim().regex(WXID_PATTERN, 'Invalid chatroom ID'),
   name: z.string().trim().max(60).optional(),
   /**
-   * `yes` lets this row's sender originate work. A direct chat is that person, so they are configured here once instead of
-   * twice - in this list and again in the Policy's list of people who may ask.
+   * What this group hands over: only messages that mention the agent, or every message in it. This is reception, not authorization -
+   * whether a received message becomes work is the Policy's admission table, so there is no "may originate work" switch here.
+   * Absent falls back to `atOnly` so a configuration written before this setting existed keeps its behaviour.
    */
-  allow: z.enum(['yes', 'no']).default('no'),
+  listen: z.enum(['mentions', 'all']).optional(),
 }).strict()).default([])
 export const WeixinConfigSchema = z.object({
   /** Loopback address of the wxauto-bridge sidecar; the bridge never listens beyond 127.0.0.1. */
@@ -80,6 +81,15 @@ function keywordHit(text: string | undefined, keywords: readonly { any: string }
   return keywords.find(item => item.any !== '' && haystack.includes(item.any.toLowerCase()))?.any
 }
 
+/**
+ * What one group hands over, resolved the one way every reader uses: the group's own `listen`, else the instance default `atOnly`.
+ * A configuration written before per-group reception existed only has `atOnly`, and this keeps its behaviour.
+ */
+function listenOf(room: string, config: { rooms?: readonly { id: string; listen?: 'mentions' | 'all' }[]; atOnly?: boolean }): 'mentions' | 'all' {
+  const own = config.rooms?.find(entry => entry.id === room)?.listen
+  return own ?? (config.atOnly === false ? 'all' : 'mentions')
+}
+
 const Fields: FieldSpec[] = [
   { key: 'baseUrl', type: 'text', advanced: true, label: { zh: '桥地址', en: 'Bridge URL' },
     hint: { zh: 'wxauto-bridge 的 loopback 地址，例如 http://127.0.0.1:8787；只允许本机，不要填公网地址。', en: 'Loopback address of wxauto-bridge, such as http://127.0.0.1:8787; localhost only, never a public address.' } },
@@ -88,20 +98,20 @@ const Fields: FieldSpec[] = [
   { key: 'selfWxid', type: 'text', pattern: '^[A-Za-z0-9_\\-]+$', label: { zh: '本账号 wxid', en: 'This account wxid' },
     hint: { zh: '群 @ 判定和自消息识别都以它为准，昵称改了也不会失效。', en: 'Group @-detection and own-message detection are judged against it, so a renamed account still works.' } },
   { key: 'rooms', type: 'rows', label: { zh: '接收的群', en: 'Groups to receive' },
-    hint: { zh: '这里只填群：这些群里发给机器人的消息会被接收（按结构化 @ 判定，不看文本里的 @昵称）。私聊不需要在这里配——私聊本来就收得到，而「谁能发起工作」统一在「评估 → 策略 → 在各来源上」的名单里配一次。ID 必须是桥给出的稳定标识（形如 wxname_…），不能填昵称；点「刷新会话列表」从桥能看到的会话里选。',
+    hint: { zh: '这里只填群：这些群里发给机器人的消息会被接收（按结构化 @ 判定，不看文本里的 @昵称）。每行的「接收」决定这个群是只交 @ 机器人的消息，还是交全部消息。私聊不需要在这里配——私聊本来就收得到。「谁能发起工作」只在「评估 → 策略 → 在各来源上」的名单里配一次，这里没有第二个开关。ID 必须是桥给出的稳定标识（形如 wxname_…），不能填昵称；点「刷新会话列表」从桥能看到的会话里选。',
       en: 'Groups only: messages to the bot in these groups are received (judged on the structured @ list, never on @name in the text). A direct message needs no entry here - it arrives anyway - and the list of people who may originate work lives in one place: Eval -> Policy -> per Source.' },
     columns: [
       { key: 'id', type: 'text', label: { zh: '群 ID', en: 'Chat ID' }, pattern: '^[A-Za-z0-9_\-]+$',
         choose: { zh: '选择桥能看到的会话', en: 'Choose a chat the bridge can see' },
         refresh: { zh: '刷新会话列表', en: 'Refresh chats' } },
       { key: 'name', type: 'text', label: { zh: '名字', en: 'Name' }, optional: true },
-      { key: 'allow', type: 'select', label: { zh: '允许发起工作', en: 'May originate work' },
-        options: [{ value: 'no', label: { zh: '不允许', en: 'No' } }, { value: 'yes', label: { zh: '允许', en: 'Yes' } }] },
+      { key: 'listen', type: 'select', label: { zh: '接收', en: 'Receive' },
+        options: [{ value: 'mentions', label: { zh: '仅 @', en: '@ only' } }, { value: 'all', label: { zh: '全部消息', en: 'All' } }] },
     ] },
   { key: 'directMessages', type: 'switch', label: { zh: '接收私聊', en: 'Receive direct messages' },
     hint: { zh: '开启时读取私聊消息流（微信的私聊是一条流，不是每人一个会话），具体谁能发起工作仍由「评估 → 策略 → 能发起工作的用户」决定——所以人只在那一个地方配。关掉则只收群。', en: 'On reads the direct-message stream (WeChat delivers direct messages as one stream keyed by sender, not as a chat per person). Who may originate work is still decided by the Policy list, which is the only place people are configured. Off keeps the Source to groups.' } },
-  { key: 'atOnly', type: 'switch', label: { zh: '仅接收 @ 的消息', en: 'Receive only @s' },
-    hint: { zh: '开启时只接收 @ 机器人的群消息；关闭时也接收其余消息，交评估按规则推断。后端完全无法判定群 @ 时（能力为 none），开启会让群消息全部被过滤，此时应关闭并靠规则与名单准入。', en: 'On receives only messages that mention the bot; off also receives the rest, from which Eval may infer work under the rules. A backend that cannot detect mentions at all (capability `none`) filters every group message while this is on, so turn it off and rely on the rules and the sender list.' } },
+  { key: 'atOnly', type: 'switch', advanced: true, label: { zh: '新群的默认接收', en: 'Default reception for a new group' },
+    hint: { zh: '只对还没单独设置「接收」的群生效：开启时只收 @ 机器人的消息，关闭时也收其余消息、交评估按规则推断。上表每一行的「接收」会覆盖它。后端完全无法判定群 @ 时（能力为 none），开启会让群消息全部被过滤，此时应关闭并靠规则与名单准入。', en: 'On receives only messages that mention the bot; off also receives the rest, from which Eval may infer work under the rules. A backend that cannot detect mentions at all (capability `none`) filters every group message while this is on, so turn it off and rely on the rules and the sender list.' } },
   { key: 'keywords', type: 'rows', advanced: true, label: { zh: '关键词（不 @ 也算找机器人）', en: 'Keywords (admitted without an @)' },
     hint: { zh: '群消息正文里出现任一个关键词，就当作在找机器人，不需要 @；是否成为可接的工作仍由准入模型判断。大小写不敏感。', en: 'A group message whose text names any of these is treated as addressed to the bot without an @; whether it becomes work is still the admission model\'s decision. Case-insensitive.' },
     columns: [
@@ -222,11 +232,13 @@ export function createWeixinKind(hooks: WeixinKindHooks = {}): SourceKind<Weixin
     rows(stored) {
       const config = stored as Partial<WeixinConfig>
       const rooms = Array.isArray(config.rooms) ? config.rooms : []
-      const atOnly = config.atOnly !== false
-      const note = atOnly ? { zh: '仅 @', en: '@ only' } : { zh: '全部消息', en: 'All' }
       return [
-        ...rooms.map(room => ({ id: room.id, label: room.name || room.id, note,
-          cells: { listedUnaddressed: !atOnly, unlistedAddressed: true, unlistedUnaddressed: !atOnly } })),
+        ...rooms.map(room => {
+          const everyMessage = listenOf(room.id, config) === 'all'
+          return { id: room.id, label: room.name || room.id,
+            note: everyMessage ? { zh: '全部消息', en: 'All' } : { zh: '仅 @', en: '@ only' },
+            cells: { listedUnaddressed: everyMessage, unlistedAddressed: true, unlistedUnaddressed: everyMessage } }
+        }),
         { id: 'directMessages', label: { zh: '私聊', en: 'Direct messages' },
           note: config.directMessages === false ? { zh: '不接收', en: 'Not received' } : { zh: '接收', en: 'Received' },
           cells: { listedUnaddressed: false, unlistedAddressed: config.directMessages !== false, unlistedUnaddressed: false } },
@@ -312,8 +324,10 @@ export function createWeixinKind(hooks: WeixinKindHooks = {}): SourceKind<Weixin
       // A keyword admits the message the way an `@` does: it says the group was talking about something this Source cares
       // about. It does not claim a mention, so the row still says ambient and the admission model still decides the rest.
       const keyword = keywordHit(input.text, config.keywords)
+      // What this group hands over; a group set to "all messages" needs no mention to be listened to.
+      const ambient = listenOf(room, config) === 'all'
       if (capabilitiesOf()?.mentions === 'none') {
-        return config.atOnly && !keyword
+        return !ambient && !keyword
           ? { listened: false, reason: 'mentions_unsupported', observed: true, row: room }
           : { listened: true, observed: true, row: room }
       }
@@ -321,7 +335,7 @@ export function createWeixinKind(hooks: WeixinKindHooks = {}): SourceKind<Weixin
       const addressed = ats.includes(config.selfWxid)
       // The group names its own admission row, one line per conversation in the table.
       const row = room
-      return addressed || !config.atOnly || keyword
+      return addressed || ambient || keyword
         ? { listened: true, observed: true, row }
         : { listened: false, reason: 'group_ambient', observed: true, row }
     },

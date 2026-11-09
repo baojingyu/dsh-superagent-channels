@@ -301,3 +301,27 @@ describe('weixinKind labels', () => {
     await expect(createWeixinKind({ client: () => fakeBridge([]) }).refreshLabels!(host)).resolves.toEqual({})
   })
 })
+
+describe('per-group reception', () => {
+  const scope = weixinKind.scope!
+  const base = { ...config, atOnly: true, rooms: [{ id: 'room-1', listen: 'all' as const }] }
+
+  it('lets one group hand over every message while the instance default stays mentions-only', () => {
+    // atOnly is the fallback; the group's own `listen` wins, so its unmentioned messages are listened to (still ambient).
+    expect(scope({ meta: { room: 'room-1', ats: [] } }, base)).toEqual({ listened: true, observed: true, row: 'room-1' })
+    // A group with no `listen` falls back to atOnly: unmentioned messages are filtered.
+    expect(scope({ meta: { room: 'room-2', ats: [] } }, base)).toEqual({ listened: false, reason: 'group_ambient', observed: true, row: 'room-2' })
+  })
+
+  it('carries the same difference into the admission rows', () => {
+    const rows = weixinKind.policy!.rows!({ rooms: [{ id: 'room-1', name: '全量群', listen: 'all' }, { id: 'room-2', name: '仅@群' }], atOnly: true })
+    expect(rows[0]).toMatchObject({ note: { zh: '全部消息' }, cells: { listedUnaddressed: true, unlistedAddressed: true } })
+    expect(rows[1]).toMatchObject({ note: { zh: '仅 @' }, cells: { listedUnaddressed: false, unlistedAddressed: true } })
+  })
+
+  it('accepts a group row with a reception rule, and refuses the old authorization switch', () => {
+    expect(weixinKind.schema.safeParse({ ...base, tokenFile: '/tmp/t', selfWxid: 'wxid_self', rooms: [{ id: 'room-1', listen: 'all' }] }).success).toBe(true)
+    // `allow` was a third place to grant work; authorization lives in the Policy list only.
+    expect(weixinKind.schema.safeParse({ ...base, tokenFile: '/tmp/t', selfWxid: 'wxid_self', rooms: [{ id: 'room-1', allow: 'yes' }] }).success).toBe(false)
+  })
+})
