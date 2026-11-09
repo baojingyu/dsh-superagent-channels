@@ -50,7 +50,7 @@ Measured on `main`, on both platforms this project is developed on:
 | Check | macOS arm64 / node 22.23.2 | Windows 11 / node 22.21.1 |
 | --- | --- | --- |
 | `tsc --noEmit` | 0 | 0 |
-| `vitest run --maxWorkers=2` | 83 files, 1435 tests, 1421 passed, 14 skipped, 0 failed (last run **before** the WeChat work) | 85 files, 1479 tests, 1443 passed, 36 skipped, 0 failed |
+| `vitest run --maxWorkers=2` | 83 files, 1435 tests, 1421 passed, 14 skipped, 0 failed (last run **before** the WeChat work) | 97 files, 1549 tests, 1510 passed, 39 skipped, 0 failed (latest) |
 | `tsdown` | build complete, 8 entries: index + 7 watch plugins | same |
 | `LIVE=1 vitest run tests/live` | 13 passed + 1 skipped (before) | 14 passed + 1 skipped |
 

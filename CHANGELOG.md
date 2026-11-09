@@ -3,6 +3,20 @@
 Versions follow semantic versioning; each release is published to the plugin market under the package name
 `dsh-superagent-channels`, so a user upgrades by installing the new version.
 
+## 1.0.1
+
+WeChat path brought to "configure it and it works", and the panel tells the truth about what a backend can do.
+
+- Reception is per group and lives in the Source: each group hands over only messages that mention the agent, or all of them; the
+  old global switch is the default for a new group. Sources decide what they can see, the Policy decides what counts as work.
+- The WeChat allow list is user id plus name, the same as Feishu; its group/direct marking became internal bookkeeping.
+- Sync from group follows the backend's real capability: a full roster replaces, an observed backend (wxautox4 reports only who has
+  spoken) only adds, and fetching nobody explains why instead of reporting success.
+- A saved Policy is validated by the settings schema as well as the Source's own; the two are now held in agreement by a test, after
+  a field one accepted made every WeChat list row unsaveable.
+- GitLab gained a Policy (account list, bot list, four reception ranges); DingTalk and WeCom offer the rows their scope reports.
+- Source cards order enabled first, then by English name; no Markdown markers in panel copy.
+
 ## 1.0.0
 
 First standalone release under its own name, installable next to the official superagent.
