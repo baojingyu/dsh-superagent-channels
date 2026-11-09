@@ -251,6 +251,21 @@ export class Settings {
     }
   }
   /**
+   * Runs one fixed action a Source kind offers on its card.
+   * @throws UserError (`noSourceAction`) when the kind declares no such action; `sourceActionFailed` when the action itself fails.
+   */
+  async sourceAction(id: string, action: string, signal?: AbortSignal): Promise<{ message: string }> {
+    const { sources } = this.host
+    const instance = sources.instance(id)
+    const kind = instance && sources.kind(instance.kind)
+    const found = kind?.actions?.find(item => item.id === action)
+    if (!found) throw new UserError('noSourceAction', { action })
+    const config = (instance?.config ?? {}) as Record<string, unknown>
+    if (found.ready && !found.ready(config)) throw new UserError('sourceActionFailed', { message: '这个动作的配置还不完整' })
+    try { return { message: await found.run(this.host.sourceHost, config, signal) } }
+    catch (error) { throw new UserError('sourceActionFailed', { message: error instanceof Error ? error.message : String(error) }) }
+  }
+  /**
    * Rereads a Source's display names (such as Feishu chat names) immediately.
    * @returns Sorted display names (`{ added }`) that were not present in the stored label map before this read.
    * @throws UserError (`noLabels`) when the Source has no label refresh; rethrows a failed read, keeping the stored list.

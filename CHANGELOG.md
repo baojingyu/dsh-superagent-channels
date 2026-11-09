@@ -3,6 +3,16 @@
 Versions follow semantic versioning; each release is published to the plugin market under the package name
 `dsh-superagent-channels`, so a user upgrades by installing the new version.
 
+## 1.0.2
+
+The WeChat bridge can be started and stopped from the panel, without the plugin owning the process.
+
+- Source cards may declare fixed actions; the panel renders them as buttons and the host runs one named action, never a command.
+- The WeChat card offers Start / Stop / Restart / Check: the first three ask the machine's scheduled task (`schtasks /run|/end /tn`)
+  to run or end wxauto-bridge, which stays a separate process because it needs the interactive desktop session and must outlive a
+  DSH restart; Check reads /health and reports the backend's capabilities or why it is unavailable.
+- The task name is a validated field (Advanced), checked in the schema and again in the runner.
+
 ## 1.0.1
 
 WeChat path brought to "configure it and it works", and the panel tells the truth about what a backend can do.

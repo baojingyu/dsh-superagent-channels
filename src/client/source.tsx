@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import type { FieldSpec } from '../sources/kind.ts'
 import { usePoll, type DroppedReply, type SourceStatusRow, type SourceView } from './api.ts'
-import { DisclosureRow, Dot, Icon, InfoTip, Switch, Tag } from './controls.tsx'
+import { Button, DisclosureRow, Dot, Icon, InfoTip, Switch, Tag } from './controls.tsx'
 import { SaveBar } from './draft.tsx'
 import { sourceMark } from './marks.ts'
 import { usePanel, usePanelData } from './provider.tsx'
@@ -16,6 +16,16 @@ function SourceCard({ source }: { source: SourceView }) {
   const { running } = usePanelData()
   const { reload } = useSettings()
   const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [actionBusy, setActionBusy] = useState('')
+  const [actionNote, setActionNote] = useState('')
+  const runAction = async (id: string) => {
+    setActionBusy(id); setActionNote('')
+    try {
+      const { message } = await call('POST sources/:id/actions/:action', { id: source.id, action: id })
+      setActionNote(message); await reload()
+    } catch (error) { setActionNote(error instanceof Error ? error.message : String(error)) }
+    finally { setActionBusy('') }
+  }
   const refreshLabels = async () => { const { added } = await call('POST sources/:id/labels',
     { id: source.id }); await reload(); return added }
   const draft = useBlockDraft(`source:${source.id}`, source.value, source.revision)
@@ -50,6 +60,12 @@ function SourceCard({ source }: { source: SourceView }) {
         <p className="dt-error" role="status"><SetupMessage problem={problem} lead /></p><CheckSetupButton />
       </div>}
       {!source.installed && <Hint>{t('sourceNotInstalledHint')}</Hint>}
+      {source.installed && expanded && (source.actions?.length ?? 0) > 0 && <div className="dt-row-buttons">
+        {source.actions.map(action => <Button key={action.id} variant="ghost" size="sm"
+          disabled={!action.ready || actionBusy !== ''} aria-busy={actionBusy === action.id}
+          onClick={() => { void runAction(action.id) }} title={action.hint ? localized(t, action.hint) : undefined}>{localized(t, action.label)}</Button>)}
+        {actionNote && <span className="dt-hint" role="status">{actionNote}</span>}
+      </div>}
       {source.installed && !expanded && <Hint>{t('sourceCollapsedHint')}</Hint>}
       {source.installed && expanded && source.fields.filter(spec => !spec.advanced).map(field)}
       {source.installed && expanded && advanced.length > 0 && <DisclosureRow icon={<Icon name="settings" />} title={t('advanced')} open={advancedOpen}

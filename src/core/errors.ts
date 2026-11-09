@@ -6,6 +6,8 @@ export const USER_ERRORS = {
   unknownAssignment: ['missing', 'Unknown assignment'],
   unknownBlock: ['missing', 'Unknown settings block: {block}'],
   unknownPromptRevision: ['missing', 'Unknown prompt revision {revision}'],
+  noSourceAction: ['missing', 'This Source has no action named {action}'],
+  sourceActionFailed: ['refused', 'The action failed: {message}'],
   unknownPromptPart: ['refused', 'Unknown built-in prompt part {part}'],
   ticketEnded: ['refused', 'Ticket has ended'],
   assignmentEnded: ['refused', 'Assignment has ended; a newer assignment owns this ticket'],

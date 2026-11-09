@@ -44,6 +44,20 @@ export interface SourcePolicyPart<P extends Record<string, unknown>> {
   /** Optional external roster sync (such as chat members); `ready` reports whether `part` names a target to refresh from. */
   sync?: { label: Localized; ready(part: P): boolean; run(host: SourceHost, part: P, signal: AbortSignal): Promise<P> }
 }
+/**
+ * One operation the panel offers on a Source's card - starting or stopping an external driver, for example.
+ *
+ * An action is a fixed, named operation the kind implements, never a free-form command: the panel supplies only the action ID and
+ * the stored configuration, so a button can never become a shell. `run` returns a short sentence the panel shows next to it.
+ */
+export interface SourceAction {
+  id: string
+  label: Localized
+  hint?: Localized
+  /** Whether the action applies to the current configuration (for example, a task name that is set). */
+  ready?(config: Record<string, unknown>): boolean
+  run(host: SourceHost, config: Record<string, unknown>, signal?: AbortSignal): Promise<string>
+}
 /** UI link for a channel address; `triggerId` names the Trigger whose own deep link is preferred when available. */
 export interface ChannelLink { url: string; label: Localized; triggerId?: string }
 /**
@@ -135,6 +149,8 @@ export interface SourceKind<C extends Record<string, unknown> = Record<string, u
   policy?: SourcePolicyPart<Record<string, unknown> & { allowed: { id: string; name?: string }[] }>
   /** Rereads display names for row keys (such as chat names), stores the resolved names in `KV.sources.labels(kind)`, and returns them. */
   refreshLabels?(host: SourceHost, signal?: AbortSignal): Promise<Record<string, string>>
+  /** Fixed operations the panel offers on this Source's card; see {@link SourceAction}. */
+  actions?: readonly SourceAction[]
   /** Variables the kind registers with the execution environment and how their values are computed. */
   environment?: { variables: readonly VariableSpec[]; values(input: EnvironmentInput<C>): Record<string, string> }
 }

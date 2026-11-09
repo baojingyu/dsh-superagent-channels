@@ -2,6 +2,7 @@
 import { z } from 'zod'
 import type { OutboundMessage } from '../../../core/index.ts'
 import { KV } from '../../../kv.ts'
+import type { SourceHost } from '../../host.ts'
 import type { ChannelHost, FieldSpec, Localized, SourceChannel, SourceKind, SourcePolicyPart } from '../../kind.ts'
 import type { BridgeCapabilities, BridgeClient, BridgeStatus, MentionCapability } from './bridge.ts'
 import { createBridgeClient } from './bridge.ts'
@@ -40,6 +41,12 @@ export const WeixinConfigSchema = z.object({
   atOnly: z.boolean().default(true),
   /** How often the polling transport asks the bridge for new messages, in seconds. */
   pollSeconds: z.number().int().min(5).max(3600).default(5),
+  /**
+   * The Windows scheduled task that runs the sidecar. The plugin never starts the bridge itself - it must live in the logged-in
+   * desktop session, survive a DSH restart, and keep its own local shim out of the repository - so a panel button asks this task to
+   * start or stop it. Validated to a task name so a button can never become a command.
+   */
+  bridgeTask: z.string().trim().min(1).max(200).regex(/^[A-Za-z0-9 _.\-\\]+$/, 'Invalid task name').default('DSH-WeChat-Bridge'),
   /**
    * How long one bridge request may take, in seconds. The default is generous because some endpoints
    * drive the client's own UI: listing chats enumerates the contact pages, which costs ~10 s on a busy
@@ -109,6 +116,16 @@ function listenOf(room: string, config: { rooms?: readonly { id: string; listen?
   return own ?? (config.atOnly === false ? 'all' : 'mentions')
 }
 
+/**
+ * Ask Windows to run or end one scheduled task. Only the task name reaches the command line, and it is validated against a task-name
+ * pattern here as well as in the schema, so this can never execute something other than `schtasks ... /tn <task>`.
+ */
+async function schtasks(host: SourceHost, task: string, verb: '/run' | '/end', signal?: AbortSignal): Promise<void> {
+  if (!/^[A-Za-z0-9 _.\-\\]{1,200}$/.test(task)) throw new Error('计划任务名不合法')
+  const commands = host.context({ kind: SOURCE, health: ['weixin'] }).commands.withSignal(signal)
+  await commands.run('schtasks', [verb, '/tn', task])
+}
+
 const Fields: FieldSpec[] = [
   { key: 'baseUrl', type: 'text', advanced: true, label: { zh: '桥地址', en: 'Bridge URL' },
     hint: { zh: 'wxauto-bridge 的 loopback 地址，例如 http://127.0.0.1:8787；只允许本机，不要填公网地址。', en: 'Loopback address of wxauto-bridge, such as http://127.0.0.1:8787; localhost only, never a public address.' } },
@@ -156,6 +173,8 @@ const Fields: FieldSpec[] = [
     hint: { zh: '开启时语音会转成文字再交给评估；转写要驱动客户端界面，每条最多占用 8 秒，因此可以在不需要时关掉（关掉后文字是「[语音消息]」占位）。', en: 'On transcribes voice into text before Eval sees it; transcription drives the client UI and may hold it for up to eight seconds per message, so it can be turned off - the text then stays a `[语音消息]` placeholder.' } },
   { key: 'images', type: 'switch', advanced: true, label: { zh: '接收图片', en: 'Receive images' },
     hint: { zh: '开启时图片会作为附件交给模型；关闭时只在文字里留「[图片]」占位，不下载任何字节。', en: 'On hands images to the model as attachments; off leaves a `[图片]` placeholder in the text and downloads nothing.' } },
+  { key: 'bridgeTask', type: 'text', advanced: true, label: { zh: '桥的计划任务', en: 'Bridge scheduled task' },
+    hint: { zh: '本机跑 wxauto-bridge 的 Windows 计划任务名。插件不自己拉起进程，只用「启动桥 / 停止桥」按钮让这个任务启停；因为桥必须跑在已登录的桌面会话里，且要活过 DSH 重启。', en: 'The Windows scheduled task that runs wxauto-bridge on this machine. The plugin never spawns it; the Start/Stop buttons ask this task to run or end it, because the bridge must live in the signed-in desktop session and outlive a DSH restart.' } },
   { key: 'pollSeconds', type: 'number', advanced: true, min: 5, max: 3600, label: { zh: '轮询间隔 / 秒', en: 'Poll interval / s' },
     hint: { zh: '轮询传输向桥询问新消息的间隔。', en: 'How often the polling transport asks the bridge for new messages.' } },
   { key: 'timeoutSeconds', type: 'number', advanced: true, min: 5, max: 300, label: { zh: '桥请求超时 / 秒', en: 'Bridge request timeout / s' },
@@ -391,6 +410,48 @@ export function createWeixinKind(hooks: WeixinKindHooks = {}): SourceKind<Weixin
     // A backend without stable chat IDs names its chats and people `wxname_<hash>`, which keeps the id patterns strict at
     // the cost of being unreadable. This resolves them to display names for the panel's row keys, exactly as the Feishu
     // kind resolves its chat ids; a failed read leaves the stored labels alone rather than clearing them.
+    /**
+     * Bridge control. The sidecar is deliberately not this plugin's child: it needs the interactive desktop session, has to survive
+     * a DSH restart, and its local shim must stay out of the repository. So the panel asks the machine's scheduled task to start or
+     * stop it, and "check" reads /health for a straight answer about what the backend can do.
+     */
+    actions: [
+      { id: 'bridge.start', label: { zh: '启动桥', en: 'Start bridge' },
+        hint: { zh: '让本机计划任务启动 wxauto-bridge。需要微信客户端已登录，且这台机器上没有别的 UI 自动化客户端。', en: 'Asks the machine task to start wxauto-bridge. The WeChat client must be signed in, and no other UI-automation client may run.' },
+        ready: config => !!config.bridgeTask,
+        run: async (host, config, signal) => {
+          await schtasks(host, String(config.bridgeTask ?? ''), '/run', signal)
+          return '已请求启动桥；几秒后点「检查桥」确认。'
+        } },
+      { id: 'bridge.stop', label: { zh: '停止桥', en: 'Stop bridge' },
+        hint: { zh: '结束这个计划任务里的桥进程；之后消息不会再进来，直到再次启动。', en: 'Ends the bridge in that task; messages stop arriving until it is started again.' },
+        ready: config => !!config.bridgeTask,
+        run: async (host, config, signal) => {
+          await schtasks(host, String(config.bridgeTask ?? ''), '/end', signal)
+          return '已请求停止桥。'
+        } },
+      { id: 'bridge.restart', label: { zh: '重启桥', en: 'Restart bridge' },
+        hint: { zh: '先结束再启动。客户端界面卡住、或换了微信账号之后用它。', en: 'Ends then starts it. Use it when the client UI is stuck or the WeChat account changed.' },
+        ready: config => !!config.bridgeTask,
+        run: async (host, config, signal) => {
+          const task = String(config.bridgeTask ?? '')
+          await schtasks(host, task, '/end', signal)
+          await schtasks(host, task, '/run', signal)
+          return '已重启桥；几秒后点「检查桥」确认。'
+        } },
+      { id: 'bridge.check', label: { zh: '检查桥', en: 'Check bridge' },
+        hint: { zh: '读一次 /health：是否可达、后端能给出哪些能力。', en: 'Reads /health once: reachable, and which capabilities the backend reports.' },
+        async run(host) {
+          const config = host.sources.instance<WeixinConfig>(SOURCE)?.config
+          if (!config) throw new Error('微信来源未配置')
+          const health = await bridgeFor(config).health()
+          if (!health.ok) throw new Error(`桥不可用：${health.detail || '没有响应'}；先点「启动桥」。`)
+          const capability = health.capabilities
+          const roster = capability?.members === 'full' ? '完整成员表' : capability?.members === 'observed' ? '仅发过言的人' : '无成员信息'
+          const mentions = capability?.mentions === 'structured' ? '结构化 @' : capability?.mentions === 'markup' ? '仅 @ 标记' : '无法判定 @'
+          return `桥正常（后端 ${health.backend ?? '?'}）：成员 ${roster}，@ 判定 ${mentions}。`
+        } },
+    ],
     async refreshLabels(host) {
       const ctx = host.context({ kind: SOURCE, health: ['weixin'] })
       const config = ctx.config<WeixinConfig>(SOURCE)

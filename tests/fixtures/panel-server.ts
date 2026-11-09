@@ -108,6 +108,8 @@ export interface PanelServer {
   opened: string[]
   dropped: DroppedReply[]
   failing: Extract<Problem, { kind: 'outgoing' }>['outgoing'][]
+  /** Answers per `sourceId:actionId` for the Source action endpoint, so a test can steer the reply. */
+  actions?: Record<string, string>
 }
 export let server: PanelServer
 
@@ -139,6 +141,7 @@ function sourceSettings(): SourceView[] {
         revision: server.revisions[`source:${kind.kind}`] ?? 0,
       restarts: SETUP_FIELDS[kind.kind] ?? [], fields: kind.fields, facts: kind.facts?.(resolved()) ?? {},
       labels: kind.kind === 'feishu' ? { oc_team: '团队群', oc_other: '另一个群', ...server.joined } : {}, ...problem ? { problem } : {},
+      actions: (kind.actions ?? []).map(action => ({ id: action.id, label: action.label, ready: action.ready ? action.ready(config as Record<string, unknown>) : true })),
       ...policy ? { policy } : {} }
   })
 }
@@ -300,6 +303,8 @@ const ROUTES: { [K in keyof Api]: Route<K> } = {
   } },
   'GET sources': { answer: sourceStatuses },
   'GET settings': { answer: settingsView },
+  'POST sources/:id/actions/:action': { answer: ({ params }: { params: { id: string; action: string } }) =>
+    ({ message: server.actions?.[`${params.id}:${params.action}`] ?? `已执行 ${params.action}` }) },
   'POST sources/:id/labels': { answer: () => {
     // Label refresh failures come from the bot CLI and are returned verbatim.
     if (server.joinError) return refuse(500, server.joinError)

@@ -682,6 +682,8 @@ const TEXT = {
   'meaning.environment': ['每个工单的执行器 Session 和准备命令运行的环境：执行器和各来源登记的变量，每个有键、值和说明', 'Where a Ticket\'s Executor Session and prepare command run: the variables the Executor and the Sources register, each with a key, a value and a description'],
   // User and agent error codes; English reuses the host's own text read by agents
   'userError.unknownTicket': ['找不到这个工单。', USER_ERRORS.unknownTicket[1]],
+  'userError.noSourceAction': ['这个来源没有名为 {action} 的动作。', USER_ERRORS.noSourceAction[1]],
+  'userError.sourceActionFailed': ['动作失败：{message}', USER_ERRORS.sourceActionFailed[1]],
   'userError.unknownProblem': ['找不到这个未完成的评估。', USER_ERRORS.unknownProblem[1]],
   'userError.unknownTrigger': ['找不到这个触发。', USER_ERRORS.unknownTrigger[1]],
   'userError.unknownAssignment': ['找不到这个派工。', USER_ERRORS.unknownAssignment[1]],
