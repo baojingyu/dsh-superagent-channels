@@ -13,6 +13,11 @@ GitLab、云效 Projex、微信、钉钉、企业微信，以及同一种通道�
 仓库怎么管、保留哪些来源信息、以及如何把一份副本从原型上彻底摘开，见
 [REPOSITORY.md](REPOSITORY.md)（中文：[REPOSITORY.zh-CN.md](REPOSITORY.zh-CN.md)）。
 
+## 安装
+
+作为独立包 `dsh-superagent-channels` 发布，可与官方 superagent 并存安装，不替换它。在 DSH 插件市场搜索这个名字安装即可，面板随后出现
+`dsh-superagent-channels` 入口。每次发布都改 `package.json` 的 `version` 并在 [CHANGELOG.md](CHANGELOG.md) 记一节，插件市场据此提示升级。
+
 ## 加了什么
 
 | 上游 | 本版 |

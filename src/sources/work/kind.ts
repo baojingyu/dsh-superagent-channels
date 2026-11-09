@@ -156,7 +156,7 @@ export function workKind<C extends Record<string, unknown> = WorkConfig>(
       schema: WorkPolicySchema,
       fields: [
         { key: 'allowed', type: 'rows', label: { zh: '能发起工作的云效成员', en: 'Members who may originate work' },
-          hint: { zh: '这里是**授权**：名单里的人的**工作项**（需求/缺陷/任务）才会被当作可接的工作。填云效的成员 accountId——就是工作项'
+          hint: { zh: '这里是授权：名单里的人的工作项（需求/缺陷/任务）才会被当作可接的工作。填云效的成员 accountId——就是工作项'
             + '「指派给」里那个人的 id，不是姓名。不填则所有工作项都会被判「名单外」而拒绝（`/health` 与事件都会这么说）。',
             en: 'Authorization: only work items belonging to a listed member can become work. Ids are Yunxiao account ids - the '
               + 'assignee\'s id, not a name. Empty refuses every work item as unlisted.' },
@@ -166,12 +166,8 @@ export function workKind<C extends Record<string, unknown> = WorkConfig>(
           ] },
       ],
       // A work item has no mention to give, so nothing about it can be an explicit request on its own; the table decides.
-      explicit: { zh: '云效工作项没有「@」：没有哪一栏是在点名智能体，所以下面这张表说了算。**负责人**（没有负责人时是创建人）在名单里，'
-        + '这条就落到「名单内」那一列；不在名单里，就落到「名单外」那一列——两列各配什么，就按什么处理（「忽略」不接，「允许推断」成为候选，'
-        + '并在「自动接单」模式下接单）。',
-        en: 'A Yunxiao work item has no mention: no field of it names the agent, so this table decides. The person responsible - the '
-          + 'assignee, or the creator when there is none - puts the item in the listed or the unlisted column, and each column is '
-          + 'handled exactly as configured (ignore, or an inferred candidate that is accepted in auto mode).' },
+      explicit: { zh: '云效工作项没有「@」这回事，所以这张表说了算。负责人（没有负责人时用创建人）在名单里，这条就落到「名单内」那一列；不在名单里，就落到「名单外」那一列。两列各配什么就按什么处理：配「忽略」就不接，配「允许推断」就成为候选，并在「自动接单」模式下接单。',
+        en: 'A Yunxiao work item has no mention, so this table decides. The person responsible (the assignee, or the creator when there is none) puts the item in the listed column or the unlisted one, and each column is handled exactly as configured: ignored, or an inferred candidate accepted in auto mode.' },
       rows: admissionRows,
       warnings(_config, part) {
         if (part.allowed.length > 0) return []

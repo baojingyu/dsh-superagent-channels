@@ -9,6 +9,8 @@ import { chatKind } from '../src/sources/chat/kind.ts'
 import type { ChatAdapter } from '../src/sources/chat/port.ts'
 import { weixinKind, WeixinConfigSchema } from '../src/sources/chat/weixin/kind.ts'
 import { gitlabKind } from '../src/sources/hosting/gitlab/kind.ts'
+import { dingtalkKind } from '../src/sources/chat/dingtalk/kind.ts'
+import { wecomKind } from '../src/sources/chat/wecom/kind.ts'
 import { z } from 'zod'
 
 const ChatSchema = z.object({
@@ -82,5 +84,47 @@ describe('GitLab now has a Policy at all', () => {
     const registry = new SourceRegistry(() => settings)
     registry.register(gitlabKind)
     expect(registry.policyPart('gitlab')).toBeDefined()
+  })
+})
+
+describe('DingTalk and WeCom offer the rows their scope reports', () => {
+  it('names a mention, an unmentioned group message, and a direct message', () => {
+    for (const kind of [dingtalkKind, wecomKind]) {
+      const rows = kind.policy!.rows!({ atOnly: true })
+      expect(rows.map(row => row.id), kind.kind).toEqual(['groupAddressed', 'groupAmbient', 'directMessages'])
+      // A mention is admitted either way; the unmentioned row is filtered while atOnly is on, and configurable once it is off.
+      expect(rows[0]!.cells).toMatchObject({ unlistedAddressed: true })
+      expect(rows[1]!.note).toEqual({ zh: '不接收', en: 'Not received' })
+      expect(rows[1]!.cells).toEqual({ listedUnaddressed: false, unlistedAddressed: false, unlistedUnaddressed: false })
+      expect(rows[2]!.cells).toMatchObject({ unlistedAddressed: true })
+    }
+  })
+
+  it('opens the unmentioned row once atOnly is off', () => {
+    for (const kind of [dingtalkKind, wecomKind]) {
+      const rows = kind.policy!.rows!({ atOnly: false })
+      expect(rows[1]!.note, kind.kind).toEqual({ zh: '接收', en: 'Received' })
+      expect(rows[1]!.cells).toEqual({ listedUnaddressed: true, unlistedAddressed: false, unlistedUnaddressed: true })
+    }
+  })
+})
+
+describe('the WeChat list and its sync source', () => {
+  it('accepts the entries the panel sends, including where a person came from', () => {
+    const parsed = weixinKind.policy!.schema.safeParse({
+      allowed: [{ id: 'wxid_a', name: '甲', via: 'group' }, { id: 'wxid_b', via: 'direct' }],
+      syncChat: 'wxname_abc',
+    })
+    expect(parsed.success, JSON.stringify((parsed as { error?: { issues: unknown } }).error?.issues)).toBe(true)
+    // A source that is neither a group nor a direct message is refused.
+    expect(weixinKind.policy!.schema.safeParse({ allowed: [{ id: 'wxid_a', via: 'elsewhere' }] }).success).toBe(false)
+  })
+
+  it('offers the person list, the sync source, and the group rows', () => {
+    const fields = weixinKind.policy!.fields.map(field => field.key)
+    expect(fields).toContain('allowed')
+    expect(fields).toContain('syncChat')
+    const rows = weixinKind.policy!.rows!({ rooms: [{ id: 'wxname_g', name: '运营群' }], atOnly: true, directMessages: true })
+    expect(rows.map(row => row.id)).toEqual(['wxname_g', 'directMessages'])
   })
 })

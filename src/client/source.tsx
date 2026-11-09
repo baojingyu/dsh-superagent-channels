@@ -62,11 +62,23 @@ function SourceCard({ source }: { source: SourceView }) {
   </form>
 }
 
+/**
+ * Enabled Sources first, then each group by its English name A → Z. The page reads the same every time it opens, and the ones
+ * that are running stay at the top instead of moving when a new one is configured.
+ */
+export function orderSources<T extends { value: { enabled: boolean }; title: { en: string } }>(sources: readonly T[]): T[] {
+  return [...sources].sort((left, right) => {
+    if (left.value.enabled !== right.value.enabled) return left.value.enabled ? -1 : 1
+    return left.title.en.localeCompare(right.title.en, 'en')
+  })
+}
+
 export function SourceSettings({ focus }: { focus?: string }) {
   const { sources } = useSettings().settings
   useEffect(() => { if (focus) document.getElementById(`dt-source-${focus}`)?.scrollIntoView?.({ block: 'start' }) }, [focus])
+  const ordered = orderSources(sources)
   return <div className="dt-form">
-    {sources.map(source => <SourceCard key={source.id} source={source} />)}
+    {ordered.map(source => <SourceCard key={source.id} source={source} />)}
     <ConfigHistory blocks={['source:']} />
   </div>
 }

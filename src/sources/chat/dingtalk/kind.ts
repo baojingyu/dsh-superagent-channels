@@ -2,7 +2,7 @@
 import { z } from 'zod'
 import type { FieldSpec, SourceKind } from '../../kind.ts'
 import type { ChatAdapter } from '../port.ts'
-import { chatKind, type ChatKindMeta } from '../kind.ts'
+import { chatKind, mentionRows, type ChatKindMeta } from '../kind.ts'
 import { sendMessage } from './adapter.ts'
 
 /** Stable kind ID. */
@@ -91,8 +91,11 @@ type DingTalkScopeResult =
  * to the callback's own `mentionsAgent` when neither is known. Direct messages are always received.
  */
 export function createDingTalkKind(adapter: ChatAdapter<DingTalkKindConfig>, hooks: DingTalkKindHooks = {}): SourceKind<DingTalkKindConfig> {
+  const base = chatKind(adapter, Meta)
   return {
-    ...chatKind(adapter, Meta),
+    ...base,
+    // The table names the rows this kind's `scope` reports, so every cell a person sets is one the gate actually reads.
+    policy: { ...base.policy!, rows: stored => mentionRows((stored as { atOnly?: boolean }).atOnly !== false) },
     // Delivery is at-least-once: the body marker is only written, never read back, so a retried message can arrive twice.
     facts: () => ({
       delivery: { zh: '出站为至少一次投递：无服务端幂等键，重试可能重复发送。', en: 'Outbound delivery is at-least-once: there is no server-side idempotency key, so a retry may send the same message twice.' },

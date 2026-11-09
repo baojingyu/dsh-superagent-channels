@@ -16,6 +16,12 @@ outside contributions, so this edition is maintained on its own. See
 [REPOSITORY.md](REPOSITORY.md) for how the repository is managed, what provenance it keeps, and how
 to detach a copy from the prototype.
 
+## Install
+
+Published as its own package, `dsh-superagent-channels`, so it installs next to the official superagent instead of replacing it.
+Search for that name in the DSH plugin market and install it; the panel then carries a `dsh-superagent-channels` entry. Each
+release bumps `version` in `package.json` and adds a section to [CHANGELOG.md](CHANGELOG.md), and the market offers the upgrade.
+
 ## What it adds
 
 | Upstream | This edition |

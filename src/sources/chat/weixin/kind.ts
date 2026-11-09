@@ -81,14 +81,14 @@ function keywordHit(text: string | undefined, keywords: readonly { any: string }
 }
 
 const Fields: FieldSpec[] = [
-  { key: 'baseUrl', type: 'text', label: { zh: '桥地址', en: 'Bridge URL' },
+  { key: 'baseUrl', type: 'text', advanced: true, label: { zh: '桥地址', en: 'Bridge URL' },
     hint: { zh: 'wxauto-bridge 的 loopback 地址，例如 http://127.0.0.1:8787；只允许本机，不要填公网地址。', en: 'Loopback address of wxauto-bridge, such as http://127.0.0.1:8787; localhost only, never a public address.' } },
   { key: 'tokenFile', type: 'text', label: { zh: '桥 token 文件', en: 'Bridge token file' },
     hint: { zh: '保存 sidecar bearer token 的文件路径；文件权限必须是 0600，否则客户端拒绝读取。', en: 'Path of the file holding the sidecar bearer token; it must have mode 0600 or the client refuses to read it.' } },
   { key: 'selfWxid', type: 'text', pattern: '^[A-Za-z0-9_\\-]+$', label: { zh: '本账号 wxid', en: 'This account wxid' },
     hint: { zh: '群 @ 判定和自消息识别都以它为准，昵称改了也不会失效。', en: 'Group @-detection and own-message detection are judged against it, so a renamed account still works.' } },
   { key: 'rooms', type: 'rows', label: { zh: '接收的群', en: 'Groups to receive' },
-    hint: { zh: '这里只填**群**：这些群里发给机器人的消息会被接收（按结构化 @ 判定，不看文本里的 @昵称）。**私聊不需要在这里配**——私聊本来就收得到，而「谁能发起工作」统一在「评估 → 策略 → 在各来源上」的名单里配一次。ID 必须是桥给出的稳定标识（形如 wxname_…），不能填昵称；点「刷新会话列表」从桥能看到的会话里选。',
+    hint: { zh: '这里只填群：这些群里发给机器人的消息会被接收（按结构化 @ 判定，不看文本里的 @昵称）。私聊不需要在这里配——私聊本来就收得到，而「谁能发起工作」统一在「评估 → 策略 → 在各来源上」的名单里配一次。ID 必须是桥给出的稳定标识（形如 wxname_…），不能填昵称；点「刷新会话列表」从桥能看到的会话里选。',
       en: 'Groups only: messages to the bot in these groups are received (judged on the structured @ list, never on @name in the text). A direct message needs no entry here - it arrives anyway - and the list of people who may originate work lives in one place: Eval -> Policy -> per Source.' },
     columns: [
       { key: 'id', type: 'text', label: { zh: '群 ID', en: 'Chat ID' }, pattern: '^[A-Za-z0-9_\-]+$',
@@ -99,33 +99,33 @@ const Fields: FieldSpec[] = [
         options: [{ value: 'no', label: { zh: '不允许', en: 'No' } }, { value: 'yes', label: { zh: '允许', en: 'Yes' } }] },
     ] },
   { key: 'directMessages', type: 'switch', label: { zh: '接收私聊', en: 'Receive direct messages' },
-    hint: { zh: '开启时读取私聊消息流（微信的私聊是**一条流**，不是每人一个会话），具体谁能发起工作仍由「评估 → 策略 → 能发起工作的用户」决定——所以人只在那一个地方配。关掉则只收群。', en: 'On reads the direct-message stream (WeChat delivers direct messages as one stream keyed by sender, not as a chat per person). Who may originate work is still decided by the Policy list, which is the only place people are configured. Off keeps the Source to groups.' } },
+    hint: { zh: '开启时读取私聊消息流（微信的私聊是一条流，不是每人一个会话），具体谁能发起工作仍由「评估 → 策略 → 能发起工作的用户」决定——所以人只在那一个地方配。关掉则只收群。', en: 'On reads the direct-message stream (WeChat delivers direct messages as one stream keyed by sender, not as a chat per person). Who may originate work is still decided by the Policy list, which is the only place people are configured. Off keeps the Source to groups.' } },
   { key: 'atOnly', type: 'switch', label: { zh: '仅接收 @ 的消息', en: 'Receive only @s' },
     hint: { zh: '开启时只接收 @ 机器人的群消息；关闭时也接收其余消息，交评估按规则推断。后端完全无法判定群 @ 时（能力为 none），开启会让群消息全部被过滤，此时应关闭并靠规则与名单准入。', en: 'On receives only messages that mention the bot; off also receives the rest, from which Eval may infer work under the rules. A backend that cannot detect mentions at all (capability `none`) filters every group message while this is on, so turn it off and rely on the rules and the sender list.' } },
-  { key: 'keywords', type: 'rows', label: { zh: '关键词（不 @ 也算找机器人）', en: 'Keywords (admitted without an @)' },
+  { key: 'keywords', type: 'rows', advanced: true, label: { zh: '关键词（不 @ 也算找机器人）', en: 'Keywords (admitted without an @)' },
     hint: { zh: '群消息正文里出现任一个关键词，就当作在找机器人，不需要 @；是否成为可接的工作仍由准入模型判断。大小写不敏感。', en: 'A group message whose text names any of these is treated as addressed to the bot without an @; whether it becomes work is still the admission model\'s decision. Case-insensitive.' },
     columns: [
       { key: 'any', type: 'text', label: { zh: '关键词', en: 'Keyword' } },
     ] },
-  { key: 'autoReplies', type: 'rows', label: { zh: '关键词自动回复', en: 'Canned keyword replies' },
-    hint: { zh: '命中即由轮询循环直接回固定文字，不经过模型。**这条消息仍会交给模型**——用模板顶掉一个人说的话，剩下的内容就丢了。', en: 'On a match the polling loop sends this fixed text itself, without the model. The message is still handed to the model: answering a person with a template and dropping the rest of what they said loses it.' },
+  { key: 'autoReplies', type: 'rows', advanced: true, label: { zh: '关键词自动回复', en: 'Canned keyword replies' },
+    hint: { zh: '命中即由轮询循环直接回固定文字，不经过模型。这条消息仍会交给模型——用模板顶掉一个人说的话，剩下的内容就丢了。', en: 'On a match the polling loop sends this fixed text itself, without the model. The message is still handed to the model: answering a person with a template and dropping the rest of what they said loses it.' },
     columns: [
       { key: 'any', type: 'text', label: { zh: '关键词', en: 'Keyword' } },
       { key: 'reply', type: 'text', label: { zh: '回复内容', en: 'Reply' } },
     ] },
-  { key: 'sendFiles', type: 'switch', label: { zh: '允许模型回传文件', en: 'Let the model send files' },
-    hint: { zh: '开启后，工单里的模型可以把**它自己工作目录内**的文件（≤20 MiB、非可执行文件）回传到这个会话。默认关闭——这等于给模型一条把文件发出去的通道。', en: 'When on, the model working a ticket may send a file from **its own working directory** (≤ 20 MiB, not an executable) to this conversation. Off by default: it is a channel for files to leave the machine.' } },
-  { key: 'acknowledge', type: 'switch', label: { zh: '收到就先回一句', en: 'Acknowledge on receipt' },
-    hint: { zh: '开启时，有人 @ 机器人或私聊机器人就**在评估之前**立刻回一句「收到」。默认关闭：评估可能把这条判为忽略，那样「收到」会让人以为在干活。关闭后改为**评估完按结果回**——被忽略的会收到一句「这条我没有接：…」，被接受的由接受时的回执回复。', en: 'On: a receipt goes out immediately when someone mentions the bot or messages it directly, before the assessment. Off by default, because the assessment may ignore the message and "on it" then reads as work in progress. Off: the reply follows the decision - a refused message gets one line saying it was not taken, an accepted one gets the acceptance reply.' } },
-  { key: 'ackText', type: 'text', label: { zh: '回执内容', en: 'Receipt text' },
+  { key: 'sendFiles', type: 'switch', advanced: true, label: { zh: '允许模型回传文件', en: 'Let the model send files' },
+    hint: { zh: '开启后，工单里的模型可以把它自己工作目录内的文件（≤20 MiB、非可执行文件）回传到这个会话。默认关闭——这等于给模型一条把文件发出去的通道。', en: 'When on, the model working a ticket may send a file from its own working directory (≤ 20 MiB, not an executable) to this conversation. Off by default: it is a channel for files to leave the machine.' } },
+  { key: 'acknowledge', type: 'switch', advanced: true, label: { zh: '收到就先回一句', en: 'Acknowledge on receipt' },
+    hint: { zh: '开启时，有人 @ 机器人或私聊机器人就在评估之前立刻回一句「收到」。默认关闭：评估可能把这条判为忽略，那样「收到」会让人以为在干活。关闭后改为评估完按结果回——被忽略的会收到一句「这条我没有接：…」，被接受的由接受时的回执回复。', en: 'On: a receipt goes out immediately when someone mentions the bot or messages it directly, before the assessment. Off by default, because the assessment may ignore the message and "on it" then reads as work in progress. Off: the reply follows the decision - a refused message gets one line saying it was not taken, an accepted one gets the acceptance reply.' } },
+  { key: 'ackText', type: 'text', advanced: true, label: { zh: '回执内容', en: 'Receipt text' },
     hint: { zh: '回执只表示「收到了」，此时还没读懂你要做什么，所以别写具体承诺。', en: 'A receipt only says it arrived; nothing has been understood yet, so do not promise anything specific.' } },
   { key: 'progressAfterSeconds', type: 'number', advanced: true, min: 0, max: 3600, label: { zh: '处理中提醒 / 秒', en: 'Still-working note / s' },
     hint: { zh: '发出回执后，机器人在这个会话里一直没说话，就每隔这么久补一句「还在处理中」（最多 3 次）。机器人一开口就停。填 0 关闭。', en: 'After the receipt, if the bot has said nothing in that chat, add a "still working" note at this interval (at most 3). It stops as soon as the bot speaks. 0 turns it off.' } },
-  { key: 'mentionBack', type: 'switch', label: { zh: '回复时 @ 发言人', en: 'Mention the sender in a reply' },
+  { key: 'mentionBack', type: 'switch', advanced: true, label: { zh: '回复时 @ 发言人', en: 'Mention the sender in a reply' },
     hint: { zh: '仅对群聊生效：回复群里找机器人的那个人时带上 @，让对方确实收到提醒。私聊没有 @ 这一说，开了也不会带。', en: 'Groups only: a reply to the person who addressed the bot carries an @, so they are actually notified. A direct message has no mention to make, so this does nothing there.' } },
-  { key: 'voice', type: 'switch', label: { zh: '转写语音消息', en: 'Transcribe voice messages' },
+  { key: 'voice', type: 'switch', advanced: true, label: { zh: '转写语音消息', en: 'Transcribe voice messages' },
     hint: { zh: '开启时语音会转成文字再交给评估；转写要驱动客户端界面，每条最多占用 8 秒，因此可以在不需要时关掉（关掉后文字是「[语音消息]」占位）。', en: 'On transcribes voice into text before Eval sees it; transcription drives the client UI and may hold it for up to eight seconds per message, so it can be turned off - the text then stays a `[语音消息]` placeholder.' } },
-  { key: 'images', type: 'switch', label: { zh: '接收图片', en: 'Receive images' },
+  { key: 'images', type: 'switch', advanced: true, label: { zh: '接收图片', en: 'Receive images' },
     hint: { zh: '开启时图片会作为附件交给模型；关闭时只在文字里留「[图片]」占位，不下载任何字节。', en: 'On hands images to the model as attachments; off leaves a `[图片]` placeholder in the text and downloads nothing.' } },
   { key: 'pollSeconds', type: 'number', advanced: true, min: 5, max: 3600, label: { zh: '轮询间隔 / 秒', en: 'Poll interval / s' },
     hint: { zh: '轮询传输向桥询问新消息的间隔。', en: 'How often the polling transport asks the bridge for new messages.' } },
@@ -134,9 +134,16 @@ const Fields: FieldSpec[] = [
 ]
 
 const WeixinPolicySchema = z.object({
-  allowed: z.array(z.object({ id: z.string().trim().regex(WXID_PATTERN, 'Invalid wxid'), name: z.string().trim().max(100).optional() }).strict())
+  allowed: z.array(z.object({
+    id: z.string().trim().regex(WXID_PATTERN, 'Invalid wxid'),
+    name: z.string().trim().max(100).optional(),
+    /** Where this person came from: a group the list was synced from, or a direct message. A marking only, never authorization. */
+    via: z.enum(['group', 'direct']).optional(),
+  }).strict())
     .refine(people => new Set(people.map(person => person.id)).size === people.length, 'Duplicate wxids')
     .default([]),
+  /** The group the list is synced from; empty means no sync target. */
+  syncChat: z.string().trim().regex(/^[A-Za-z0-9_\-]*$/).default(''),
 }).strict()
 
 /** Dependency seams of the kind: the bridge client (fake in tests) and the synchronous status behind `facts`. */
@@ -185,17 +192,27 @@ export function createWeixinKind(hooks: WeixinKindHooks = {}): SourceKind<Weixin
       ?? createBridgeClient({ baseUrl: config.baseUrl, tokenFile: config.tokenFile, timeoutMs: config.timeoutSeconds * 1000 })
   /** What the backend last reported it can do; `undefined` while nothing has been read, which reads as capable. */
   const capabilitiesOf = (): BridgeCapabilities | undefined => hooks.capabilities ? hooks.capabilities() : remembered?.capabilities
-  const policy: SourcePolicyPart<Record<string, unknown> & { allowed: { id: string; name?: string }[] }> = {
+  const policy: SourcePolicyPart<Record<string, unknown> & {
+    allowed: { id: string; name?: string; via?: 'group' | 'direct' }[]
+  }> = {
     unnamed: { person: { zh: '微信用户', en: 'WeChat user' }, bot: { zh: '微信机器人', en: 'WeChat bot' } },
     schema: WeixinPolicySchema,
     fields: [
       { key: 'allowed', type: 'rows', label: { zh: '能发起工作的微信用户', en: 'WeChat users who may originate work' },
-        hint: { zh: '这里是**授权**：名单里的人 @ 机器人或私聊机器人，才算明确请求。它与「接收的群与私聊」是两件事——那个列表决定消息**收不收得到**，这个名单决定收到后能不能**变成可接的工作**，所以想接某人私聊时两处都要加他。两个列表的候选都只含桥真见过的对象：先让他在微信里发一条消息（或你打开一次他的会话），再点「刷新会话列表」。', en: 'This list is **authorization**: someone on it who mentions the bot or messages it directly makes an explicit request. It is a different setting from "Chats and direct messages", which decides whether a message is received at all, so a person whose direct messages you want both received and acted on has to be in both. Both pickers only hold what the bridge has actually seen: have them send one message (or open their chat once), then refresh.' },
+        hint: { zh: '这里是授权：只有名单里的人发来的消息才可能成为可接的工作。它与「接收的群」是两件事——那个列表决定消息收不收得到，这个名单决定收到后能不能变成可接的工作。候选只含桥真见过的对象：先让对方在微信里发一条消息，再点同步。',
+          en: 'Authorization: only messages from people on this list can become work. It is separate from "Groups to receive" - that list decides what arrives, this one decides what may become work. Candidates only hold people the bridge has seen: have them message the bot once, then sync.' },
         columns: [
           { key: 'id', type: 'text', label: { zh: '用户 ID', en: 'User ID' }, pattern: '^[A-Za-z0-9_\-]+$',
             choose: { zh: '选择桥见过的发送人', en: 'Choose a sender the bridge has seen' } },
           { key: 'name', type: 'text', label: { zh: '名字', en: 'Name' }, optional: true },
+          { key: 'via', type: 'select', label: { zh: '来源', en: 'Source' },
+            options: [{ value: 'group', label: { zh: '群', en: 'Group' } }, { value: 'direct', label: { zh: '私聊', en: 'Direct' } }] },
         ] },
+      { key: 'syncChat', type: 'text', pattern: '^[A-Za-z0-9_\-]*$', label: { zh: '同步来源群', en: 'Sync from group' },
+        choose: { zh: '不同步', en: 'Do not sync' },
+        hint: { zh: '填一个已订阅的群，再点「立即同步」：名单换成这个群的成员，并把来源标成群；你自己标成私聊的人会保留。',
+          en: 'Name a subscribed group, then press Sync now: the list becomes that group\'s members, marked as coming from a group; people you marked as direct are kept.' },
+      },
     ],
     explicit: { zh: '名单内的人 @ 机器人或私聊机器人，总是明确的请求，不需要配置。', en: 'Someone on the list who mentions the bot or messages it directly always makes an explicit request; that needs no setting.' },
     // 行＝接收范围：每个已订阅的群（注解「仅 @」或「全部消息」）与私聊；云效之外的会话（其他群）根本不会被监听，所以不列。
@@ -211,6 +228,24 @@ export function createWeixinKind(hooks: WeixinKindHooks = {}): SourceKind<Weixin
           note: config.directMessages === false ? { zh: '不接收', en: 'Not received' } : { zh: '接收', en: 'Received' },
           cells: { listedUnaddressed: false, unlistedAddressed: config.directMessages !== false, unlistedUnaddressed: false } },
       ]
+    },
+    sync: {
+      label: { zh: '立即同步', en: 'Sync now' },
+      ready: part => !!part.syncChat,
+      async run(host, part, signal) {
+        const room = String(part.syncChat)
+        const config = host.sources.instance<WeixinConfig>(SOURCE)?.config
+        if (!config) throw new Error('微信来源尚未配置，无法同步成员')
+        if (signal.aborted) return part
+        // The bridge knows the group by its display name; the configuration holds the stable id.
+        const target = (config.rooms ?? []).find(entry => entry.id === room)
+        const members = await bridgeFor(config).members(target?.name || room)
+        if (signal.aborted) return part
+        // Only people synced from a group are replaced; anyone marked as direct (or unmarked) stays.
+        const kept = part.allowed.filter(entry => entry.via === 'group' ? false : true)
+        const group = members.map(member => ({ id: member.id, ...(member.name ? { name: member.name } : {}), via: 'group' as const }))
+        return { ...part, allowed: [...kept, ...group] }
+      },
     },
     warnings(config, part) {
       if (part.allowed.length > 0) return []

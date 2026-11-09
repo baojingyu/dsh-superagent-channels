@@ -1,10 +1,9 @@
 {
-  "name": "dsh-superagent",
+  "name": "dsh-superagent-channels",
   "author": "DeepSeek Harness Team <team@dsh.dev>",
   "license": "MIT",
-  "version": "0.1.0",
-  "private": true,
-  "description": "A proactive agent for one GitHub repository, as a DSH (DeepSeek Harness) bundle: it listens to GitHub and optionally Feishu, evaluates requests under a Policy, turns authorized ones into Tickets, and executes each in its own DSH Session.",
+  "version": "1.0.0",
+  "description": "Extra chat and work channels for DSH as a standalone bundle: WeChat, Feishu, DingTalk, WeCom, GitLab, Yunxiao Projex and GitHub. A Source receives a request, a Policy decides whether it becomes work, and each Ticket runs in its own DSH Session. Installs alongside the official superagent under its own name.",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
@@ -30,7 +29,8 @@
     "locale/*.json",
     "README.md",
     "prompts",
-    "skills"
+    "skills",
+    "CHANGELOG.md"
   ],
   "dsh": {
     "bundle": {
@@ -126,5 +126,21 @@
     "react-dom": "18.3.1",
     "@types/react-dom": "18.3.7",
     "@deepseek-ai/dsh-subprocess": "0.2.1-alpha.2"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "dsh-bundle",
+    "superagent",
+    "channels",
+    "wechat",
+    "feishu",
+    "dingtalk",
+    "wecom",
+    "gitlab",
+    "projex"
+  ],
+  "publishConfig": {
+    "access": "public"
   }
 }

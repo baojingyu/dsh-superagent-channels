@@ -32,7 +32,8 @@ it('collapses the card of a Source nobody switched on, and reveals its settings 
   await mount()
   await click(zh['tab.source'])
   await click(find(zh['tab.settings'], '.dt-status-head button'))
-  const card = () => all('.dt-card')[0]!
+  // Cards sort enabled first, then by English name, so pick this one by title rather than by position.
+  const card = () => all('.dt-card').find(node => node.querySelector('.dt-card-title')?.textContent === '飞书')!
   expect(card().querySelector('.dt-card-title')?.textContent).toBe('飞书')
   expect(card().textContent).toContain(zh.sourceCollapsedHint)
   expect(card().querySelectorAll('input, select, textarea')).toHaveLength(0)

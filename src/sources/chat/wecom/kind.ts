@@ -7,7 +7,7 @@ import { z } from 'zod'
 import type { ChatAdapter } from '../port.ts'
 import type { ChatKindMeta } from '../kind.ts'
 import type { SourceKind } from '../../kind.ts'
-import { chatKind } from '../kind.ts'
+import { chatKind, mentionRows } from '../kind.ts'
 import type { WecomAddress } from './adapter.ts'
 import { createWecomSender } from './adapter.ts'
 
@@ -94,6 +94,8 @@ export function createWecomKind(adapter: ChatAdapter<WecomConfigValue> = wecomAd
   const base = chatKind(adapter, META)
   return {
     ...base,
+    // Same as DingTalk: the rows are the ones `scope` reports.
+    policy: { ...base.policy!, rows: stored => mentionRows((stored as { atOnly?: boolean }).atOnly !== false) },
     scope({ meta }, config): WecomScopeResult {
       const chatId = typeof meta.chatId === 'string' && meta.chatId ? meta.chatId : undefined
       if (!chatId) return { listened: true, observed: false, row: 'directMessages' }

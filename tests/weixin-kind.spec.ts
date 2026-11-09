@@ -215,7 +215,7 @@ describe('weixinKind policy', () => {
 
   it('puts allowed first and accepts wxid lists while refusing duplicates and malformed IDs', () => {
     expect(weixinKind.policy!.fields[0]!.key).toBe('allowed')
-    expect(weixinKind.policy!.schema.parse({})).toEqual({ allowed: [] })
+    expect(weixinKind.policy!.schema.parse({})).toEqual({ allowed: [], syncChat: '' })
     expect(weixinKind.policy!.schema.safeParse({ allowed: [{ id: 'wxid_a' }, { id: 'wxid_b', name: '阿黎' }] }).success).toBe(true)
     expect(weixinKind.policy!.schema.safeParse({ allowed: [{ id: 'bad wxid' }] }).success).toBe(false)
     expect(weixinKind.policy!.schema.safeParse({ allowed: [{ id: 'wxid_a' }, { id: 'wxid_a' }] }).success).toBe(false)

@@ -1,7 +1,7 @@
 /** Factory for chat Source kinds: one backend adapter supplies transport and delivery, while Thread scope, Policy, and links stay the same across backends. */
 import { z } from 'zod'
 import { key, type OutboundMessage, type ScopeResult, type Trigger } from '../../core/index.ts'
-import type { ChannelHost, ChannelLink, ChannelLinks, FieldSpec, Localized, SourceKind, SourcePolicyPart } from '../kind.ts'
+import type { AdmissionRowView, ChannelHost, ChannelLink, ChannelLinks, FieldSpec, Localized, SourceKind, SourcePolicyPart } from '../kind.ts'
 import type { ChatAdapter } from './port.ts'
 
 /** Configuration fields the factory reads itself, on top of whatever the kind's own schema adds. */
@@ -26,6 +26,25 @@ export interface ChatKindMeta<C extends Record<string, unknown>> {
 }
 
 const scopeConfig = (config: unknown): ChatScopeConfig => config as ChatScopeConfig
+
+/**
+ * The admission rows of a chat backend that has no per-chat list of its own (DingTalk, WeCom): a message that mentions the bot,
+ * a group message that does not, and a direct message. The row IDs are the ones those kinds' `scope` reports, which is what makes
+ * the table configurable at all - a row no `scope` names can never be read.
+ */
+export function mentionRows(atOnly: boolean): AdmissionRowView[] {
+  const received = { zh: '接收', en: 'Received' }
+  const filtered = { zh: '不接收', en: 'Not received' }
+  return [
+    { id: 'groupAddressed', label: { zh: '群里 @ 机器人', en: 'Group messages that mention the bot' }, note: received,
+      cells: { listedUnaddressed: false, unlistedAddressed: true, unlistedUnaddressed: false } },
+    { id: 'groupAmbient', label: { zh: '群里未 @ 机器人', en: 'Group messages without a mention' },
+      note: atOnly ? filtered : received,
+      cells: { listedUnaddressed: !atOnly, unlistedAddressed: false, unlistedUnaddressed: !atOnly } },
+    { id: 'directMessages', label: { zh: '私聊', en: 'Direct messages' }, note: received,
+      cells: { listedUnaddressed: false, unlistedAddressed: true, unlistedUnaddressed: false } },
+  ]
+}
 const ChatPolicySchema = z.object({
   allowed: z.array(z.object({ id: z.string().trim().min(1).max(100), name: z.string().trim().max(100).optional() }).strict())
     .refine(people => new Set(people.map(person => person.id)).size === people.length, 'Duplicate IDs')
