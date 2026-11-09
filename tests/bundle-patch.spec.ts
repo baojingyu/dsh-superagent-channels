@@ -72,3 +72,17 @@ it('defines the router preset the main Session runs under: the worker\'s 5-secon
     '@deepseek-ai/dsh-plugin-manager/tools', '@deepseek-ai/dsh-plugin-market/tools', '@deepseek-ai/dsh-tool-schedule', '@deepseek-ai/dsh-tool-goal',
     '@deepseek-ai/dsh-command-goal', '@deepseek-ai/dsh-tool-workflow', '@deepseek-ai/dsh-workflow-ptc']) expect(names, name).not.toContain(name)
 })
+
+it('names every own module under the package name, or DSH cannot find its client half', async () => {
+  // DSH locates a plugin's manifest by walking up from the resolved module and requiring package.json name === specifier.
+  // A mismatch leaves the host half running while the client half is never served - the panel entry simply does not appear.
+  const pkg = JSON.parse(readFileSync(join(import.meta.dirname, '..', 'package.json'), 'utf8')) as { name: string }
+  const rows = await patched()
+  const own = rows.map(row => row.name).filter(name => name === 'dsh-superagent' || name.startsWith('dsh-superagent/')
+    || name.startsWith(`${pkg.name}/`) || name === pkg.name)
+  expect(own.length).toBeGreaterThan(0)
+  for (const name of own) {
+    const root = name.split('/')[0]!.replace(/^@[^/]+$/, '')
+    expect(root, `${name} must start with ${pkg.name}`).toBe(pkg.name)
+  }
+})
