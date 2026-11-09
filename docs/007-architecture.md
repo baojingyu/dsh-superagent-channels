@@ -497,6 +497,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/weixin-kind.spec.ts` | The Weixin `SourceKind`: its schema and fields, the structured `@` scope rule, the Channel and policy, the environment and its facts |
 | `tests/hosting-gitlab.spec.ts` | The GitLab adapter and the hosting HTTP client: the merge request, note and pipeline mappings, paging, idempotent replies, and the token and path checks |
 | `tests/hosting-gitlab-kind.spec.ts` | The GitLab hosting `SourceKind`: its identity, schema and fields, its environment and its scope rows |
+| `tests/client-bundle-id.spec.ts` | The built client bundle registers under the package name, and the build banner derives that name from package.json instead of repeating a literal |
 | `tests/panel-copy-and-order.spec.ts` | Two page rules: no Markdown markers in any Source's copy or in either UI dictionary, and Source cards ordered enabled first then by English name, leaving the input untouched |
 | `tests/admission-tables.spec.ts` | Every Source's admission table reads the same: a chat names one row per conversation plus other chats and direct messages (and its scope reports those ids), WeChat does the same for its groups, and GitLab declares a Policy with the four reception ranges |
 | `tests/work-admission-rows.spec.ts` | The Projex rows are built from an instance configuration that also holds the host's keys: a whole config builds them, a category off the list is marked not received with no cells, and the Policy and Source blocks the panel sends validate |
