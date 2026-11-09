@@ -77,6 +77,11 @@ LISTENER_REATTACH_GAP_S = 900.0
 WATCHDOG_TICK_S = 60.0
 # How often the main loop asks whether the client it attached to still exists.
 MAINTAIN_TICK_S = 30.0
+# A catch-up opens each watched chat, so it is bounded: three chats, the last twenty messages, once a minute at most.
+CATCHUP_GAP_S = 60.0
+CATCHUP_MAX_CHATS = 3
+CATCHUP_MAX_MESSAGES = 20
+SEEN_MAX = 512
 ISO_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 # 非文本消息的空 content 占位：绝不产出 `text: ""` 的空事件
@@ -720,6 +725,12 @@ class PcUiaBackend(Backend):
         self._last_inbound_at = time.monotonic()
         self._last_reattach_at = 0.0
         self._reattach_count = 0
+        # nativeId -> when it was queued: the callback and the catch-up both pass through here, so a message already
+        # delivered is not handed over a second time.
+        self._seen = OrderedDict()
+        self._catchup_due = False
+        self._catchup_at = 0.0
+        self._catchup_total = 0
         # The window we attached to, and how many times a different one replaced it (an account switch or a re-login).
         self._hwnd = 0
         self._account_switch_count = 0
@@ -880,6 +891,8 @@ class PcUiaBackend(Backend):
         if self._listen_names:
             quiet = int(time.monotonic() - self._last_inbound_at)
             parts.append("监听 %d 个会话，最近事件 %d 秒前" % (len(self._listen_names), quiet))
+        if self._catchup_total:
+            parts.append("重挂后补读 %d 条" % self._catchup_total)
         if self._reattach_count:
             parts.append("监听已自动重挂 %d 次（客户端界面卡住，或另一个 UI 自动化工具抢过窗口）" % self._reattach_count)
         switches = int(getattr(self, "_account_switch_count", 0))
@@ -948,6 +961,46 @@ class PcUiaBackend(Backend):
         self._last_inbound_at = time.monotonic()
         self._last_reattach_at = self._last_inbound_at
 
+    def _catchup(self, wx) -> None:
+        """**Main thread only.** Queue what arrived while the listener was detached.
+
+        The listener is push-only, so a message sent during a gap is delivered to nobody and the queue never learns it
+        existed. After a re-attach each watched chat's last messages are read and anything unseen is queued; the Engine keys a
+        Trigger by message id, so a redelivery is harmless and a missed one is not.
+        """
+        if not self._catchup_due:
+            return
+        now = time.monotonic()
+        if now - self._catchup_at < CATCHUP_GAP_S:
+            return
+        names = [name for name in list(self._listen_names) if name][:CATCHUP_MAX_CHATS]
+        if not names:
+            # Nothing is watched yet; the polling loop pushes the set on its next round, so keep the flag.
+            return
+        self._catchup_at = now
+        self._catchup_due = False
+        for name in names:
+            try:
+                chat = wx.ChatWith(name)
+            except BaseException:
+                if self.verbose:
+                    traceback.print_exc()
+                continue
+            try:
+                history = list((chat or wx).GetAllMessage() or [])
+            except BaseException:
+                if self.verbose:
+                    traceback.print_exc()
+                continue
+            room = self._room_id_for(name) if self._chat_kind.get(wxname(name)) == "group" else ""
+            added = 0
+            for msg in history[-CATCHUP_MAX_MESSAGES:]:
+                if self._enqueue_event(msg, room) is not None:
+                    added += 1
+            self._catchup_total += added
+            if added and self.verbose:
+                sys.stderr.write("[catchup] %s: %d\n" % (name, added))
+
     def _maintain(self, wx):
         """**Main thread only.** Attach when there is no client, replace one whose window is gone, else keep the listener honest."""
         now = time.monotonic()
@@ -958,13 +1011,17 @@ class PcUiaBackend(Backend):
             self._reset_for_new_account()
             attached = self._setup_wx()
             self._probe = None      # 让 `/health` 重新问一次，而不是继续报旧失败
+            self._catchup_due = True
             return attached
         if self._window_alive(wx):
             self._reattach_if_quiet(wx)
+            self._catchup(wx)
             return wx
         self._reset_for_new_account()
         try:
-            return self._setup_wx()
+            attached = self._setup_wx()
+            self._catchup_due = True
+            return attached
         except BaseException:
             if self.verbose:
                 traceback.print_exc()
@@ -1003,6 +1060,8 @@ class PcUiaBackend(Backend):
                 traceback.print_exc()
         self._reattach_count += 1
         self._last_inbound_at = now
+        # Silence is what a gap looks like: whatever arrived during it was never pushed, so read it back.
+        self._catchup_due = True
 
     def _start_listener_watchdog(self) -> None:
         """Runs the quiet check on a timer, submitting it to the main thread like every other WeChat call."""
@@ -1211,6 +1270,31 @@ class PcUiaBackend(Backend):
             return text
         return PLACEHOLDERS.get(kind, GENERIC_PLACEHOLDER)
 
+    def _enqueue_event(self, msg, room):
+        """Convert one client message into a queued event, or `None` when it is already queued.
+
+        The listener callback and the post-re-attach catch-up both come through here: same conversion, same dedupe, same
+        observation, so the order in which a message reaches us cannot change what the Engine sees.
+        """
+        event = self._to_event(msg, room)
+        native = event["nativeId"]
+        if native in self._seen:
+            return None
+        self._seen[native] = time.monotonic()
+        while len(self._seen) > SEEN_MAX:
+            self._seen.popitem(last=False)
+        if event["media"]:
+            self._raw[native] = msg
+        with self._queue_lock:
+            self._seq += 1
+            self._queue.append((self._seq, event))
+            while len(self._raw) > 256:
+                self._raw.pop(next(iter(self._raw)), None)
+        self._last_event_at = event["at"]
+        self._last_inbound_at = time.monotonic()
+        self._observe(room, event["sender"])
+        return event
+
     def _on_message(self, msg, chat=None):
         """监听回调（wxautox4 的线程）：只做入队，不碰微信 API，绝不抛异常。"""
         try:
@@ -1226,17 +1310,9 @@ class PcUiaBackend(Backend):
                 if marker:
                     self._time_markers[room] = marker
                 return
-            event = self._to_event(msg, room)
-            if event["media"]:
-                self._raw[event["nativeId"]] = msg
-            with self._queue_lock:
-                self._seq += 1
-                self._queue.append((self._seq, event))
-                while len(self._raw) > 256:
-                    self._raw.pop(next(iter(self._raw)), None)
-            self._last_event_at = event["at"]
-            self._last_inbound_at = time.monotonic()
-            self._observe(room, event["sender"])
+            event = self._enqueue_event(msg, room)
+            if event is None:
+                return
             if self.verbose:
                 sys.stderr.write("[listen] %s room=%r %s\n" % (event["nativeId"], room, chat_type))
         except BaseException:
