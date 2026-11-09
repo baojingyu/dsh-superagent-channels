@@ -297,6 +297,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/admission.ts` | The admission table's values, each cell's options and defaults, shared with the panel |
 | `src/limits.ts` | The limits of the values a person sets, which the settings schemas check and the panel's fields offer |
 | `src/kv.ts` | `KV`: every family of `kv` records with its key, its value's type and its owner, and the `Key` and `Family` types the Store and `SourceContext.state` take |
+| `src/app/lock.ts` | The state directory's lock: one dsh-superagent per state tree, with a stale window short enough that a restart does not find the previous process's lock still legitimate |
 | `src/navigation.ts` | Opens a DeepSeek Harness Session from the panel once the host's catalog lists it |
 | `src/core/model.ts` | The domain types, among them the typed Ticket and `MandateBasis`, with `threadKey`, `ticketOutcome`, `reached`, `followupOwners`, `settled`, `waitsForPerson`, `liveTicket`, `runningAssignment`, `latestAssignment` and `latestReport` |
 | `src/core/ports.ts` | The ports: `Repositories`, `Policy`, `SourceScope`, `Assessor`, `Executor`, `Outbox`, and the domain events |
@@ -487,6 +488,8 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/work-port.spec.ts` | `workKind`'s category-to-row mapping and its outbound replies over a stub `WorkAdapter` |
 | `tests/weixin-bridge.spec.ts` | The Weixin bridge client over a stub `fetch`: its six endpoints, the bearer token file's mode, the event mapping, the idempotency key and the failure codes |
 | `tests/weixin-watch.spec.ts` | The Weixin polling loop's listen set: the configured ids it pushes each round, the chats the backend could not resolve, and the two cases where it must send nothing |
+| `tests/state-lock.spec.ts` | `acquireStateLock`: takes a free state directory, takes over a lock whose holder is gone, waits out one that is briefly held, and names the remedy when it is really held |
+| `tests/state-lock.spec.ts` | `acquireStateLock`: takes a free state directory, takes over a lock whose holder is gone, waits out one that is briefly held, and names the remedy when it is really held |
 | `tests/person-notice.spec.ts` | `personNotice`: the one line a person gets when their message is refused, per reason code and the fallback |
 | `tests/outbound-file.spec.ts` | `resolveTicketFile`, the gate between a ticket's model and the machine's files: a path that climbs out, a symlink that leaves the directory, an executable, an empty file, an oversized one, and a ticket with no directory |
 | `tests/weixin-kind.spec.ts` | The Weixin `SourceKind`: its schema and fields, the structured `@` scope rule, the Channel and policy, the environment and its facts |
