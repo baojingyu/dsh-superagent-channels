@@ -28,18 +28,31 @@ const ROWS: Readonly<Record<string, string>> = { requirement: 'requirements', bu
 const WorkPolicySchema = z.object({
   allowed: z.array(z.object({ id: z.string().trim().min(1), name: z.string().trim().max(100).optional() }).strict()).default([]),
 }).strict()
-/** The three rows the categories map onto, each configurable on its own in the panel. */
-const ADMISSION_ROWS: readonly AdmissionRowView[] = [
-  { id: 'requirements', label: { zh: '需求', en: 'Requirements' },
-    note: { zh: '需求在名单内的人身上时，是否算可接的工作', en: 'Whether a requirement on a listed member counts as work' },
-    cells: { listedUnaddressed: true, unlistedAddressed: true, unlistedUnaddressed: true } },
-  { id: 'bugs', label: { zh: '缺陷', en: 'Bugs' },
-    note: { zh: '缺陷在名单内的人身上时，是否算可接的工作', en: 'Whether a bug on a listed member counts as work' },
-    cells: { listedUnaddressed: true, unlistedAddressed: true, unlistedUnaddressed: true } },
-  { id: 'tasks', label: { zh: '任务', en: 'Tasks' },
-    note: { zh: '任务在名单内的人身上时，是否算可接的工作', en: 'Whether a task on a listed member counts as work' },
-    cells: { listedUnaddressed: true, unlistedAddressed: true, unlistedUnaddressed: true } },
+/**
+ * The reception ranges every work kind polls, one admission row each, in the shape GitHub's and Feishu's tables use: `note` is
+ * the small annotation under the label ("received" or not), and `cells` names the columns that apply.
+ *
+ * A work item never mentions the agent, so the "an outsider addresses the agent" cell does not exist here - it renders as a
+ * dash, the same way Feishu shows the listed-and-unaddressed cell it cannot use.
+ */
+const CATEGORY_ROWS: readonly { id: string; category: string; label: { zh: string; en: string } }[] = [
+  { id: 'requirements', category: 'requirement', label: { zh: '需求', en: 'Requirements' } },
+  { id: 'bugs', category: 'bug', label: { zh: '缺陷', en: 'Bugs' } },
+  { id: 'tasks', category: 'task', label: { zh: '任务', en: 'Tasks' } },
 ]
+const DEFAULT_CATEGORIES: readonly string[] = ['requirement', 'bug', 'task']
+/** The rows of one instance: a category it polls is received, one it does not poll has nothing to admit. */
+function admissionRows(stored: Record<string, unknown>): AdmissionRowView[] {
+  const config = WorkConfigSchema.partial().parse(stored)
+  const categories = Array.isArray(config.categories) ? config.categories : DEFAULT_CATEGORIES
+  return CATEGORY_ROWS.map(row => {
+    const received = categories.includes(row.category)
+    return { id: row.id, label: row.label,
+      note: received ? { zh: '接收', en: 'Received' } : { zh: '不接收', en: 'Not received' },
+      // No mention exists on a work item, so only the two "not addressed" columns are offered.
+      cells: { listedUnaddressed: received, unlistedAddressed: false, unlistedUnaddressed: received } }
+  })
+}
 /** Form fields of the shared configuration; a concrete kind may supply its own through `meta.fields`. */
 const FIELDS: readonly FieldSpec[] = [
   { key: 'project', type: 'text', label: { zh: '项目空间', en: 'Project' },
@@ -147,13 +160,14 @@ export function workKind<C extends Record<string, unknown> = WorkConfig>(
             { key: 'name', type: 'text', label: { zh: '名字', en: 'Name' }, optional: true },
           ] },
       ],
-      // A work item has no mention to give: what makes it a request is being assigned to someone, which `workTrigger` records
-      // as a direct address. An item left in the backlog is ambient and stays an inferred candidate at best.
-      explicit: { zh: '工作项没有「@」：**指派给某人**就是一次明确的请求；指派在名单内的人身上，就直接是可接的工作。未指派的工作项属于'
-        + '「悬在池子里」的条目，只有在「自动接单」模式下才可能被推断接单。',
-        en: 'A work item has no mention: being assigned to someone is the explicit request, and an item assigned to a listed '
-          + 'member is work directly. An unassigned item is ambient and can only be an inferred candidate in auto mode.' },
-      rows: () => [...ADMISSION_ROWS],
+      // A work item has no mention to give, so nothing about it can be an explicit request on its own; the table decides.
+      explicit: { zh: '云效工作项没有「@」：没有哪一栏是在点名智能体，所以下面这张表说了算。**负责人**（没有负责人时是创建人）在名单里，'
+        + '这条就落到「名单内」那一列；不在名单里，就落到「名单外」那一列——两列各配什么，就按什么处理（「忽略」不接，「允许推断」成为候选，'
+        + '并在「自动接单」模式下接单）。',
+        en: 'A Yunxiao work item has no mention: no field of it names the agent, so this table decides. The person responsible - the '
+          + 'assignee, or the creator when there is none - puts the item in the listed or the unlisted column, and each column is '
+          + 'handled exactly as configured (ignore, or an inferred candidate that is accepted in auto mode).' },
+      rows: admissionRows,
       warnings(_config, part) {
         if (part.allowed.length > 0) return []
         return [{ zh: '「能发起工作的云效成员」是空的：任何工作项都会被判「名单外」而拒绝。填入成员 accountId（工作项「指派给」里那个人的 id）。',

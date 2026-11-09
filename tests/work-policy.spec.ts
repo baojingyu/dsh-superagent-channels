@@ -21,35 +21,40 @@ const thread = (): Thread => ({
   subscriptions: [], correlated: [], pending: [], meta: {},
 })
 
-const settings = (allowed: { id: string; name?: string }[], mode = 'observe') => SettingsSchema.parse({
-  eval: { mode },
-  policy: { sources: { projex: { allowed } } },
+const settings = (allowed: { id: string; name?: string }[], mode = 'observe', admission: Record<string, unknown> = {}) =>
+  SettingsSchema.parse({
+    eval: { mode },
+    policy: { sources: { projex: { allowed, ...Object.keys(admission).length ? { admission } : {} } } },
   // An installed but disabled Source is not listened to at all, so the fixture enables it: the point here is the list.
   sources: { projex: { enabled: true, config: { project: PROJECT, tokenFile: '/tmp/projex.token',
     organizationId: 'org-1' } } },
 })
 
-const gateFor = (allowed: { id: string; name?: string }[], mode = 'observe') => {
-  const value = settings(allowed, mode)
+const gateFor = (allowed: { id: string; name?: string }[], mode = 'observe', admission: Record<string, unknown> = {}) => {
+  const value = settings(allowed, mode, admission)
   const registry = new SourceRegistry(() => value)
   registry.register(projexKind)
   return { policy: settingsPolicy(value, registry), registry }
 }
 
 describe('Projex admission', () => {
-  it('turns an assignment into a direct request, and leaves a backlog item ambient', () => {
-    // The item an agent sees is either handed to somebody or still in the pool; that difference is the address.
-    expect(workTrigger(workItem({ assignee: { id: MEMBER } }), 'projex', PROJECT).addressed).toBe('direct')
+  it('never claims an address, because no field of a work item names the agent', () => {
+    // This is what makes the admission table the authority: the item cannot be an explicit request on its own.
+    expect(workTrigger(workItem({ assignee: { id: MEMBER } }), 'projex', PROJECT).addressed).toBeUndefined()
     expect(workTrigger(workItem(), 'projex', PROJECT).addressed).toBeUndefined()
-    // The actor is who the item is on - the assignee when there is one, the author otherwise.
+    // The responsible person decides which column it falls in: the assignee, else the creator.
     expect(workTrigger(workItem({ assignee: { id: 'acc-other' } }), 'projex', PROJECT).actor.id).toBe('acc-other')
     expect(workTrigger(workItem(), 'projex', PROJECT).actor.id).toBe(MEMBER)
   })
 
-  it('admits an assigned item of a listed member as an explicit request, without auto mode', () => {
-    const { policy } = gateFor([{ id: MEMBER, name: 'Owner' }])
+  it('falls in the listed column, and does exactly what that column says', () => {
     const trigger = workTrigger(workItem({ assignee: { id: MEMBER } }), 'projex', PROJECT)
-    expect(policy.gate(trigger, thread(), [])).toMatchObject({ admissible: true, strength: 'explicit' })
+    // An item on a listed member is a candidate - "允许推断" - and nothing more without auto mode.
+    expect(gateFor([{ id: MEMBER, name: 'Owner' }]).policy.gate(trigger, thread(), []))
+      .toMatchObject({ admissible: true, strength: 'inferred' })
+    // Configured as "忽略", it is refused: that is what "配置什么就做什么" means.
+    expect(gateFor([{ id: MEMBER }], 'observe', { requirements: { listedUnaddressed: 'ignore' } })
+      .policy.gate(trigger, thread(), [])).toMatchObject({ admissible: false, reason: 'admission_ignored' })
   })
 
   it('refuses an unlisted member, and says the list is why', () => {
@@ -69,9 +74,15 @@ describe('Projex admission', () => {
     expect(gateFor([]).policy.gate(trigger, thread(), [])).toMatchObject({ admissible: false, reason: 'not_a_member' })
   })
 
-  it('offers the three category rows and warns while nobody may originate work', () => {
+  it('offers the rows and cells the other kinds offer: received or not, and no mention column', () => {
     const policy = projexKind.policy!
-    expect(policy.rows!({}).map(row => row.id)).toEqual(['requirements', 'bugs', 'tasks'])
+    const rows = policy.rows!({ categories: ['requirement', 'task'] })
+    expect(rows.map(row => row.id)).toEqual(['requirements', 'bugs', 'tasks'])
+    // A category the instance does not poll has nothing to admit, exactly like GitHub's CI row when it is off.
+    expect(rows[0]).toMatchObject({ note: { zh: '接收' }, cells: { listedUnaddressed: true, unlistedAddressed: false, unlistedUnaddressed: true } })
+    expect(rows[1]).toMatchObject({ note: { zh: '不接收' }, cells: { listedUnaddressed: false, unlistedAddressed: false, unlistedUnaddressed: false } })
+    // Nothing about a work item mentions the agent, so that column is a dash in every row.
+    expect(rows.every(row => row.cells.unlistedAddressed === false)).toBe(true)
     expect(policy.warnings!({}, { allowed: [] })).toHaveLength(1)
     expect(policy.warnings!({}, { allowed: [{ id: MEMBER }] })).toHaveLength(0)
     // The panel labels the list and says an id, not a name, is what it holds.
