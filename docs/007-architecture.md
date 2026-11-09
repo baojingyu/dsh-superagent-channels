@@ -418,6 +418,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/sources/work/projex/adapter.ts` | The Projex `WorkAdapter`: `createProjexAdapter`, work items and notes by category with `nextToken` paging, and its marker-idempotent replies |
 | `src/sources/work/projex/kind.ts` | `projexKind`, the Yunxiao Projex work `SourceKind` on the Projex adapter, with `organizationId` and its environment |
 | `src/sources/hosting/stream.ts` | `pollHosting`, the hosting polling round: the cursor, the changed change requests, their notes and CI, and the overflow count |
+| `src/sources/work/self-writes.ts` | The self-write ledger: the work-item revisions this process wrote, which a poll must not read back as new requests, because a comment or a status write bumps the modification time a Trigger ID is derived from |
 | `src/sources/work/stream.ts` | `pollWorkItems` and `workTrigger`, the work-item polling round over the configured categories |
 | `src/sources/chat/dingtalk/adapter.ts` | The DingTalk adapter: `parseStreamEvent` and `sendMessage` over the sessionWebhook and oapi paths, with its idempotency marker |
 | `src/sources/chat/dingtalk/stream.ts` | `startStream` and `createLongPollingStream`: consume the injected event stream, report its health and reconnect until aborted |
@@ -505,6 +506,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/wecom-webhook.spec.ts` | The WeCom callback handler and sender: the XML parse, the URL verification, signed events, dedupe and the cached access token |
 | `tests/wecom-kind.spec.ts` | The WeCom `SourceKind`: its identity and schema, its fields, its two-branch scope, its at-least-once capabilities and facts |
 | `tests/hosting-stream.spec.ts` | `pollHosting` on a real Store and a stub adapter: the cursor, the changed change requests and CI, the overflow and a failed change |
+| `tests/work-self-write.spec.ts` | The ledger and the adapter around it: one revision per key, bounded, and a poll that drops its own write while keeping a person's later edit |
 | `tests/work-stream.spec.ts` | `pollWorkItems` on a real Store and a stub adapter: the initialized cursor, the three categories, idempotency, aborts and a failed category |
 | `tests/panel-instances.spec.ts` | The panel's data layer for several instances of one kind: the rows and health of two chat instances, deleting one, and a legacy Source without `kind` |
 | `tests/live/weixin-bridge.live.spec.ts` | The Weixin bridge against a real local sidecar (only with `LIVE=1`): health, status, rooms, members, messages, idempotent sends, and the token and permission failures |

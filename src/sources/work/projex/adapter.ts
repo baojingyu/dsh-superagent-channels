@@ -2,6 +2,10 @@
 import { createYunxiaoApi, YunxiaoHttpError, type YunxiaoApi } from '../../../infra/yunxiao-api.ts'
 import type { Commands } from '../../../infra/commands.ts'
 import type { Person, WorkAdapter, WorkCategory, WorkItem, WorkItemPage, WorkNote, WorkNotePage } from '../port.ts'
+import { isSelfWrite, rememberSelfWrite } from '../self-writes.ts'
+
+/** The host this adapter speaks for; the self-write ledger is scoped by it so two hosts never collide on one key. */
+export const PROJEX_HOST = 'projex'
 
 /** Configuration a Projex instance supplies beyond the shared work schema. */
 export interface ProjexConfig extends Record<string, unknown> {
@@ -230,6 +234,9 @@ async function listWorkItems(adapter: ProjexAdapter, project: string, since: str
       let older = false
       for (const entry of raw) {
         const item = mapWorkItem(entry, project, category)
+        // Our own comment or status write moved this item's modification time; reading it back would start a second Assignment
+        // on a ticket that has already answered. A person's later edit changes the revision again and passes through.
+        if (isSelfWrite(PROJEX_HOST, adapter.organization, item.key, item.updatedAt)) continue
         if (!Number.isNaN(cutoff) && Date.parse(item.updatedAt) < cutoff) { older = true; continue }
         items.push(item)
       }
@@ -259,10 +266,27 @@ async function postNote(adapter: ProjexAdapter, item: WorkItem, text: string, ma
   if (mine) return 'sent'
   try {
     await adapter.api.post(commentsPath(adapter.organization, item.key), { content: `${text}\n\n${marker}` })
+    await rememberWrite(adapter, item.key)
     return 'sent'
   } catch (error) {
     if (error instanceof YunxiaoHttpError && (error.status === 404 || error.status === 410)) return 'gone'
     throw error
+  }
+}
+
+/**
+ * Record the revision this process's write produced, so the next poll recognises it as its own.
+ *
+ * `PUT` and `POST comments` do not return the work item, so it is read once more; a failed read leaves the ledger without an
+ * entry, which costs one duplicate trigger at worst - the direction that cannot lose a person's request.
+ */
+async function rememberWrite(adapter: ProjexAdapter, key: string): Promise<void> {
+  try {
+    const { body } = await adapter.api.get(itemPath(adapter.organization, key))
+    const updatedAt = isoFromMs(recordOf(body).gmtModified)
+    rememberSelfWrite(PROJEX_HOST, adapter.organization, key, updatedAt)
+  } catch {
+    /* The write itself succeeded; only the ledger entry is missing. */
   }
 }
 
@@ -272,6 +296,7 @@ async function writeStatus(adapter: ProjexAdapter, item: WorkItem, stage: string
   const status = /^[0-9]+$/.test(stage) && item.status.stage === stage ? item.status.id : stage
   if (!status) throw new Error('Projex needs a status id to write back, and this item reports none')
   await adapter.api.put(itemPath(adapter.organization, item.key), { status })
+  await rememberWrite(adapter, item.key)
 }
 
 /** The API codes of the requested categories, deduplicated and preserving request order. */
