@@ -89,12 +89,15 @@ function keywordHit(text: string | undefined, keywords: readonly { any: string }
 export function mergeSynced(
   allowed: readonly { id: string; name?: string; via?: 'group' | 'direct' | '' }[],
   members: readonly { id: string; name?: string }[],
+  mode: 'replace' | 'union' = 'replace',
 ): { id: string; name?: string; via?: 'group' | 'direct' | '' }[] {
-  const manual = allowed.filter(entry => entry.via !== 'group')
-  const taken = new Set(manual.map(entry => entry.id))
+  // `replace` suits a backend that returns the whole roster: what a previous sync added and is no longer there has left the group.
+  // `union` suits one that only reports who has spoken: absence is not evidence of leaving, so nothing is ever removed.
+  const kept = mode === 'replace' ? allowed.filter(entry => entry.via !== 'group') : [...allowed]
+  const taken = new Set(kept.map(entry => entry.id))
   const synced = members.filter(member => !taken.has(member.id))
     .map(member => ({ id: member.id, ...(member.name ? { name: member.name } : {}), via: 'group' as const }))
-  return [...manual, ...synced]
+  return [...kept, ...synced]
 }
 
 /**
@@ -237,7 +240,7 @@ export function createWeixinKind(hooks: WeixinKindHooks = {}): SourceKind<Weixin
         ] },
       { key: 'syncChat', type: 'text', pattern: '^[A-Za-z0-9_\-]*$', label: { zh: '同步来源群', en: 'Sync from group' },
         choose: { zh: '不同步', en: 'Do not sync' },
-        hint: { zh: '选一个群，再点「立即同步」：把该群的成员读进上面的名单（来源标为群），这样你不用一个个手填。它只读群成员名册，不读取聊天内容，也不改变「接收的群」；你自己标成私聊的人会保留。',
+        hint: { zh: '选一个群，再点「立即同步」，把它的人加进上面的名单，省得一个个手填。能否拿到完整名册取决于后端：wxautox4 没有群成员表接口，只能给出「在这个群里发过言的人」，所以同步是「加人不删人」——群里有谁没说过话，就不会被同步进来，需要时手动添加。它不读聊天内容，也不改变「接收的群」。',
           en: 'Pick a group and press Sync now: its members are read into the list above, marked as coming from a group, so you do not add them one by one. It reads the member roster only - no message content - and does not change the groups you receive; people you marked as direct are kept.' },
       },
     ],
@@ -266,12 +269,21 @@ export function createWeixinKind(hooks: WeixinKindHooks = {}): SourceKind<Weixin
         const config = host.sources.instance<WeixinConfig>(SOURCE)?.config
         if (!config) throw new Error('微信来源尚未配置，无法同步成员')
         if (signal.aborted) return part
-        // The bridge knows the group by its display name; the configuration holds the stable id.
+        const bridge = bridgeFor(config)
+        const health = await bridge.health()
+        const roster = health.capabilities?.members ?? 'full'
+        if (roster === 'none') throw new Error('这个微信后端不提供成员信息（members: none），无法同步；请在上面手动添加。')
+        // The bridge knows a group by its display name; the configuration holds the stable id.
         const target = (config.rooms ?? []).find(entry => entry.id === room)
-        const members = await bridgeFor(config).members(target?.name || room)
+        const members = await bridge.members(target?.name || room)
         if (signal.aborted) return part
-        // Only people synced from a group are replaced; anyone marked as direct (or unmarked) stays.
-        return { ...part, allowed: mergeSynced(part.allowed, members) }
+        if (members.length === 0) {
+          throw new Error(roster === 'full'
+            ? '这个群里没有读到任何成员，请确认群的 ID 正确。'
+            : '这个后端拿不到群成员名册（wxautox4 只提供「在这个群里发过言的人」），而这个群还没有人发过言。让成员在群里说一句再同步，或在上面手动添加。')
+        }
+        // A roster backend can replace what it wrote last time; an observed one can only add.
+        return { ...part, allowed: mergeSynced(part.allowed, members, roster === 'full' ? 'replace' : 'union') }
       },
     },
     warnings(config, part) {

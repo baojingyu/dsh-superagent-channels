@@ -346,4 +346,13 @@ describe('syncing a group into the allow list', () => {
     const allowed = [{ id: 'wxid_manual', name: '手加的' }]
     expect(mergeSynced(allowed, [])).toEqual(allowed)
   })
+
+  it('only adds in union mode, because an observed backend cannot prove someone left', () => {
+    // wxautox4 reports only who has spoken in a group, so a quiet member must never be dropped from the allow list.
+    const allowed = [{ id: 'wxid_quiet', name: '还没说过话', via: 'group' as const }]
+    const merged = mergeSynced(allowed, [{ id: 'wxid_new', name: '刚说话的人' }], 'union')
+    expect(merged.map(entry => entry.id)).toEqual(['wxid_quiet', 'wxid_new'])
+    // In replace mode the same input drops the row the previous sync wrote.
+    expect(mergeSynced(allowed, [{ id: 'wxid_new', name: '刚说话的人' }], 'replace').map(entry => entry.id)).toEqual(['wxid_new'])
+  })
 })
