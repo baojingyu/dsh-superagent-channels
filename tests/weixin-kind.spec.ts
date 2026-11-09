@@ -213,11 +213,13 @@ describe('weixinKind policy', () => {
     expect(warnings({ rooms: [{ id: 'room-1' }] }, { allowed: [{ id: 'wxname_person' }] })).toHaveLength(0)
   })
 
-  it('puts allowed first and accepts wxid lists while refusing duplicates and malformed IDs', () => {
+  it('puts allowed first, takes whatever identifier the bridge reports, and refuses duplicates or a blank one', () => {
     expect(weixinKind.policy!.fields[0]!.key).toBe('allowed')
     expect(weixinKind.policy!.schema.parse({})).toEqual({ allowed: [], syncChat: '' })
+    // The bridge gives a real id where it has one and a display name where it does not; both must save.
     expect(weixinKind.policy!.schema.safeParse({ allowed: [{ id: 'wxid_a' }, { id: 'wxid_b', name: '阿黎' }] }).success).toBe(true)
-    expect(weixinKind.policy!.schema.safeParse({ allowed: [{ id: 'bad wxid' }] }).success).toBe(false)
+    expect(weixinKind.policy!.schema.safeParse({ allowed: [{ id: 'Beaver 🦫', name: 'Beaver 🦫', via: 'direct' }] }).success).toBe(true)
+    expect(weixinKind.policy!.schema.safeParse({ allowed: [{ id: '   ' }] }).success).toBe(false)
     expect(weixinKind.policy!.schema.safeParse({ allowed: [{ id: 'wxid_a' }, { id: 'wxid_a' }] }).success).toBe(false)
   })
 })

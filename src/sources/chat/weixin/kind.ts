@@ -135,10 +135,13 @@ const Fields: FieldSpec[] = [
 
 const WeixinPolicySchema = z.object({
   allowed: z.array(z.object({
-    id: z.string().trim().regex(WXID_PATTERN, 'Invalid wxid'),
+    // The bridge reports a member id where it has one and the display name where it does not, so accepting only the strict wxid
+    // shape made a person the picker offered impossible to save. Any non-blank identifier up to 100 characters is taken, and the
+    // duplicate check below still keeps the list unambiguous.
+    id: z.string().trim().min(1).max(100),
     name: z.string().trim().max(100).optional(),
     /** Where this person came from: a group the list was synced from, or a direct message. A marking only, never authorization. */
-    via: z.enum(['group', 'direct']).optional(),
+    via: z.union([z.enum(['group', 'direct']), z.literal('')]).optional(),
   }).strict())
     .refine(people => new Set(people.map(person => person.id)).size === people.length, 'Duplicate wxids')
     .default([]),
@@ -193,7 +196,7 @@ export function createWeixinKind(hooks: WeixinKindHooks = {}): SourceKind<Weixin
   /** What the backend last reported it can do; `undefined` while nothing has been read, which reads as capable. */
   const capabilitiesOf = (): BridgeCapabilities | undefined => hooks.capabilities ? hooks.capabilities() : remembered?.capabilities
   const policy: SourcePolicyPart<Record<string, unknown> & {
-    allowed: { id: string; name?: string; via?: 'group' | 'direct' }[]
+    allowed: { id: string; name?: string; via?: 'group' | 'direct' | '' }[]
   }> = {
     unnamed: { person: { zh: '微信用户', en: 'WeChat user' }, bot: { zh: '微信机器人', en: 'WeChat bot' } },
     schema: WeixinPolicySchema,
@@ -210,8 +213,8 @@ export function createWeixinKind(hooks: WeixinKindHooks = {}): SourceKind<Weixin
         ] },
       { key: 'syncChat', type: 'text', pattern: '^[A-Za-z0-9_\-]*$', label: { zh: '同步来源群', en: 'Sync from group' },
         choose: { zh: '不同步', en: 'Do not sync' },
-        hint: { zh: '填一个已订阅的群，再点「立即同步」：名单换成这个群的成员，并把来源标成群；你自己标成私聊的人会保留。',
-          en: 'Name a subscribed group, then press Sync now: the list becomes that group\'s members, marked as coming from a group; people you marked as direct are kept.' },
+        hint: { zh: '选一个群，再点「立即同步」：把该群的成员读进上面的名单（来源标为群），这样你不用一个个手填。它只读群成员名册，不读取聊天内容，也不改变「接收的群」；你自己标成私聊的人会保留。',
+          en: 'Pick a group and press Sync now: its members are read into the list above, marked as coming from a group, so you do not add them one by one. It reads the member roster only - no message content - and does not change the groups you receive; people you marked as direct are kept.' },
       },
     ],
     explicit: { zh: '名单内的人 @ 机器人或私聊机器人，总是明确的请求，不需要配置。', en: 'Someone on the list who mentions the bot or messages it directly always makes an explicit request; that needs no setting.' },
