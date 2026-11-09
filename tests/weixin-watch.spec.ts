@@ -229,7 +229,7 @@ describe('pollChat cursor', () => {
 
 describe('pollRound', () => {
   /** A context just wide enough for one round: stored cursors, the inbox, and a health sink. */
-  function context() {
+  function context(people: { id: string }[] = []) {
     const received: unknown[] = []
     const store = new Map<string, unknown>()
     const ctx = {
@@ -238,6 +238,7 @@ describe('pollRound', () => {
         set: (key: string, value: unknown) => { if (value === undefined) store.delete(key); else store.set(key, value) },
         keys: () => [...store.keys()],
       },
+      allowed: () => people,
       receive: async (trigger: unknown) => { received.push(trigger); return 'stored' },
       report: () => {},
       configured: () => true,
@@ -289,5 +290,43 @@ describe('pollRound', () => {
     await pollRound(ctx, config(false), new AbortController().signal, bridge)
     expect(asked).toEqual([])
     expect(received).toHaveLength(0)
+  })
+
+  it('watches the people the Policy lists, so their direct messages are delivered at all', async () => {
+    // The sidecar only delivers what its listener was told to watch. With no group configured, the Policy's people are the
+    // whole watch set - which is why naming a person once, in the Policy, is enough.
+    const calls: string[][] = []
+    const bridge: BridgeClient = {
+      async health() { return { ok: true, available: true } },
+      async status() { return { loggedIn: true, wxid: 'wxid_self', name: '助手' } },
+      async rooms() { return [] },
+      async members() { return [] },
+      async messages() { return { events: [], next: '' } },
+      async send() { return { msgId: 'srv-1', deduped: false } },
+      async listen(rooms) { calls.push([...rooms]); return { listening: [], added: [...rooms], removed: [], failed: [] } },
+    }
+    const { ctx } = context([{ id: 'wxname_person' }])
+    await pollRound(ctx, WeixinConfigSchema.parse({
+      tokenFile: 'C:/tmp/weixin.token', selfWxid: 'wxid_self', rooms: [], directMessages: true,
+    }), new AbortController().signal, bridge)
+    expect(calls).toEqual([['wxname_person']])
+  })
+
+  it('watches nothing when direct messages are off and no group is configured', async () => {
+    const calls: string[][] = []
+    const bridge: BridgeClient = {
+      async health() { return { ok: true, available: true } },
+      async status() { return { loggedIn: true, wxid: 'wxid_self', name: '助手' } },
+      async rooms() { return [] },
+      async members() { return [] },
+      async messages() { return { events: [], next: '' } },
+      async send() { return { msgId: 'srv-1', deduped: false } },
+      async listen(rooms) { calls.push([...rooms]); return { listening: [], added: [...rooms], removed: [], failed: [] } },
+    }
+    const { ctx } = context([{ id: 'wxname_person' }])
+    await pollRound(ctx, WeixinConfigSchema.parse({
+      tokenFile: 'C:/tmp/weixin.token', selfWxid: 'wxid_self', rooms: [], directMessages: false,
+    }), new AbortController().signal, bridge)
+    expect(calls).toEqual([])
   })
 })

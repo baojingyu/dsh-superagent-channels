@@ -170,7 +170,11 @@ export async function pollRound(ctx: SourceContext, config: WeixinConfig, signal
   rememberWeixinStatus(await bridge.status(), health.capabilities)
   // The switches ride along with the chat set: the sidecar decides what to render as each message arrives, and a
   // changed switch has to reach it even when no chat changed.
-  const { watching, unresolved } = await reconcileListen(bridge, config.rooms,
+  // The sidecar's queue is fed by its listener, and the listener only fires for watched chats. A person the Policy lists is
+  // watched too, so naming them once - in the Policy - is enough for their direct messages to arrive at all.
+  const people = config.directMessages ? ctx.allowed(SOURCE).map(entry => entry.id) : []
+  const watch = [...new Set([...config.rooms.map(room => room.id), ...people])]
+  const { watching, unresolved } = await reconcileListen(bridge, watch.map(id => ({ id })),
     { voice: config.voice, images: config.images })
   let received = 0
   // Direct messages are one stream keyed by sender, so a person needs no entry among the groups: polling `''` reads every

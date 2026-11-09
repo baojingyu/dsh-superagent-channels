@@ -40,6 +40,11 @@ export interface SourceContext {
   readonly problem?: SetupProblem | undefined
   /** Returns a Source's configuration while enabled, or undefined while disabled or uninstalled. */
   config<C extends Record<string, unknown>>(kind: string): C | undefined
+  /**
+   * The Policy's list of senders who may originate work for this Source. A transport reads it to know whose chats to watch:
+   * WeChat's sidecar only delivers what its listener was told to watch, so a person named in the Policy must also be watched.
+   */
+  allowed(id: string): { id: string; name?: string }[]
   /** Ingests a trigger into the Engine and schedules the next evaluation pass; callers should await completion before advancing read cursors. */
   receive(trigger: Trigger): ReceiveResult | Promise<ReceiveResult>
   atomic<T>(work: () => T): T
