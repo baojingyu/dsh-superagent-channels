@@ -72,6 +72,8 @@ export function chatKind<C extends Record<string, unknown>>(adapter: ChatAdapter
         : { listened: false, reason: 'chat_not_allowed' }
     },
     channel: {
+    // A chat message is a person writing to the agent, so a refusal owes them one line.
+    acceptsNotice: true,
       capabilities: adapter.capabilities,
       send: (host: ChannelHost, message: OutboundMessage) => adapter.send(host.config as C, message.channel.address, message.text, message.id),
       link: (address: Record<string, string>, _links: ChannelLinks, config?: C): ChannelLink => adapter.link((config ?? {}) as C, address),

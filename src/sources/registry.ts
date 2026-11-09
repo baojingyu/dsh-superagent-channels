@@ -111,6 +111,11 @@ export class SourceRegistry implements SourceScope {
     const parsed = policy.schema.safeParse(rest)
     return { ...parsed.success ? parsed.data : policy.schema.parse({}), admission: AdmissionTableSchema.safeParse(admission ?? {}).data ?? {} }
   }
+  /** Whether a Source's channel takes a refusal notice; see `SourceChannel.acceptsNotice`. */
+  acceptsNotice(source: string, settings = this.settings()): boolean {
+    const kind = this.kinds.get(kindOf(settings.sources[source], source))
+    return kind?.channel?.acceptsNotice === true
+  }
   channelAllowed(channel: { source: string; address: Record<string, string> }, settings = this.settings()): boolean {
     const kind = this.kinds.get(kindOf(settings.sources[channel.source], channel.source))
     if (!kind) return false
@@ -137,6 +142,9 @@ export class SourceRegistry implements SourceScope {
     const kind = this.kinds.get(kindOf(settings.sources[id], id))
     if (!kind) return 'waiting'
     if (!kind.channel) return 'gone'
+    // A refusal notice is for a conversation with the person who wrote; a channel that does not take notices gets nothing, so a
+    // work item is never commented on with "you are not on the list".
+    if (message.kind === 'notice' && kind.channel.acceptsNotice !== true) return 'gone'
     const { config } = this.resolve(kind, id, settings.sources[id])
     const host: ChannelHost = { commands, deployment: commands.deployment, config, instance: id }
     return kind.channel.send(host, message)

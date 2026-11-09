@@ -60,6 +60,13 @@ export interface ChannelHost {
 }
 /** Outbound messaging adapter for a source kind's threads. */
 export interface SourceChannel<C> {
+  /**
+   * Whether this channel may receive a `notice` - the line that tells somebody their message was not taken up.
+   *
+   * Only a conversation the person opened with the agent qualifies: a chat message is owed an answer, while a work item is a
+   * public record and a comment there is not an answer. Absent means no, which is why every work-item kind stays quiet.
+   */
+  acceptsNotice?: boolean
   /** Whether a reply may still go to `address`; without it, every address may receive replies. */
   allowed?(address: Record<string, string>, config: C): boolean
   /** What the channel can carry: message length, Markdown, how a retried message stays idempotent, and whether it may open a conversation. */

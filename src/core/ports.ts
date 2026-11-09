@@ -13,6 +13,11 @@ export type ScopeInput = { source: string; meta: Record<string, unknown>; text?:
 /** Source configuration as the domain sees it: listening scope per trigger or per recorded Mandate basis. */
 export interface SourceScope {
   scope(input: ScopeInput): ScopeResult
+  /**
+   * Whether this Source's channel takes a refusal `notice` - the line that tells somebody their message was not taken up.
+   * A conversation with the person who wrote takes one; a public work item does not. Absent means no.
+   */
+  acceptsNotice?(source: string): boolean
 }
 
 /** Versioned rules; `gate` decides who may originate work. Source scope is not part of Policy. */

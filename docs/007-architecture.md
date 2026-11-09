@@ -506,6 +506,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/wecom-webhook.spec.ts` | The WeCom callback handler and sender: the XML parse, the URL verification, signed events, dedupe and the cached access token |
 | `tests/wecom-kind.spec.ts` | The WeCom `SourceKind`: its identity and schema, its fields, its two-branch scope, its at-least-once capabilities and facts |
 | `tests/hosting-stream.spec.ts` | `pollHosting` on a real Store and a stub adapter: the cursor, the changed change requests and CI, the overflow and a failed change |
+| `tests/notice-channel.spec.ts` | The refusal notice reaches a conversation and nothing else: a work item's channel refuses it at the registry, a chat's accepts it, a channel that never opted in refuses it, and `acceptsNotice` answers before a row is queued |
 | `tests/work-self-write.spec.ts` | The ledger and the adapter around it: one revision per key, bounded, and a poll that drops its own write while keeping a person's later edit |
 | `tests/work-stream.spec.ts` | `pollWorkItems` on a real Store and a stub adapter: the initialized cursor, the three categories, idempotency, aborts and a failed category |
 | `tests/panel-instances.spec.ts` | The panel's data layer for several instances of one kind: the rows and health of two chat instances, deleting one, and a legacy Source without `kind` |

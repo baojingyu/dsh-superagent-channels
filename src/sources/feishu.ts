@@ -59,6 +59,9 @@ export const feishuKind: SourceKind<FeishuConfig> = {
   },
   // A reply goes only to a chat the Source still receives.
   channel: {
+    // A person writing in a chat is owed one line when the message is not taken up. A GitHub issue is a public record and does
+    // not take notices, which is why its channel leaves this unset.
+    acceptsNotice: true,
     allowed: (address, config) =>
       feishuKind.scope!({ meta: { chatId: address.chatId ?? '', direct: address.direct === 'true' } }, config).listened,
     send: sendFeishu, link: feishuLink,

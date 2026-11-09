@@ -334,6 +334,8 @@ export class Evals extends EnginePart {
     for (const triggerId of evaluation.triggerIds) {
       const trigger = this.repo.triggers.get(triggerId)
       if (!trigger?.channel || !trigger.human || !trigger.addressed) continue
+      // A work item is a public record: a comment there is not an answer, and it would also broadcast the Source's list.
+      if (this.options.scope.acceptsNotice && !this.options.scope.acceptsNotice(trigger.channel.source)) continue
       this.options.outbox.send({ id: key('refused', trigger.id), channel: trigger.channel,
         text: personNotice(reasons), kind: 'notice' })
     }

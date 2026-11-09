@@ -205,6 +205,8 @@ export function createWeixinKind(hooks: WeixinKindHooks = {}): SourceKind<Weixin
     },
   }
   const channel: SourceChannel<WeixinConfig> = {
+    // A chat message is a person writing to the bot, so a refusal owes them one line; a work item does not.
+    acceptsNotice: true,
     // Declarative transport metadata: message length limit, no Markdown, and whether a send may start a conversation.
     // Nothing reads it yet; the sidecar enforces these, and it reports what it can carry.
     // A retried send carries the OutboundMessage ID as the sidecar's Idempotency-Key and the sidecar answers `deduped`, so a
