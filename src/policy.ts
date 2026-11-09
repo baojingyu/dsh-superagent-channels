@@ -70,7 +70,13 @@ export type Rule = z.infer<typeof RuleSchema>
 export const RoleModelSchema = z.object({ provider: z.string().trim().min(1), model: z.string().trim().min(1), reasoningEffort: z.string().trim().min(1).optional() }).strict()
 export type RoleModel = z.infer<typeof RoleModelSchema>
 
-export const AllowedSchema = z.object({ id: z.string().trim().min(1).max(200), name: z.string().trim().max(100).optional() }).strict()
+/**
+ * One entry of a Source's allow list. `via` is a marking a chat Source may keep for its own list (whether a person came from a
+ * group sync or from a direct message); it never takes part in authorization, but it must be accepted here too - the settings
+ * schema is what actually validates a saved block, so a field the kind allows and this one rejects makes that row unsaveable.
+ */
+export const AllowedSchema = z.object({ id: z.string().trim().min(1).max(200), name: z.string().trim().max(100).optional(),
+  via: z.union([z.enum(['group', 'direct']), z.literal('')]).optional() }).strict()
 const Weak = z.enum(['inferred', 'ignore'])
 export const AdmissionRowSchema: z.ZodType<AdmissionRow> = z.object({ listedUnaddressed: Weak.optional(), unlistedAddressed: z.enum(['explicit', 'inferred', 'ignore']).optional(), unlistedUnaddressed: Weak.optional() }).strict()
 export const AdmissionTableSchema = z.record(z.string(), AdmissionRowSchema)

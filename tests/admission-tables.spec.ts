@@ -3,12 +3,13 @@
  * apply are offered. The chat ones name one row per conversation; the hosting one offers Issue, merge request, comment and CI.
  */
 import { describe, expect, it } from 'vitest'
-import { SettingsSchema } from '../src/policy.ts'
+import { PolicyConfigSchema, SettingsSchema, SourcePolicySchema } from '../src/policy.ts'
 import { SourceRegistry } from '../src/sources/registry.ts'
 import { chatKind } from '../src/sources/chat/kind.ts'
 import type { ChatAdapter } from '../src/sources/chat/port.ts'
 import { weixinKind, WeixinConfigSchema } from '../src/sources/chat/weixin/kind.ts'
 import { gitlabKind } from '../src/sources/hosting/gitlab/kind.ts'
+import { projexKind } from '../src/sources/work/projex/kind.ts'
 import { dingtalkKind } from '../src/sources/chat/dingtalk/kind.ts'
 import { wecomKind } from '../src/sources/chat/wecom/kind.ts'
 import { z } from 'zod'
@@ -126,5 +127,28 @@ describe('the WeChat list and its sync source', () => {
     expect(fields).toContain('syncChat')
     const rows = weixinKind.policy!.rows!({ rooms: [{ id: 'wxname_g', name: '运营群' }], atOnly: true, directMessages: true })
     expect(rows.map(row => row.id)).toEqual(['wxname_g', 'directMessages'])
+  })
+})
+
+describe('a Source policy part survives the settings schema', () => {
+  // Two schemas validate a saved Policy: the kind's own (which shapes its form) and the settings one (which validates the block).
+  // When they disagree, a row the panel offers cannot be saved at all - the WeChat list hit exactly that with its `via` marking.
+  it('takes every kind part, defaults included', () => {
+    for (const kind of [dingtalkKind, wecomKind, weixinKind, projexKind, gitlabKind]) {
+      const policy = kind.policy
+      if (!policy) continue
+      const part = policy.schema.parse({})
+      const parsed = SourcePolicySchema.safeParse(part)
+      expect(parsed.success, `${kind.kind}: ${JSON.stringify(parsed.error?.issues)}`).toBe(true)
+    }
+  })
+
+  it('takes a WeChat person row that carries where the person came from', () => {
+    const part = weixinKind.policy!.schema.parse({
+      allowed: [{ id: 'wxid_a', name: '甲', via: 'group' }, { id: 'Beaver', name: 'Beaver', via: 'direct' }],
+      syncChat: 'wxname_cbcceafcb26197e1',
+    })
+    const parsed = PolicyConfigSchema.safeParse({ rules: [], sources: { weixin: part } })
+    expect(parsed.success, JSON.stringify(parsed.error?.issues)).toBe(true)
   })
 })
