@@ -359,6 +359,8 @@ export class Tickets extends EnginePart {
     this.repo.tickets.save(ticket)
     this.letGo(ticketId, waiting, left)
     this.emit('ticket.ended', { ticketId, by, outcome, ...why })
+    // Whoever asked learns the outcome here even if the main Session never got round to replying.
+    this.replies.announceEnd(ticketId)
     for (const assignment of stopping) this.options.executor.stop(ticket, assignment, reason ?? outcome)
   }
   /**

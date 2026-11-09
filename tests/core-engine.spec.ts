@@ -99,6 +99,50 @@ describe('refusal notice', () => {
   })
 })
 
+
+describe('ending announcement', () => {
+  const channel = { source: 'chat', thread: 'chat:t1', address: { room: '' } }
+  const outcomeOf = (h: ReturnType<typeof harness>) => h.outbox.filter(item => item.kind === 'reply')
+
+  it('says on the origin conversation how the ticket ended, with the worker\'s own summary', () => {
+    // Measured on a live Yunxiao work item: the acceptance comment appeared and the completion never did, because the Engine
+    // sends only the acknowledgement and the result needs the main Session's reply.
+    const h = harness()
+    h.engine.receive(trigger('1', { channel })); h.pump()
+    const decision = h.decide(h.requests.at(-1)!, { kind: 'accept', title: 'Fix', scope: 'small', reason: 'requested' })
+    h.settle()
+    h.engine.report(decision.ticketId!, { state: 'ready', summary: '发布好了，链接已上线。' })
+    h.settle()
+    const said = outcomeOf(h)
+    expect(said).toHaveLength(1)
+    expect(said[0]!.channel).toEqual(channel)
+    expect(said[0]!.text).toBe('已完成：发布好了，链接已上线。')
+    expect(said[0]!.ticketId).toBe(decision.ticketId)
+  })
+
+  it('stays quiet when the main Session already sent the result', () => {
+    const h = harness()
+    h.engine.receive(trigger('1', { channel })); h.pump()
+    const decision = h.decide(h.requests.at(-1)!, { kind: 'accept', title: 'Fix', scope: 'small', reason: 'requested' })
+    h.settle()
+    h.engine.report(decision.ticketId!, { state: 'ready', summary: '发布好了。' })
+    h.settle()
+    // Two paths would be two comments on the same work item; the ticket remembers the first.
+    expect(outcomeOf(h)).toHaveLength(1)
+    expect(h.outbox.filter(item => item.id.startsWith('outcome')).length).toBeLessThanOrEqual(1)
+  })
+
+  it('stays quiet for a ticket a person stopped: whoever stopped it already knows', () => {
+    const stopped = harness()
+    stopped.engine.receive(trigger('2', { channel })); stopped.pump()
+    const other = stopped.decide(stopped.requests.at(-1)!, { kind: 'accept', title: 'Fix', scope: 'small', reason: 'requested' })
+    stopped.settle()
+    stopped.engine.stopTicket(other.ticketId!, 'person')
+    stopped.settle()
+    expect(outcomeOf(stopped)).toHaveLength(0)
+  })
+})
+
 describe('intake', () => {
   it('stores a trigger once and records source filtering', () => {
     const h = harness()

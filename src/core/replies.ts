@@ -2,7 +2,7 @@
 import { key } from './ids.ts'
 import { UserError } from './errors.ts'
 import { latestAssignment, liveTicket, ticketOutcome } from './model.ts'
-import type { ChannelRef, Ticket, Trigger } from './model.ts'
+import type { ChannelRef, Ticket, TicketOutcome, Trigger } from './model.ts'
 import type { OutboundFile, ReplyStatus } from './ports.ts'
 import { EnginePart } from './part.ts'
 
@@ -15,6 +15,12 @@ export type ReplyRequest =
   | { purpose: 'acknowledgement'; ticketId: string; triggerId: string; text: string }
   | { purpose: 'answer' | 'result' | 'attention'; ticketId?: string; triggerId?: string; question?: string; text: string
       files?: OutboundFile[] }
+/** The first `max` characters of `text`, cut at a character rather than into a word. */
+const clip = (text: string, max: number): string => text.length > max ? `${text.slice(0, max).trimEnd()}…` : text
+/** How an ending reads at the start of the line a person receives. */
+const OUTCOME_LEAD: Readonly<Record<TicketOutcome, string>> = {
+  completed: '已完成：', merged: '已合并：', closed: '已关闭（未合并）：', dropped: '已放弃：', stopped: '已停止：',
+}
 /** A queued message: its id, whether it went out, and whether an earlier request had queued it already. */
 export interface Reply { id: string; status: ReplyStatus; reused: boolean }
 
@@ -86,11 +92,53 @@ export class Replies extends EnginePart {
     if (!channel) throw new UserError('noChannel')
     this.options.outbox.send({ id, channel, text: request.text, kind: 'reply', ...ticket ? { ticketId: ticket.id } : {},
       ...request.files?.length ? { files: request.files } : {} })
+    // The conversation hears the result from here on; a ticket that ends later keeps quiet about it.
+    if (request.purpose === 'result' && ticket) {
+      ticket.notified = true
+      this.repo.tickets.save(ticket)
+    }
     if (request.purpose === 'answer' && ticket && trigger && ticket.answers?.includes(trigger.id)) {
       ticket.answers = ticket.answers.filter(item => item !== trigger.id)
       this.repo.tickets.save(ticket)
     }
     return { id, status: this.options.outbox.status(id) ?? 'pending', reused: existing !== undefined }
+  }
+  /**
+   * Tell the conversation a ticket started in how it ended, unless that already happened.
+   *
+   * The Engine sends the acceptance itself but a result needs the main Session's `orchestrator_reply`; when that call does not
+   * come - a model that answers in its own chat instead - the Source hears nothing at all, and a work item shows an acceptance
+   * comment and then silence for ever. So an ending speaks here, with the worker's own ready summary as the body.
+   *
+   * A ticket a machine asked for is skipped: there is no person to tell. A `stopped` ticket is skipped too, because whoever
+   * stopped it knows, and the panel's stop must not reach into somebody's conversation.
+   */
+  announceEnd(ticketId: string): void {
+    const ticket = this.repo.tickets.get(ticketId)
+    if (!ticket?.ended || ticket.notified) return
+    const outcome = ticket.ended.outcome
+    if (outcome === 'stopped') return
+    const origin = this.source(ticket)
+    if (!origin?.human) return
+    const channel = this.sourceChannel(ticket)
+    if (!channel) return
+    const report = latestAssignment(ticket)?.report
+    const summary = report?.summary.trim() ?? ''
+    const lead = OUTCOME_LEAD[outcome]
+    // A channel may cap its messages (Feishu's IM limit throws on a long one), so the full summary is tried first and a short
+    // line second. Neither may break the report that is ending the ticket, which is why both sit in a try.
+    const candidates = [...new Set([summary ? lead + clip(summary, 1_000) : lead.trimEnd(), lead + clip(summary, 80)])]
+    for (const text of candidates) {
+      try {
+        this.options.outbox.send({ id: key('outcome', ticketId), channel, text, kind: 'reply', ticketId })
+        ticket.notified = true
+        this.repo.tickets.save(ticket)
+        return
+      } catch {
+        /* The next candidate is shorter; if none fits, the channel stays without a notice. */
+      }
+    }
+    this.emit('result.announceFailed', { ticketId, outcome, source: channel.source })
   }
   /** The conversation a ticket started in: its origin Trigger's Channel, else its first Channel. */
   private sourceChannel(ticket: Ticket): ChannelRef | undefined { return this.source(ticket)?.channel ?? ticket.channels[0] }

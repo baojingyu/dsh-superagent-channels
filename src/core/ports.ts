@@ -111,6 +111,8 @@ export interface DomainEvents {
   /** A person's follow-up that reached tickets and that an earlier version also queued for Eval left the queue. */
   'trigger.followup': { triggerId: string }
   'policy.changed': { from: string; to: string }
+  /** A ticket ended and its conversation could not be told, because every candidate line broke the channel's limit. */
+  'result.announceFailed': { ticketId: string; outcome: TicketOutcome; source: string }
 }
 export type DomainEvent = { [K in keyof DomainEvents]: { type: K; at: string; data: DomainEvents[K] } }[keyof DomainEvents]
 

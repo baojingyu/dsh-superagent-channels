@@ -305,6 +305,11 @@ export interface Ticket {
   execution?: Execution
   /** The latest failed delivery of an Input to its worker, until a delivery succeeds. */
   delivery?: { error: string; at: string }
+  /**
+   * Its outcome has reached the conversation it started in - by the main Session's result reply, or by the Engine's own
+   * announcement when it ended. Set so a ticket is never answered twice.
+   */
+  notified?: boolean
 }
 /**
  * A Thread a ticket follows, by its key: `own` when the ticket opened it, such as its own pull request, and when and how it

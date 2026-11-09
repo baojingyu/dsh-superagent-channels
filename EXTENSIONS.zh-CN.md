@@ -87,6 +87,7 @@ Node 侧只认契约，后端因此可替换。第 4、5 节是细节。
 | 出站 | 文本，**keyed 幂等**（OutboundMessage 的 id 作为 `Idempotency-Key` 发出），进程内串行且间隔 ≥1 秒。群里可按开关带 @（`mentionBack`，按发送人 id 解析成显示名）；**没有原生引用**——客户端库的 `SendMsg` 没有 quote 参数，见 ADR-007 |
 | 入站媒体 | 图片，经 sidecar 下载，按魔数判定；群与单聊走同一条 `/media` 链路。面板可关（关掉只在正文留 `[图片]`，不下载） |
 | 入站语音 | 转写为文字（`to_text`，每条最多占用客户端 UI 8 秒，失败降级为占位）。面板可关，关掉正文是 `[语音消息]` |
+| 完成也要回评 | 接单回执由引擎自动发；**完成结论以前只靠主 Session 主动调 `orchestrator_reply`**，漏了就只剩接单回执、来源永远等不到结果。现在工单**结束**时会在它发起的那条会话里补一条「已完成/已合并/已放弃：<执行者报告摘要>」，主 Session 已经回过就不再发第二条；机器发起的工单、以及被人工停止的工单不发。频道有长度上限时先试摘要、再退到一句短的，两边都放不下就静默并在事件里报 `result.announceFailed` |
 | 云效怎么才算接单 | 工作项没有「@」：**指派给某人**就是明确请求。判定是三层的——①「评估 → 评估设置 → 接单模式」不能是「关闭」；②「评估 → 策略 → 在各来源上 → 能发起工作的云效成员」必须含**指派给的人**的 accountId（工作项「指派给」那一栏的 id）。指派在名单内的人身上 → 直接接单（不需要自动模式）；未指派的工作项属于悬在池子里的条目 → 最多算「推断」，只有「自动接单」模式才会接；③接单规则里必须有一条被模型判为匹配，否则 `noRuleMatched`。名单为空时所有工作项都判「名单外」 |
 | 云效 Projex 的接口 | 轮询走 `POST /oapi/v1/projex/organizations/{org}/workitems:search`：项目以 `spaceId` 传入，裸数组响应，`page`/`perPage` 分页；时间窗用 `conditionGroups`（数组套数组 + `className: dateTime`/`format: input`）。旧路径 `GET /listWorkitems` 已在网关上下线，会一直返回 404。评论正文是 `content` 里的 `htmlValue` JSON，作者字段是 `user`；状态回写是 `PUT /workitems/{id}` 带 `{status: <statusId>}`（`POST .../status` 同样不存在） |
 | 执行目录的根目录 | 必须是**绝对路径**：`/srv/work`、`D:\Work`、`D:/Work`、`\\server\share` 都行；相对路径会被拒；留空则用 `<stateDir>\work`。2026-11-09 之前只接受以 `/` 开头的路径（schema 与输入框 pattern 两处），Windows 盘符路径填不进去 |
