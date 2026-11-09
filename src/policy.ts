@@ -91,7 +91,7 @@ const CommandNameSchema = z.string().regex(/^[A-Za-z0-9._-]+$/).refine(name => n
 export const ExecutorConfigSchema = z.object({
   model: RoleModelSchema.nullable().default(null),
   maxWorkers: z.number().int().min(LIMITS.maxWorkers.min).max(LIMITS.maxWorkers.max).default(3),
-  directory: z.string().trim().refine(path => path === '' || path.startsWith('/'), 'An absolute path, or empty for <stateDir>/work').default(''),
+  directory: z.string().trim().refine(isAbsoluteDirectory, 'An absolute path, or empty for <stateDir>/work').default(''),
   prepare: z.string().max(LIMITS.prepareCommand).default(''),
   blockedCommands: z.array(CommandNameSchema).default([]),
 }).strict()
@@ -114,6 +114,20 @@ export type SettingsSave = SettingsBlock | 'pause'
 export type SettingsOrigin = 'panel' | 'tool' | 'sync'
 
 export const POLICY_REVISION = 'mandate-v3'
+/**
+ * An absolute directory on either platform. `/srv/work` and a drive-letter path (`C:\x`, `C:/x`) both count, as does a UNC
+ * share (`\\server\share`); a relative path does not. Empty means `<stateDir>/work`.
+ *
+ * It used to be `startsWith('/')`, which refused every Windows path - so the field could not hold the directory the
+ * operator actually wanted, and the input's own `pattern` refused it as well.
+ */
+export function isAbsoluteDirectory(value: string): boolean {
+  if (value === '') return true
+  if (value.startsWith('/')) return true
+  if (value.startsWith('\\\\')) return true
+  return /^[A-Za-z]:[\\/]/.test(value)
+}
+
 /**
  * Compute a version hash for settings that affect work authorization.
  * Changes to models, concurrency, pause state, or polling intervals do not invalidate existing decisions.

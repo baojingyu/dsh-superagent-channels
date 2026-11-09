@@ -11,6 +11,12 @@ import { ConfigHistory, Field, Fields, ModelField, numberOf, useBlockDraft, useS
 import { localized } from './text.ts'
 import { ConfirmButton, Hint, LabelValue, LoadMore, LoadState, Section, StatusHead } from './widgets.tsx'
 
+/**
+ * `pattern` is a whole-value match, compiled with the `v` flag - so punctuation inside a character class is risky, and this
+ * spells the three absolute shapes out instead: `/x`, a drive-letter path (`C:\x` or `C:/x`) and a UNC share (`\\server`).
+ */
+export const ABSOLUTE_DIRECTORY = String.raw`/.*|[A-Za-z]:.*|\\\\.*`
+
 export function ExecutionStatus({ filter: current, state, reload }: {
   filter: TicketFilter; state: StateView; reload: () => Promise<void>
 }) {
@@ -105,8 +111,8 @@ export function ExecutionSettings() {
           <h2 className="dt-block-title">{t('term.environment')}<InfoTip text={t('environmentIntro')} /></h2>
           <Field label={t('executionDirectory')} hint={t('executionDirectoryHint')} note={value.directory ? undefined
             : t('executionDirectoryDefault', { root: environment.root })}>
-            <Input className="dt-mono" value={value.directory} placeholder={t('executionDirectoryEmpty')} spellCheck={false} pattern="/.*"
-              onChange={event => edit({ directory: event.target.value })} />
+            <Input className="dt-mono" value={value.directory} placeholder={t('executionDirectoryEmpty')} spellCheck={false}
+              pattern={ABSOLUTE_DIRECTORY} onChange={event => edit({ directory: event.target.value })} />
           </Field>
           <Field label={t('prepareCommand')} hint={t('prepareCommandHint')}>
             <textarea ref={prepare} className="dt-textarea dt-mono" rows={3} maxLength={LIMITS.prepareCommand} spellCheck={false}

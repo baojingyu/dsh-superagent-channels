@@ -488,6 +488,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/work-port.spec.ts` | `workKind`'s category-to-row mapping and its outbound replies over a stub `WorkAdapter` |
 | `tests/weixin-bridge.spec.ts` | The Weixin bridge client over a stub `fetch`: its six endpoints, the bearer token file's mode, the event mapping, the idempotency key and the failure codes |
 | `tests/weixin-watch.spec.ts` | The Weixin polling loop's listen set: the configured ids it pushes each round, the chats the backend could not resolve, and the two cases where it must send nothing |
+| `tests/execution-directory.spec.ts` | The ticket directory root: an absolute path on either platform (`/x`, `C:\x`, `C:/x`, `\\server\share`), refused when relative, in both the schema and the input's own pattern |
 | `tests/state-lock.spec.ts` | `acquireStateLock`: takes a free state directory, takes over a lock whose holder is gone, waits out one that is briefly held, and names the remedy when it is really held |
 | `tests/state-lock.spec.ts` | `acquireStateLock`: takes a free state directory, takes over a lock whose holder is gone, waits out one that is briefly held, and names the remedy when it is really held |
 | `tests/person-notice.spec.ts` | `personNotice`: the one line a person gets when their message is refused, per reason code and the fallback |
