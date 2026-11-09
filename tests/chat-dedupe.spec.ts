@@ -84,9 +84,9 @@ describe('chatKind', () => {
 
   it('reads reception from the configured chat lists, naming the scope row the Policy admits', () => {
     const scope = kind.scope!
-    expect(scope({ meta: { chatId: 'room-1' } }, config)).toEqual({ listened: true, observed: true, row: 'chats' })
+    expect(scope({ meta: { chatId: 'room-1' } }, config)).toEqual({ listened: true, observed: true, row: 'room-1' })
     expect(scope({ meta: { chatId: 'room-1' } }, ChatConfigSchema.parse({ chats: [{ chatId: 'room-1', listen: 'mentions' }], otherChats: 'mentions' })))
-      .toEqual({ listened: true, observed: false, row: 'chats' })
+      .toEqual({ listened: true, observed: false, row: 'room-1' })
     expect(scope({ meta: { chatId: 'room-2' } }, config)).toEqual({ listened: true, observed: false, row: 'otherChats' })
     expect(scope({ meta: { chatId: 'room-2' } }, ChatConfigSchema.parse({ chats: [], otherChats: 'none' })))
       .toEqual({ listened: false, reason: 'chat_not_allowed' })

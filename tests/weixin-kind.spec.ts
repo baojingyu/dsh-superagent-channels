@@ -65,33 +65,33 @@ describe('weixinKind scope', () => {
   const scope = weixinKind.scope!
   it('addresses a group message only when the structured ats list names this account', () => {
     expect(scope({ meta: { room: 'room-1', ats: ['wxid_b', 'wxid_self'] } }, config))
-      .toEqual({ listened: true, observed: true, row: 'groupAddressed' })
+      .toEqual({ listened: true, observed: true, row: 'room-1' })
   })
   it('leaves an unmentioned group message ambient, and unlistened while atOnly is on', () => {
     // `reason` is what Intake records for the filter; the plan's observed/row fields say it stays Thread-context material.
     expect(scope({ meta: { room: 'room-1', ats: ['wxid_b'] } }, config))
-      .toEqual({ listened: false, reason: 'group_ambient', observed: true, row: 'groupAmbient' })
+      .toEqual({ listened: false, reason: 'group_ambient', observed: true, row: 'room-1' })
     expect(scope({ meta: { room: 'room-1' } }, config))
-      .toEqual({ listened: false, reason: 'group_ambient', observed: true, row: 'groupAmbient' })
+      .toEqual({ listened: false, reason: 'group_ambient', observed: true, row: 'room-1' })
   })
   it('receives ambient group messages when atOnly is off', () => {
     expect(scope({ meta: { room: 'room-1', ats: ['wxid_b'] } }, { ...config, atOnly: false }))
-      .toEqual({ listened: true, observed: true, row: 'groupAmbient' })
+      .toEqual({ listened: true, observed: true, row: 'room-1' })
   })
   it('admits an un-@ed group message when its text names a configured keyword', () => {
     const withKeywords = { ...config, keywords: [{ any: '订单' }] }
     // The keyword says the group was talking about something this Source cares about, so the message is listened to; it is
     // still an ambient row, because no one mentioned the agent.
     expect(scope({ meta: { room: 'room-1', ats: [] }, text: '帮我查一下订单状态' }, withKeywords))
-      .toEqual({ listened: true, observed: true, row: 'groupAmbient' })
+      .toEqual({ listened: true, observed: true, row: 'room-1' })
     // Case-insensitive, and a miss still filters.
     expect(scope({ meta: { room: 'room-1', ats: [] }, text: 'ORDER 已发货' }, { ...config, keywords: [{ any: 'order' }] }))
-      .toEqual({ listened: true, observed: true, row: 'groupAmbient' })
+      .toEqual({ listened: true, observed: true, row: 'room-1' })
     expect(scope({ meta: { room: 'room-1', ats: [] }, text: '今天天气不错' }, withKeywords))
-      .toEqual({ listened: false, reason: 'group_ambient', observed: true, row: 'groupAmbient' })
+      .toEqual({ listened: false, reason: 'group_ambient', observed: true, row: 'room-1' })
     // A keyword does not fabricate a mention: an addressed message keeps its stronger row.
     expect(scope({ meta: { room: 'room-1', ats: ['wxid_self'] }, text: '订单' }, withKeywords))
-      .toEqual({ listened: true, observed: true, row: 'groupAddressed' })
+      .toEqual({ listened: true, observed: true, row: 'room-1' })
   })
 
   it('always receives a direct message', () => {
@@ -104,13 +104,13 @@ describe('weixinKind scope', () => {
     // which is the difference between "nobody mentioned you" and "this backend cannot tell".
     const limited = createWeixinKind({ capabilities: () => ({ mentions: 'none', members: 'none', media: true }) }).scope!
     expect(limited({ meta: { room: 'room-1', ats: ['wxid_self'] } }, config))
-      .toEqual({ listened: false, reason: 'mentions_unsupported', observed: true, row: 'groupAmbient' })
+      .toEqual({ listened: false, reason: 'mentions_unsupported', observed: true, row: 'room-1' })
   })
 
   it('receives group messages from such a backend once atOnly is off, leaving admission to the rules', () => {
     const limited = createWeixinKind({ capabilities: () => ({ mentions: 'none', members: 'none', media: true }) }).scope!
     expect(limited({ meta: { room: 'room-1' } }, { ...config, atOnly: false }))
-      .toEqual({ listened: true, observed: true, row: 'groupAmbient' })
+      .toEqual({ listened: true, observed: true, row: 'room-1' })
     // A direct message is unaffected: it needs no mention to be addressed to the agent.
     expect(limited({ meta: {} }, config)).toEqual({ listened: true, observed: false, row: 'directMessages' })
   })
@@ -120,9 +120,9 @@ describe('weixinKind scope', () => {
     // fact for a person, not a branch in the scope rule.
     const marked = createWeixinKind({ capabilities: () => ({ mentions: 'markup', members: 'observed', media: true }) })
     expect(marked.scope!({ meta: { room: 'room-1', ats: ['wxid_self'] } }, config))
-      .toEqual({ listened: true, observed: true, row: 'groupAddressed' })
+      .toEqual({ listened: true, observed: true, row: 'room-1' })
     expect(marked.scope!({ meta: { room: 'room-1', ats: [] } }, config))
-      .toEqual({ listened: false, reason: 'group_ambient', observed: true, row: 'groupAmbient' })
+      .toEqual({ listened: false, reason: 'group_ambient', observed: true, row: 'room-1' })
   })
 })
 

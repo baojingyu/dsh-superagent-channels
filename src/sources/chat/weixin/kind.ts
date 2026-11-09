@@ -198,6 +198,20 @@ export function createWeixinKind(hooks: WeixinKindHooks = {}): SourceKind<Weixin
         ] },
     ],
     explicit: { zh: '名单内的人 @ 机器人或私聊机器人，总是明确的请求，不需要配置。', en: 'Someone on the list who mentions the bot or messages it directly always makes an explicit request; that needs no setting.' },
+    // 行＝接收范围：每个已订阅的群（注解「仅 @」或「全部消息」）与私聊；云效之外的会话（其他群）根本不会被监听，所以不列。
+    rows(stored) {
+      const config = stored as Partial<WeixinConfig>
+      const rooms = Array.isArray(config.rooms) ? config.rooms : []
+      const atOnly = config.atOnly !== false
+      const note = atOnly ? { zh: '仅 @', en: '@ only' } : { zh: '全部消息', en: 'All' }
+      return [
+        ...rooms.map(room => ({ id: room.id, label: room.name || room.id, note,
+          cells: { listedUnaddressed: !atOnly, unlistedAddressed: true, unlistedUnaddressed: !atOnly } })),
+        { id: 'directMessages', label: { zh: '私聊', en: 'Direct messages' },
+          note: config.directMessages === false ? { zh: '不接收', en: 'Not received' } : { zh: '接收', en: 'Received' },
+          cells: { listedUnaddressed: false, unlistedAddressed: config.directMessages !== false, unlistedUnaddressed: false } },
+      ]
+    },
     warnings(config, part) {
       if (part.allowed.length > 0) return []
       return [{ zh: '「能发起工作的微信用户」是空的：现在任何人发消息都会被判为「名单外」而拒绝。人只在这一个地方配——私聊不需要在「接收的群」里再写一次。',
@@ -262,12 +276,13 @@ export function createWeixinKind(hooks: WeixinKindHooks = {}): SourceKind<Weixin
       const keyword = keywordHit(input.text, config.keywords)
       if (capabilitiesOf()?.mentions === 'none') {
         return config.atOnly && !keyword
-          ? { listened: false, reason: 'mentions_unsupported', observed: true, row: 'groupAmbient' }
-          : { listened: true, observed: true, row: 'groupAmbient' }
+          ? { listened: false, reason: 'mentions_unsupported', observed: true, row: room }
+          : { listened: true, observed: true, row: room }
       }
       const ats = Array.isArray(meta.ats) ? meta.ats.filter((id): id is string => typeof id === 'string') : []
       const addressed = ats.includes(config.selfWxid)
-      const row = addressed ? 'groupAddressed' : 'groupAmbient'
+      // The group names its own admission row, one line per conversation in the table.
+      const row = room
       return addressed || !config.atOnly || keyword
         ? { listened: true, observed: true, row }
         : { listened: false, reason: 'group_ambient', observed: true, row }

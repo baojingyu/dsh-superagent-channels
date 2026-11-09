@@ -3,7 +3,7 @@
  * health entry, receiving scope, and note channel on top of a `HostAdapter` (§5.2, §5.3 of the extension design).
  */
 import { z } from 'zod'
-import type { FieldSpec, Localized, SourceKind } from '../kind.ts'
+import type { AdmissionRowView, FieldSpec, Localized, SourceKind, SourcePolicyPart } from '../kind.ts'
 import type { HostAdapter } from './port.ts'
 
 /** Configuration every hosting kind shares: the repository to watch, the token file setup reads, and the polling interval. */
@@ -39,6 +39,26 @@ const FIELDS: FieldSpec[] = [
     hint: { zh: '宿主要求更长间隔时以宿主为准。', en: 'A longer interval requested by the host wins.' } },
 ]
 
+/**
+ * The Policy part every hosting kind shares: the accounts that may originate work and the bots whose comments may become
+ * candidates, plus the admission table over the four reception ranges. GitLab had none of this - `hostingKind` declared no
+ * `policy` - so its Source could not be authorized at all and the panel showed no table.
+ */
+const HostingPolicySchema = z.object({
+  allowed: z.array(z.object({ id: z.string().trim().min(1).max(200), name: z.string().trim().max(100).optional() }).strict()).default([]),
+  bots: z.array(z.object({ id: z.string().trim().min(1).max(200) }).strict()).optional(),
+}).strict()
+/** Every hosting Trigger is received, so each range is "全部"; CI has no sender, so only its unaddressed cell applies. */
+const HOSTING_ROWS: readonly AdmissionRowView[] = [
+  { id: 'issues', label: { zh: '新 Issue', en: 'New Issues' }, note: { zh: '全部', en: 'All' },
+    cells: { listedUnaddressed: true, unlistedAddressed: true, unlistedUnaddressed: true } },
+  { id: 'pulls', label: { zh: '新 MR', en: 'New merge requests' }, note: { zh: '全部', en: 'All' },
+    cells: { listedUnaddressed: true, unlistedAddressed: true, unlistedUnaddressed: true } },
+  { id: 'comments', label: { zh: '评论', en: 'Comments' }, note: { zh: '全部', en: 'All' },
+    cells: { listedUnaddressed: true, unlistedAddressed: true, unlistedUnaddressed: true } },
+  { id: 'ci', label: { zh: '默认分支的 CI', en: 'Default branch CI' }, note: { zh: '接收', en: 'Received' },
+    cells: { listedUnaddressed: false, unlistedAddressed: false, unlistedUnaddressed: true } },
+]
 /** The row a Trigger's own metadata is admitted under: CI first, then the change's kind, then the kinds of its notes. */
 function rowOf(meta: Record<string, unknown>): HostingRow | undefined {
   if (meta.ci === true) return 'ci'
@@ -70,6 +90,28 @@ export function hostingKind<C extends Record<string, unknown>>(adapter: HostAdap
     scope: input => {
       const row = rowOf(input.meta)
       return row ? { listened: true, observed: true, row } : { listened: true, observed: false }
+    },
+    policy: {
+      unnamed: { person: { zh: '账号', en: 'Account' }, bot: { zh: '机器人账号', en: 'Bot account' } },
+      schema: HostingPolicySchema,
+      fields: [
+        { key: 'allowed', type: 'rows', label: { zh: '能发起工作的账号', en: 'Accounts that may originate work' },
+          columns: [{ key: 'id', type: 'text', label: { zh: '账号', en: 'Account' } },
+            { key: 'name', type: 'text', label: { zh: '名字', en: 'Name' }, optional: true }] },
+        { key: 'bots', type: 'rows', label: { zh: '评论可以成为候选的机器人', en: 'Bots whose comments may become candidates' },
+          hint: { zh: '名单里机器人账号的评论会成为推断的候选，交给评估；它们不能发起明确的请求，也不能停止工单。',
+            en: 'A listed bot\'s comments become inferred candidates for the Eval; a bot can neither make an explicit request nor stop a ticket.' },
+          columns: [{ key: 'id', type: 'text', label: { zh: '账号', en: 'Account' } }] },
+      ],
+      // A merge request or a note names the agent by mentioning it, exactly like an Issue.
+      explicit: { zh: '名单里的账号在新 Issue、合并请求或评论里 @ 智能体。',
+        en: 'An account on the list mentions the agent in a new Issue, merge request, or comment.' },
+      rows: () => [...HOSTING_ROWS],
+      warnings(_config, part) {
+        if (part.allowed.length > 0) return []
+        return [{ zh: '「能发起工作的账号」是空的：收到的每个 Issue、合并请求与评论都会被判「名单外」而拒绝。',
+          en: 'No account may originate work, so every Issue, merge request and comment is refused as unlisted.' }]
+      },
     },
     channel: {
       capabilities: { idempotency: 'marker', markdown: true },

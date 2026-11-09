@@ -46,6 +46,23 @@ export function chatKind<C extends Record<string, unknown>>(adapter: ChatAdapter
         columns: [{ key: 'id', type: 'text', label: { zh: '用户 ID', en: 'User ID' } }, { key: 'name', type: 'text', label: { zh: '名字', en: 'Name' }, optional: true }] },
     ],
     explicit: { zh: '名单内的人 @ 机器人或私聊机器人，总是明确的请求，不需要配置。', en: 'Someone on the list who mentions the bot or messages it directly always makes an explicit request; that needs no setting.' },
+    // 行＝接收范围：每个已配置的会话（注解「仅 @」或「全部消息」）、其他群、私聊。只有该范围真实可用的格子才可编辑。
+    rows(stored) {
+      const settings = scopeConfig(stored)
+      const mentions = { zh: '仅 @', en: '@ only' }
+      const everything = { zh: '全部消息', en: 'All' }
+      return [
+        ...(settings.chats ?? []).map(chat => ({ id: chat.chatId, label: chat.name || chat.chatId,
+          note: chat.listen === 'all' ? everything : mentions,
+          cells: { listedUnaddressed: chat.listen === 'all', unlistedAddressed: true, unlistedUnaddressed: chat.listen === 'all' } })),
+        { id: 'otherChats', label: { zh: '其他群', en: 'Other chats' },
+          note: settings.otherChats === 'mentions' ? mentions : { zh: '不接收', en: 'Not received' },
+          cells: { listedUnaddressed: false, unlistedAddressed: settings.otherChats === 'mentions', unlistedUnaddressed: false } },
+        { id: 'directMessages', label: { zh: '私聊', en: 'Direct messages' },
+          note: settings.directMessages ? { zh: '接收', en: 'Received' } : { zh: '不接收', en: 'Not received' },
+          cells: { listedUnaddressed: false, unlistedAddressed: !!settings.directMessages, unlistedUnaddressed: false } },
+      ]
+    },
   }
   return {
     kind: meta.host,
@@ -66,7 +83,8 @@ export function chatKind<C extends Record<string, unknown>>(adapter: ChatAdapter
       }
       const chatId = typeof inbound.chatId === 'string' ? inbound.chatId : undefined
       const chat = settings.chats?.find(item => item.chatId === chatId)
-      if (chat) return { listened: true, observed: chat.listen === 'all', row: 'chats' }
+      // The configured chat names its own row, so the admission table can carry one line per conversation.
+      if (chat) return { listened: true, observed: chat.listen === 'all', row: chatId }
       return settings.otherChats === 'mentions'
         ? { listened: true, observed: false, row: 'otherChats' }
         : { listened: false, reason: 'chat_not_allowed' }
