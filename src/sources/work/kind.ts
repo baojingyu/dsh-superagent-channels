@@ -1,7 +1,7 @@
 /** Factory of the work (work-item) source kind: shared configuration, admission rows by category, comment channel, and health. */
 import { z } from 'zod'
 import type { OutboundMessage } from '../../core/index.ts'
-import type { ChannelHost, ChannelLink, FieldSpec, Localized, SourceKind } from '../kind.ts'
+import type { AdmissionRowView, ChannelHost, ChannelLink, FieldSpec, Localized, SourceKind, SourcePolicyPart } from '../kind.ts'
 import type { WorkAdapter } from './port.ts'
 
 /** Configuration every work-kind instance shares; a host adapter maps its project and token file onto these keys. */
@@ -21,6 +21,25 @@ export type WorkConfig = z.infer<typeof WorkConfigSchema>
 
 /** Admission row each work-item category belongs to; categories without a row are received but not admitted. */
 const ROWS: Readonly<Record<string, string>> = { requirement: 'requirements', bug: 'bugs', task: 'tasks' }
+/**
+ * The Policy part of a work kind: the members who may originate work here. Ids are the host's own account ids - the very value
+ * the adapter puts in `WorkItem.assignee`/`author.id` - because that is what the gate compares against.
+ */
+const WorkPolicySchema = z.object({
+  allowed: z.array(z.object({ id: z.string().trim().min(1), name: z.string().trim().max(100).optional() }).strict()).default([]),
+}).strict()
+/** The three rows the categories map onto, each configurable on its own in the panel. */
+const ADMISSION_ROWS: readonly AdmissionRowView[] = [
+  { id: 'requirements', label: { zh: '需求', en: 'Requirements' },
+    note: { zh: '需求在名单内的人身上时，是否算可接的工作', en: 'Whether a requirement on a listed member counts as work' },
+    cells: { listedUnaddressed: true, unlistedAddressed: true, unlistedUnaddressed: true } },
+  { id: 'bugs', label: { zh: '缺陷', en: 'Bugs' },
+    note: { zh: '缺陷在名单内的人身上时，是否算可接的工作', en: 'Whether a bug on a listed member counts as work' },
+    cells: { listedUnaddressed: true, unlistedAddressed: true, unlistedUnaddressed: true } },
+  { id: 'tasks', label: { zh: '任务', en: 'Tasks' },
+    note: { zh: '任务在名单内的人身上时，是否算可接的工作', en: 'Whether a task on a listed member counts as work' },
+    cells: { listedUnaddressed: true, unlistedAddressed: true, unlistedUnaddressed: true } },
+]
 /** Form fields of the shared configuration; a concrete kind may supply its own through `meta.fields`. */
 const FIELDS: readonly FieldSpec[] = [
   { key: 'project', type: 'text', label: { zh: '项目空间', en: 'Project' },
@@ -114,6 +133,34 @@ export function workKind<C extends Record<string, unknown> = WorkConfig>(
     schema,
     fields: [...(meta.fields ?? FIELDS), ...(meta.extraFields ?? [])],
     health: [meta.host ?? adapter.host],
+    policy: {
+      unnamed: { person: { zh: '云效成员', en: 'Yunxiao member' }, bot: { zh: '云效机器人', en: 'Yunxiao bot' } },
+      schema: WorkPolicySchema,
+      fields: [
+        { key: 'allowed', type: 'rows', label: { zh: '能发起工作的云效成员', en: 'Members who may originate work' },
+          hint: { zh: '这里是**授权**：名单里的人的**工作项**（需求/缺陷/任务）才会被当作可接的工作。填云效的成员 accountId——就是工作项'
+            + '「指派给」里那个人的 id，不是姓名。不填则所有工作项都会被判「名单外」而拒绝（`/health` 与事件都会这么说）。',
+            en: 'Authorization: only work items belonging to a listed member can become work. Ids are Yunxiao account ids - the '
+              + 'assignee\'s id, not a name. Empty refuses every work item as unlisted.' },
+          columns: [
+            { key: 'id', type: 'text', label: { zh: '成员 ID', en: 'Member ID' } },
+            { key: 'name', type: 'text', label: { zh: '名字', en: 'Name' }, optional: true },
+          ] },
+      ],
+      // A work item has no mention to give: what makes it a request is being assigned to someone, which `workTrigger` records
+      // as a direct address. An item left in the backlog is ambient and stays an inferred candidate at best.
+      explicit: { zh: '工作项没有「@」：**指派给某人**就是一次明确的请求；指派在名单内的人身上，就直接是可接的工作。未指派的工作项属于'
+        + '「悬在池子里」的条目，只有在「自动接单」模式下才可能被推断接单。',
+        en: 'A work item has no mention: being assigned to someone is the explicit request, and an item assigned to a listed '
+          + 'member is work directly. An unassigned item is ambient and can only be an inferred candidate in auto mode.' },
+      rows: () => [...ADMISSION_ROWS],
+      warnings(_config, part) {
+        if (part.allowed.length > 0) return []
+        return [{ zh: '「能发起工作的云效成员」是空的：任何工作项都会被判「名单外」而拒绝。填入成员 accountId（工作项「指派给」里那个人的 id）。',
+          en: 'The member list is empty, so every work item is refused as unlisted. Add the member account id - the id the item '
+            + 'is assigned to.' }]
+      },
+    } satisfies SourcePolicyPart<Record<string, unknown> & { allowed: { id: string; name?: string }[] }>,
     // Work items are received as a whole; the category only selects the admission row of the Policy.
     scope: input => {
       const category = input.meta.category

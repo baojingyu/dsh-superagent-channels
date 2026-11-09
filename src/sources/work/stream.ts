@@ -41,6 +41,9 @@ export function workTrigger(item: WorkItem, instance: string, project: string): 
     threads: [{ source: instance, id: item.key }],
     actor: { source: instance, id: item.assignee?.id ?? item.author.id },
     human: !item.author.bot,
+    // A work item carries no mention. Being assigned is the explicit hand-off: someone put this on a person. An item still in
+    // the backlog (`assignee` absent) is ambient, so it can only reach the agent as an inferred candidate.
+    ...(item.assignee ? { addressed: 'direct' as const } : {}),
     at: item.updatedAt || item.createdAt,
     text: item.body || item.title,
     ...item.url ? { url: item.url } : {},

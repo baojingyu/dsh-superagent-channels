@@ -496,6 +496,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/weixin-kind.spec.ts` | The Weixin `SourceKind`: its schema and fields, the structured `@` scope rule, the Channel and policy, the environment and its facts |
 | `tests/hosting-gitlab.spec.ts` | The GitLab adapter and the hosting HTTP client: the merge request, note and pipeline mappings, paging, idempotent replies, and the token and path checks |
 | `tests/hosting-gitlab-kind.spec.ts` | The GitLab hosting `SourceKind`: its identity, schema and fields, its environment and its scope rows |
+| `tests/work-policy.spec.ts` | Projex admission: an assignment is the direct request, an unassigned item stays ambient, a listed member's assigned item is explicit, an unlisted one is refused, and the three category rows are offered |
 | `tests/work-projex.spec.ts` | The Projex adapter: work items and notes by category, `workitems:search` paging, idempotent replies, and the Yunxiao client's checks |
 | `tests/work-projex-kind.spec.ts` | The Projex work `SourceKind`: its identity and fields, its schema, its scope rows, its environment and Channel capabilities |
 | `tests/dingtalk-adapter.spec.ts` | The DingTalk adapter over injected `fetch`/`connect`: the stream-event parse, the sessionWebhook and oapi sends, the idempotency marker, the failure codes and the stream's abort |
