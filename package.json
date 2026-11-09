@@ -2,7 +2,7 @@
   "name": "dsh-superagent-channels",
   "author": "DeepSeek Harness Team <team@dsh.dev>",
   "license": "MIT",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Extra chat and work channels for DSH as a standalone bundle: WeChat, Feishu, DingTalk, WeCom, GitLab, Yunxiao Projex and GitHub. A Source receives a request, a Policy decides whether it becomes work, and each Ticket runs in its own DSH Session. Installs alongside the official superagent under its own name.",
   "type": "module",
   "main": "lib/index.js",

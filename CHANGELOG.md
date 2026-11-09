@@ -3,6 +3,15 @@
 Versions follow semantic versioning; each release is published to the plugin market under the package name
 `dsh-superagent-channels`, so a user upgrades by installing the new version.
 
+## 1.0.3
+
+The WeChat bridge is controlled entirely from the panel, with no command line and no scheduled-task setup.
+
+- Advanced -> Bridge launcher holds the absolute path of the machine's start script. Start launches it detached and windowless, so the
+  bridge survives a DSH restart; the script's contents (client library, local shim) never enter the repository.
+- Stop finds the process listening on the bridge's own port and ends it only after its command line proves it is the sidecar.
+- Restart is stop-then-start; Check still reads /health. A configured task name remains the fallback when no launcher is set.
+
 ## 1.0.2
 
 The WeChat bridge can be started and stopped from the panel, without the plugin owning the process.

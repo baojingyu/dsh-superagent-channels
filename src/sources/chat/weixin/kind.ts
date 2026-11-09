@@ -1,4 +1,7 @@
 /** Weixin Source kind: group messages judged by structured `@`, echo-idempotent replies through the sidecar bridge, and its environment. */
+import { spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import { dirname } from 'node:path'
 import { z } from 'zod'
 import type { OutboundMessage } from '../../../core/index.ts'
 import { KV } from '../../../kv.ts'
@@ -47,6 +50,12 @@ export const WeixinConfigSchema = z.object({
    * start or stop it. Validated to a task name so a button can never become a command.
    */
   bridgeTask: z.string().trim().min(1).max(200).regex(/^[A-Za-z0-9 _.\-\\]+$/, 'Invalid task name').default('DSH-WeChat-Bridge'),
+  /**
+   * Absolute path of this machine's bridge launcher (a .cmd or .bat). The plugin starts it detached so the bridge outlives a DSH
+   * restart, and never needs to know what is inside: the client library and its local shim stay on the machine, out of the repository.
+   * Filled in the panel, so starting the bridge needs no command line.
+   */
+  bridgeLauncher: z.string().trim().max(400).default(''),
   /**
    * How long one bridge request may take, in seconds. The default is generous because some endpoints
    * drive the client's own UI: listing chats enumerates the contact pages, which costs ~10 s on a busy
@@ -126,6 +135,49 @@ async function schtasks(host: SourceHost, task: string, verb: '/run' | '/end', s
   await commands.run('schtasks', [verb, '/tn', task])
 }
 
+/** Absolute path of the launcher, or empty when the panel has not been given one. */
+const launcherOf = (config: Record<string, unknown>): string => String(config.bridgeLauncher ?? '').trim()
+
+/**
+ * Start the bridge through this machine's launcher. Detached and windowless, so it keeps running after DSH exits - which is the
+ * whole point: a restarted DSH must not cost a UI re-attach. The argv is the launcher path alone: what it runs is the machine's
+ * business, and stays out of the repository.
+ */
+function startLauncher(config: Record<string, unknown>): number | undefined {
+  const launcher = launcherOf(config)
+  if (!launcher) return undefined
+  if (!existsSync(launcher)) throw new Error(`桥启动器不存在：${launcher}`)
+  const child = spawn(launcher, [], { detached: true, stdio: 'ignore', windowsHide: true, cwd: dirname(launcher) })
+  child.unref()
+  return child.pid
+}
+
+/** The PID listening on the bridge's own port, or none. Read from netstat so it works after a DSH restart lost any in-memory state. */
+async function bridgePids(host: SourceHost, config: Record<string, unknown>, signal?: AbortSignal): Promise<string[]> {
+  const port = Number(new URL(String(config.baseUrl ?? 'http://127.0.0.1:8787')).port || 80)
+  const commands = host.context({ kind: SOURCE, health: ['weixin'] }).commands.withSignal(signal)
+  const listing = await commands.run('netstat', ['-ano', '-p', 'tcp'])
+  const pattern = new RegExp(`127\\.0\\.0\\.1:${port}\\s+0\\.0\\.0\\.0:0\\s+LISTENING\\s+(\\d+)`, 'g')
+  return [...new Set([...listing.matchAll(pattern)].map(match => match[1]!))]
+}
+
+/** Stop the bridge: end whatever listens on its port, but only if its own command line says it is the bridge. */
+async function stopBridge(host: SourceHost, config: Record<string, unknown>, signal?: AbortSignal): Promise<string> {
+  const pids = await bridgePids(host, config, signal)
+  if (!pids.length) return '桥没有在监听，可能已经停止。'
+  const commands = host.context({ kind: SOURCE, health: ['weixin'] }).commands.withSignal(signal)
+  let ended = 0
+  for (const pid of pids) {
+    const commandLine = await commands.run('powershell', ['-NoProfile', '-NonInteractive', '-Command',
+      `(Get-CimInstance Win32_Process -Filter "ProcessId=${pid}").CommandLine`]).catch(() => '')
+    // Never kill a stranger that happens to own the port: the command line has to name the sidecar.
+    if (!/wxauto-bridge|server\.py/i.test(commandLine)) continue
+    await commands.run('taskkill', ['/PID', pid, '/T', '/F'])
+    ended += 1
+  }
+  return ended ? '已停止桥。' : '端口上那个进程不是微信桥，没有动它。'
+}
+
 const Fields: FieldSpec[] = [
   { key: 'baseUrl', type: 'text', advanced: true, label: { zh: '桥地址', en: 'Bridge URL' },
     hint: { zh: 'wxauto-bridge 的 loopback 地址，例如 http://127.0.0.1:8787；只允许本机，不要填公网地址。', en: 'Loopback address of wxauto-bridge, such as http://127.0.0.1:8787; localhost only, never a public address.' } },
@@ -173,6 +225,8 @@ const Fields: FieldSpec[] = [
     hint: { zh: '开启时语音会转成文字再交给评估；转写要驱动客户端界面，每条最多占用 8 秒，因此可以在不需要时关掉（关掉后文字是「[语音消息]」占位）。', en: 'On transcribes voice into text before Eval sees it; transcription drives the client UI and may hold it for up to eight seconds per message, so it can be turned off - the text then stays a `[语音消息]` placeholder.' } },
   { key: 'images', type: 'switch', advanced: true, label: { zh: '接收图片', en: 'Receive images' },
     hint: { zh: '开启时图片会作为附件交给模型；关闭时只在文字里留「[图片]」占位，不下载任何字节。', en: 'On hands images to the model as attachments; off leaves a `[图片]` placeholder in the text and downloads nothing.' } },
+  { key: 'bridgeLauncher', type: 'text', advanced: true, label: { zh: '桥启动器', en: 'Bridge launcher' },
+    hint: { zh: '本机用来启动 wxauto-bridge 的脚本绝对路径（.cmd / .bat），例如 C:\dev\dsh-superagent-channels-ext\start-wxbridge.cmd。插件只负责把它拉起来（后台、无窗口、脱离 DSH），脚本里写了什么由你决定——微信客户端库和本机 shim 都留在机器上，不进仓库。填了它就用它启动，比计划任务更直接。', en: 'Absolute path of the script that starts wxauto-bridge on this machine (a .cmd or .bat). The plugin only launches it - detached, hidden, independent of DSH - and does not care what is inside: the client library and the machine shim stay out of the repository. With this set, Start runs it directly instead of using the scheduled task.' } },
   { key: 'bridgeTask', type: 'text', advanced: true, label: { zh: '桥的计划任务', en: 'Bridge scheduled task' },
     hint: { zh: '本机跑 wxauto-bridge 的 Windows 计划任务名。插件不自己拉起进程，只用「启动桥 / 停止桥」按钮让这个任务启停；因为桥必须跑在已登录的桌面会话里，且要活过 DSH 重启。', en: 'The Windows scheduled task that runs wxauto-bridge on this machine. The plugin never spawns it; the Start/Stop buttons ask this task to run or end it, because the bridge must live in the signed-in desktop session and outlive a DSH restart.' } },
   { key: 'pollSeconds', type: 'number', advanced: true, min: 5, max: 3600, label: { zh: '轮询间隔 / 秒', en: 'Poll interval / s' },
@@ -418,22 +472,30 @@ export function createWeixinKind(hooks: WeixinKindHooks = {}): SourceKind<Weixin
     actions: [
       { id: 'bridge.start', label: { zh: '启动桥', en: 'Start bridge' },
         hint: { zh: '让本机计划任务启动 wxauto-bridge。需要微信客户端已登录，且这台机器上没有别的 UI 自动化客户端。', en: 'Asks the machine task to start wxauto-bridge. The WeChat client must be signed in, and no other UI-automation client may run.' },
-        ready: config => !!config.bridgeTask,
+        ready: config => !!launcherOf(config) || !!config.bridgeTask,
         run: async (host, config, signal) => {
+          const pid = startLauncher(config)
+          if (pid !== undefined) return `已启动桥（pid ${pid}）；几秒后点「检查桥」确认。`
           await schtasks(host, String(config.bridgeTask ?? ''), '/run', signal)
-          return '已请求启动桥；几秒后点「检查桥」确认。'
+          return '已请求计划任务启动桥；几秒后点「检查桥」确认。'
         } },
       { id: 'bridge.stop', label: { zh: '停止桥', en: 'Stop bridge' },
         hint: { zh: '结束这个计划任务里的桥进程；之后消息不会再进来，直到再次启动。', en: 'Ends the bridge in that task; messages stop arriving until it is started again.' },
-        ready: config => !!config.bridgeTask,
+        ready: config => !!launcherOf(config) || !!config.bridgeTask,
         run: async (host, config, signal) => {
+          if (launcherOf(config)) return stopBridge(host, config, signal)
           await schtasks(host, String(config.bridgeTask ?? ''), '/end', signal)
           return '已请求停止桥。'
         } },
       { id: 'bridge.restart', label: { zh: '重启桥', en: 'Restart bridge' },
         hint: { zh: '先结束再启动。客户端界面卡住、或换了微信账号之后用它。', en: 'Ends then starts it. Use it when the client UI is stuck or the WeChat account changed.' },
-        ready: config => !!config.bridgeTask,
+        ready: config => !!launcherOf(config) || !!config.bridgeTask,
         run: async (host, config, signal) => {
+          if (launcherOf(config)) {
+            await stopBridge(host, config, signal)
+            const pid = startLauncher(config)
+            return `已重启桥（pid ${pid}）；几秒后点「检查桥」确认。`
+          }
           const task = String(config.bridgeTask ?? '')
           await schtasks(host, task, '/end', signal)
           await schtasks(host, task, '/run', signal)

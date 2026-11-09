@@ -37,9 +37,40 @@ describe('WeChat bridge actions', () => {
     expect(calls).toEqual([['schtasks', '/end', '/tn', 'My-Bridge'], ['schtasks', '/run', '/tn', 'My-Bridge']])
   })
 
-  it('is only ready once a task name is set', () => {
+  it('is ready once a launcher or a task name is set', () => {
     expect(action('bridge.start').ready!(config)).toBe(true)
-    expect(action('bridge.start').ready!({ ...config, bridgeTask: '' })).toBe(false)
+    expect(action('bridge.start').ready!({ ...config, bridgeLauncher: 'C:\\x\\start.cmd' })).toBe(true)
+    expect(action('bridge.start').ready!({ ...config, bridgeTask: '', bridgeLauncher: '' })).toBe(false)
+  })
+
+  it('refuses to start through a launcher that is not there', async () => {
+    const calls: string[][] = []
+    await expect(action('bridge.start').run(hostOf(calls), { ...config, bridgeLauncher: 'C:\\nope\\missing.cmd' }))
+      .rejects.toThrow(/不存在/)
+    expect(calls).toEqual([])
+  })
+
+  it('stops nothing when no bridge is listening, and says so', async () => {
+    const host = {
+      context: () => ({ commands: { withSignal: () => ({ run: async () => '' }) } }),
+    } as unknown as SourceHost
+    await expect(action('bridge.stop').run(host, { ...config, bridgeLauncher: 'C:\\x\\start.cmd' }))
+      .resolves.toContain('没有在监听')
+  })
+
+  it('does not kill a process on the port whose command line is not the bridge', async () => {
+    const ran: string[][] = []
+    const host = {
+      context: () => ({ commands: { withSignal: () => ({ run: async (program: string, args: string[]) => {
+        ran.push([program, ...args])
+        if (program === 'netstat') return '  TCP    127.0.0.1:8787    0.0.0.0:0    LISTENING    4242'
+        if (program === 'powershell') return 'C:\\Windows\\explorer.exe'
+        return ''
+      } }) } }),
+    } as unknown as SourceHost
+    await expect(action('bridge.stop').run(host, { ...config, bridgeLauncher: 'C:\\x\\start.cmd' }))
+      .resolves.toContain('不是微信桥')
+    expect(ran.some(([program]) => program === 'taskkill')).toBe(false)
   })
 
   it('refuses a task name that is not a task name, at the schema and again at the call', async () => {
