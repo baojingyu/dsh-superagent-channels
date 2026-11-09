@@ -4,7 +4,7 @@ import type { OutboundMessage } from '../src/core/index.ts'
 import type { ChannelHost } from '../src/sources/kind.ts'
 import type { SourceHost } from '../src/sources/host.ts'
 import type { BridgeClient } from '../src/sources/chat/weixin/bridge.ts'
-import { WeixinConfigSchema, createWeixinKind, rememberWeixinStatus, weixinKind } from '../src/sources/chat/weixin/kind.ts'
+import { WeixinConfigSchema, createWeixinKind, mergeSynced, rememberWeixinStatus, weixinKind } from '../src/sources/chat/weixin/kind.ts'
 import type { WeixinConfig } from '../src/sources/chat/weixin/kind.ts'
 
 const config: WeixinConfig = WeixinConfigSchema.parse({ tokenFile: '/tmp/weixin.token', selfWxid: 'wxid_self', rooms: [{ id: 'room-1', name: 'Ops' }] })
@@ -323,5 +323,27 @@ describe('per-group reception', () => {
     expect(weixinKind.schema.safeParse({ ...base, tokenFile: '/tmp/t', selfWxid: 'wxid_self', rooms: [{ id: 'room-1', listen: 'all' }] }).success).toBe(true)
     // `allow` was a third place to grant work; authorization lives in the Policy list only.
     expect(weixinKind.schema.safeParse({ ...base, tokenFile: '/tmp/t', selfWxid: 'wxid_self', rooms: [{ id: 'room-1', allow: 'yes' }] }).success).toBe(false)
+  })
+})
+
+describe('syncing a group into the allow list', () => {
+  it('replaces what a previous sync added, keeps what a person added, and never duplicates an id', () => {
+    const allowed = [
+      { id: 'wxid_manual', name: '手加的' },
+      { id: 'wxid_old', name: '上次同步的', via: 'group' as const },
+      { id: 'wxid_both', name: '已存在', via: 'direct' as const },
+    ]
+    // `wxid_old` is no longer in the group, so the row a previous sync added must go.
+    const members = [{ id: 'wxid_both', name: '群里的名字' }, { id: 'wxid_new', name: '新成员' }]
+    const merged = mergeSynced(allowed, members)
+    // The hand-added rows survive in place; the stale sync row is gone; the collision is not duplicated.
+    expect(merged.map(entry => entry.id)).toEqual(['wxid_manual', 'wxid_both', 'wxid_new'])
+    expect(merged[1]).toMatchObject({ name: '已存在', via: 'direct' })
+    expect(merged[2]).toMatchObject({ name: '新成员', via: 'group' })
+  })
+
+  it('leaves the list alone when the group has no members to add', () => {
+    const allowed = [{ id: 'wxid_manual', name: '手加的' }]
+    expect(mergeSynced(allowed, [])).toEqual(allowed)
   })
 })

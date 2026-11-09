@@ -82,6 +82,22 @@ function keywordHit(text: string | undefined, keywords: readonly { any: string }
 }
 
 /**
+ * Fold a group's members into the allow list. Rows that came from a previous sync are replaced; rows a person added by hand stay,
+ * and win a collision by id, so a sync never duplicates or drops a manual entry. `via` is bookkeeping only - it decides what a
+ * later sync replaces, never whether someone may originate work.
+ */
+export function mergeSynced(
+  allowed: readonly { id: string; name?: string; via?: 'group' | 'direct' | '' }[],
+  members: readonly { id: string; name?: string }[],
+): { id: string; name?: string; via?: 'group' | 'direct' | '' }[] {
+  const manual = allowed.filter(entry => entry.via !== 'group')
+  const taken = new Set(manual.map(entry => entry.id))
+  const synced = members.filter(member => !taken.has(member.id))
+    .map(member => ({ id: member.id, ...(member.name ? { name: member.name } : {}), via: 'group' as const }))
+  return [...manual, ...synced]
+}
+
+/**
  * What one group hands over, resolved the one way every reader uses: the group's own `listen`, else the instance default `atOnly`.
  * A configuration written before per-group reception existed only has `atOnly`, and this keeps its behaviour.
  */
@@ -212,14 +228,12 @@ export function createWeixinKind(hooks: WeixinKindHooks = {}): SourceKind<Weixin
     schema: WeixinPolicySchema,
     fields: [
       { key: 'allowed', type: 'rows', label: { zh: '能发起工作的微信用户', en: 'WeChat users who may originate work' },
-        hint: { zh: '这里是授权：只有名单里的人发来的消息才可能成为可接的工作。它与「接收的群」是两件事——那个列表决定消息收不收得到，这个名单决定收到后能不能变成可接的工作。候选只含桥真见过的对象：先让对方在微信里发一条消息，再点同步。',
+        hint: { zh: '这里是授权：只有名单里的人发来的消息才可能成为可接的工作。它与「接收的群」是两件事——那个列表决定消息收不收得到，这个名单决定收到后能不能变成可接的工作。群消息还是私聊消息由消息本身决定，准入表据此自动分行政，这里不用标来源。候选只含桥真见过的对象：先让对方在微信里发一条消息，再点同步。',
           en: 'Authorization: only messages from people on this list can become work. It is separate from "Groups to receive" - that list decides what arrives, this one decides what may become work. Candidates only hold people the bridge has seen: have them message the bot once, then sync.' },
         columns: [
           { key: 'id', type: 'text', label: { zh: '用户 ID', en: 'User ID' }, pattern: '^[A-Za-z0-9_\-]+$',
             choose: { zh: '选择桥见过的发送人', en: 'Choose a sender the bridge has seen' } },
           { key: 'name', type: 'text', label: { zh: '名字', en: 'Name' }, optional: true },
-          { key: 'via', type: 'select', label: { zh: '来源', en: 'Source' },
-            options: [{ value: 'group', label: { zh: '群', en: 'Group' } }, { value: 'direct', label: { zh: '私聊', en: 'Direct' } }] },
         ] },
       { key: 'syncChat', type: 'text', pattern: '^[A-Za-z0-9_\-]*$', label: { zh: '同步来源群', en: 'Sync from group' },
         choose: { zh: '不同步', en: 'Do not sync' },
@@ -257,9 +271,7 @@ export function createWeixinKind(hooks: WeixinKindHooks = {}): SourceKind<Weixin
         const members = await bridgeFor(config).members(target?.name || room)
         if (signal.aborted) return part
         // Only people synced from a group are replaced; anyone marked as direct (or unmarked) stays.
-        const kept = part.allowed.filter(entry => entry.via === 'group' ? false : true)
-        const group = members.map(member => ({ id: member.id, ...(member.name ? { name: member.name } : {}), via: 'group' as const }))
-        return { ...part, allowed: [...kept, ...group] }
+        return { ...part, allowed: mergeSynced(part.allowed, members) }
       },
     },
     warnings(config, part) {
