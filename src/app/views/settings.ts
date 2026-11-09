@@ -21,7 +21,12 @@ export function policyOf(settings: Settings, sources: SourceRegistry, id: string
   const config = sources.instance(id)?.config ?? {}
   const sync = policy.sync && { label: policy.sync.label, ready: policy.sync.ready(part), health: health[`sync:${kind}`] }
   const warnings = policy.warnings?.(config, part) ?? []
-  return { policy: { fields: policy.fields, explicit: policy.explicit, ...policy.rows ? { rows: policy.rows(config) } : {},
+  // A kind's rows are derived from its own configuration, and a mistake there must not cost the operator the whole settings
+  // page - which is what happens when the view throws: the panel cannot load, so nothing can be saved at all.
+  const rows = (() => {
+    try { return policy.rows?.(config) ?? undefined } catch { return undefined }
+  })()
+  return { policy: { fields: policy.fields, explicit: policy.explicit, ...rows && rows.length ? { rows } : {},
     ...warnings.length ? { warnings } : {}, ...sync
     ? { sync } : {} } }
 }

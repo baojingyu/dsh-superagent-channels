@@ -41,10 +41,15 @@ const CATEGORY_ROWS: readonly { id: string; category: string; label: { zh: strin
   { id: 'tasks', category: 'task', label: { zh: '任务', en: 'Tasks' } },
 ]
 const DEFAULT_CATEGORIES: readonly string[] = ['requirement', 'bug', 'task']
-/** The rows of one instance: a category it polls is received, one it does not poll has nothing to admit. */
+/**
+ * The rows of one instance: a category it polls is received, one it does not poll has nothing to admit.
+ *
+ * The configuration here is the instance's whole config, which carries the host's own keys too (Projex adds `organizationId`), so
+ * it is read rather than validated - `WorkConfigSchema` is strict and would reject the sibling keys the host legitimately stores.
+ */
 function admissionRows(stored: Record<string, unknown>): AdmissionRowView[] {
-  const config = WorkConfigSchema.partial().parse(stored)
-  const categories = Array.isArray(config.categories) ? config.categories : DEFAULT_CATEGORIES
+  const listed = stored.categories
+  const categories = Array.isArray(listed) ? listed.filter((item): item is string => typeof item === 'string') : DEFAULT_CATEGORIES
   return CATEGORY_ROWS.map(row => {
     const received = categories.includes(row.category)
     return { id: row.id, label: row.label,
