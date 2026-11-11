@@ -1007,6 +1007,38 @@ describe('automatic input', () => {
     expect(h.executor.start).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: ticketId }), expect.objectContaining({ state: 'pending' }))
   })
 })
+describe('person reply resumes a blocked ticket', () => {
+  it('clears stale attention and starts a fresh Assignment for a person\'s reply, while a bot neither wakes nor clears it', () => {
+    const h = harness()
+    const ticketId = accepted(h).ticketId!
+    const ticket = () => h.repo.tickets.get(ticketId)!
+    h.engine.report(ticketId, { state: 'blocked', summary: 'needs a decision', question: 'Which page?' })
+    expect(ticket().attention).toBeDefined()
+    expect(ticketStage(ticket())).toEqual({ stage: 'person', action: 'answer' })
+    // A bot or CI message is held and neither clears the question nor launches anything.
+    vi.mocked(h.executor.start).mockClear(); vi.mocked(h.executor.stop).mockClear()
+    h.tick(1); h.engine.receive(trigger('2', { actor: guest, human: false })); h.settle()
+    expect(ticket().attention).toBeDefined()
+    expect(h.executor.start).not.toHaveBeenCalled()
+    // A person's reply answers the question: it ends the stalled Assignment, starts a fresh one and delivers the reply to it.
+    const before = ticket().assignments.length
+    h.tick(1); h.engine.receive(trigger('3', { actor: guest }))
+    expect(ticket().attention).toBeUndefined()
+    expect(h.executor.start).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: ticketId }), expect.objectContaining({ state: 'pending' }))
+    expect(h.executor.stop).toHaveBeenCalledTimes(1)
+    h.settle()
+    expect(ticket().assignments).toHaveLength(before + 1)
+    expect(ticket().assignments[0]).toMatchObject({ state: 'ended', endedReason: 'resumed' })
+    expect(runningAssignment(ticket())).toBeDefined()
+    expect(ticketStage(ticket())).not.toEqual({ stage: 'person', action: 'answer' })
+    expect(ticket().undelivered).toEqual([])
+    expect(h.delivered.map(([, id]) => id)).toContain(key('input', ticketId, 'trigger', '3'))
+    // Duplicate delivery of the same trigger is a no-op.
+    vi.mocked(h.executor.start).mockClear()
+    expect(h.engine.receive(trigger('3', { actor: guest }))).toBe('duplicate')
+    expect(h.executor.start).not.toHaveBeenCalled()
+  })
+})
 describe('replies', () => {
   it('acknowledges a person\'s message that reached an open ticket once, and refuses others', () => {
     const h = harness()
