@@ -57,6 +57,32 @@ The upstream setup guide still applies: [SETUP.md](SETUP.md) installs and config
 an agent. The WeChat client cannot be driven from Node, so it sits behind a loopback sidecar with a
 frozen contract — see [EXTENSIONS.md](EXTENSIONS.md) for the backend ladder and the probe.
 
+## Yunxiao Projex: comments, backfill and images (1.0.5)
+
+The Projex work source polls work items through `POST …/workitems:search` (by `gmtModified`) and, for every
+work item a **live ticket follows**, its comments through `GET …/workitems/{id}/comments` every 60 s. A
+person's comment becomes a human Trigger on the item's existing thread (text = the comment, actor = its
+author). The agent's own comments carry `<!-- dsh-superagent:<id> -->` and are never re-ingested as work;
+comments are de-duplicated by native comment id and timestamp.
+
+On the **first sight** of a followed work item, `backfillComments` — a per-Source advanced setting, default
+**20**, `0` disables it — of the newest person comments are delivered, oldest first; anything older is
+dropped, so an upgrade never replays a full history. After that the per-item watermark (`KV.work.notes`)
+limits delivery to comments newer than it, so a restart re-delivers nothing already seen.
+
+Images embedded as `<img src="…fileIdentifier=…">` in a work item's description or in a comment are resolved
+through `GET …/workitems/{id}/files/{fileId}` (a short-lived signed URL), downloaded, de-duplicated by
+sha256 and archived under `<stateDir>/projex-images/<sha256>.<ext>` (mode `0600`). Only PNG/JPEG/WebP/GIF are
+accepted, with a 10 MiB default cap; a failed or oversized image is recorded in the Trigger text and never
+blocks the text Trigger. The Trigger text names each image as `projex-image:<sha256>.<ext>` plus its local
+path, so the assessment window (`orchestrator_eval_read resource=image`) and an Executor's `read_image` can
+both read it. Images stay on the local state directory and are never uploaded externally.
+
+**Install / rollback.** The bundle is packaged as `dsh-superagent-channels-<version>.tgz`; a DSH profile
+installs it as a `file:` dependency in its `package.json` (with `node_modules` and `pnpm-lock.yaml` kept in
+step) and the client is restarted. Roll back by restoring the previous tgz and `node_modules` directory plus
+the saved `package.json` / `pnpm-lock.yaml`, then restarting.
+
 ## Enabling a source
 
 1. Set `disabled: false` on the plugin's insert in `cordis.patch.yml`.
