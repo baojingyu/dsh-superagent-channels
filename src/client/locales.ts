@@ -23,6 +23,7 @@ const TEXT = {
   'decision.reopen': ['续做', 'Reopen'],
   'decision.stop': ['停止', 'Stop'],
   'decision.ignore': ['忽略', 'Ignore'],
+  'decision.attach': ['已转工单', 'Attached to ticket'],
   'decision.unavailable': ['未完成', 'Unavailable'],
   'strength.explicit': ['明确', 'Explicit'],
   'strength.inferred': ['推断', 'Inferred'],

@@ -7,7 +7,7 @@ import { SettingsSchema } from '../src/policy.ts'
 import { SourceRegistry } from '../src/sources/registry.ts'
 import { feishuKind } from '../src/sources/feishu.ts'
 import { githubKind } from '../src/sources/github.ts'
-import { snapshot, threadSummary, ticketSummary, triggerView } from '../src/app/views/records.ts'
+import { decisionView, snapshot, threadSummary, ticketSummary, triggerView } from '../src/app/views/records.ts'
 import { basisFacts, ticketDetail } from '../src/app/views/tickets.ts'
 import { threadDetail } from '../src/app/views/threads.ts'
 import { droppedReplies, sourcesStatus } from '../src/app/views/sources.ts'
@@ -65,6 +65,19 @@ const live = (id: string) => store.tickets.save({ id, title: id, decisionId: 'd'
   origin: { triggerId: 'e0', triggerIds: ['e0'] }, assignments: [], inputs: [] })
 const message = (id: string, actor: { source: string; id: string }, human = true) => ({ id, source: actor.source,
   threads: [{ source: 'feishu', id: 'oc_1:om_root' }], actor, human, at, text: `message ${id}`, meta: {} })
+
+it('shows a routed attach as 已转工单 with its target ticket, never as an ignore', () => {
+  const host = views()
+  live('t1')
+  store.triggers.save(message('f1', { source: 'feishu', id: 'ou_alice' }))
+  const base = { evalId: 'e', threadKey: 'feishu:oc_1:om_root', triggerIds: ['f1'], policyVersion: 'v', at,
+    kind: 'ignore' as const, strength: 'explicit' as const }
+  store.decisions.save({ ...base, id: 'd1', reason: [{ code: 'routed', values: { ticket: 't1' } }] })
+  const routed = decisionView(snapshot(host), store.decisions.get('d1')!)
+  expect(routed).toMatchObject({ outcome: 'attach', ticketId: 't1', ticketTitle: 't1', kind: 'ignore' })
+  store.decisions.save({ ...base, id: 'd2', reason: [{ code: 'said', values: { text: 'no' } }] })
+  expect(decisionView(snapshot(host), store.decisions.get('d2')!).outcome).toBe('ignore')
+})
 
 it('names each sender as the Policy lists it, by its id where the id is readable, and as its kind names one it does not list', () => {
   const view = snapshot(views())
