@@ -189,10 +189,22 @@ const AuditSchema = z.object({
   direction: z.object({ implementation_requested: z.boolean(), target_basis: z.string(), requires_design_decision: z.boolean(),
     evidence: z.string() }).optional().catch(undefined),
 }).catch({})
-/** Decision kind, or `wouldAccept` for an ignore decision that observe mode would have accepted. */
-export type DecisionOutcome = DecisionKind | 'wouldAccept'
-const outcomeOf = (decision: Decision): DecisionOutcome =>
-  decision.kind === 'ignore' && AuditSchema.parse(decision.audit ?? {}).would_accept ? 'wouldAccept' : decision.kind
+/**
+ * The Ticket an `attach` routed the Trigger to: an attach is recorded as an `ignore` whose reason code is `routed`
+ * with the target ticket in `values.ticket`, because a Decision has no `attach` kind of its own.
+ */
+const attachTicketOf = (decision: Decision): string | undefined => {
+  if (decision.kind !== 'ignore') return undefined
+  const reasons = [decision.reason ?? []].flat()
+  const routed = reasons.find(reason => reason.code === 'routed')
+  return routed?.values?.ticket
+}
+/** Decision kind; `attach` for a routed trigger, or `wouldAccept` for an ignore decision observe mode would have accepted. */
+export type DecisionOutcome = DecisionKind | 'wouldAccept' | 'attach'
+const outcomeOf = (decision: Decision): DecisionOutcome => {
+  if (attachTicketOf(decision)) return 'attach'
+  return decision.kind === 'ignore' && AuditSchema.parse(decision.audit ?? {}).would_accept ? 'wouldAccept' : decision.kind
+}
 export function decisionView(view: Snapshot, decision: Decision) {
   const { store } = view
   const thread = store.threads.get(decision.threadKey)
@@ -200,11 +212,12 @@ export function decisionView(view: Snapshot, decision: Decision) {
   const audit = AuditSchema.parse(decision.audit ?? {})
   // Fall back to `matches` for assessments recorded by older versions.
   const judged = audit.rule_assessments ?? audit.matches?.map(match => ({ ...match, matched: true })) ?? []
+  const ticketId = decision.ticketId ?? attachTicketOf(decision)
   return { id: decision.id, kind: decision.kind, outcome: outcomeOf(decision), reason: decision.reason, at: decision.at,
-    strength: decision.strength, ticketId: decision.ticketId, triggerIds: decision.triggerIds, thread: decision.threadKey,
+    strength: decision.strength, ticketId, triggerIds: decision.triggerIds, thread: decision.threadKey,
     rules: judged.map(rule => ({ ...view.rule(rule.rule_id), matched: rule.matched, reason: rule.reason })),
     ...audit.direction ? { direction: audit.direction } : {},
     ...thread ? { threadTitle: threadTitle(store, thread) } : {}, preview: texts.join(' / '),
-    ticketTitle: decision.ticketId ? store.tickets.get(decision.ticketId)?.title : undefined }
+    ticketTitle: ticketId ? store.tickets.get(ticketId)?.title : undefined }
 }
 export type DecisionView = ReturnType<typeof decisionView>

@@ -75,10 +75,17 @@ export function threadCard(thread: Thread, label: string) {
     ...(thread.meta.pollError ? { error: preview(String(thread.meta.pollError)) } : {}), ...(thread.meta.url ? { url: thread.meta.url } : {}),
     read: `thread/${thread.key}` }
 }
+/** The Ticket an `attach` routed to, recorded as an `ignore` whose `routed` reason carries `values.ticket`. */
+const attachTicketOf = (decision: Decision): string | undefined => {
+  if (decision.kind !== 'ignore') return undefined
+  const routed = [decision.reason ?? []].flat().find(reason => reason.code === 'routed')
+  return routed?.values?.ticket
+}
 export function decisionCard(decision: Decision) {
+  const ticketId = decision.ticketId ?? attachTicketOf(decision)
   return { decision_id: decision.id, kind: decision.kind, reason: reasonText(decision.reason), strength: decision.strength,
     thread: decision.threadKey,
-    trigger_ids: decision.triggerIds, ...(decision.ticketId ? { ticket_id: decision.ticketId } : {}), at: decision.at,
+    trigger_ids: decision.triggerIds, ...(ticketId ? { ticket_id: ticketId } : {}), at: decision.at,
     read: `decision/${decision.id}` }
 }
 export function decisionDetails(decision: Decision) {
