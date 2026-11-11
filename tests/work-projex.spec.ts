@@ -72,7 +72,7 @@ describe('Projex mapping', () => {
   it('maps a comment with its author accountID and timestamps', () => {
     expect(mapNote({ id: 'c1', content: 'looks good', creator: 'acc-9', gmtCreate: 1730000000000, gmtModified: 1730000050000 }))
       .toEqual({ id: 'c1', body: 'looks good', author: { id: 'acc-9' },
-        at: new Date(1730000000000).toISOString(), updatedAt: new Date(1730000050000).toISOString() })
+        at: new Date(1730000000000).toISOString(), updatedAt: new Date(1730000050000).toISOString(), self: false })
   })
   it('converts milliseconds to ISO and tolerates empty or unparsable values', () => {
     expect(isoFromMs(1730000000000)).toBe(new Date(1730000000000).toISOString())
@@ -140,7 +140,7 @@ describe('Projex reads and comments', () => {
       query: { page: 2, perPage: 100 } })
     // A short page ends the listing; the cursor counts pages, not opaque tokens.
     expect(page).toEqual({ notes: [{ id: 'c1', body: '看看这里\n再试一次', author: { id: 'acc-9', name: '郑超' },
-      at: new Date(1730000000000).toISOString() }] })
+      at: new Date(1730000000000).toISOString(), self: false }] })
   })
   it('does not post when a comment already carries the marker', async () => {
     const marker = '<!-- dsh-superagent:r1 -->'

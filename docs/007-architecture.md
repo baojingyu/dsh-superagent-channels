@@ -414,12 +414,13 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/sources/hosting/gitlab/adapter.ts` | The GitLab `HostAdapter`: `createGitlabAdapter`, the mapping of a merge request, note and pipeline, and its CI snapshots |
 | `src/sources/hosting/gitlab/kind.ts` | `gitlabKind`, the GitLab hosting `SourceKind` on the GitLab adapter, with `organizationId`, `hostUrl` and its environment |
 | `src/sources/work/port.ts` | The work-item port: `WorkAdapter` and `WorkItem` |
+| `src/sources/work/images.ts` | Work-item images: parse inline `<img fileIdentifier>` references, download through the files API, de-duplicate by sha256 under `<stateDir>/projex-images`, and serve one back as an attachment |
 | `src/sources/work/kind.ts` | `workKind`, the factory that turns a `WorkAdapter` into a work `SourceKind` |
 | `src/sources/work/projex/adapter.ts` | The Projex `WorkAdapter`: `createProjexAdapter`, work items and notes by category with `nextToken` paging, and its marker-idempotent replies |
 | `src/sources/work/projex/kind.ts` | `projexKind`, the Yunxiao Projex work `SourceKind` on the Projex adapter, with `organizationId` and its environment |
 | `src/sources/hosting/stream.ts` | `pollHosting`, the hosting polling round: the cursor, the changed change requests, their notes and CI, and the overflow count |
 | `src/sources/work/self-writes.ts` | The self-write ledger: the work-item revisions this process wrote, which a poll must not read back as new requests, because a comment or a status write bumps the modification time a Trigger ID is derived from |
-| `src/sources/work/stream.ts` | `pollWorkItems` and `workTrigger`, the work-item polling round over the configured categories |
+| `src/sources/work/stream.ts` | `pollWorkItems`, `workTrigger`, `noteTrigger` and `observeNotes`: the work-item polling round, plus per-followed-item comment polling with a per-item watermark and a bounded `backfillComments` first-sight backfill |
 | `src/sources/chat/dingtalk/adapter.ts` | The DingTalk adapter: `parseStreamEvent` and `sendMessage` over the sessionWebhook and oapi paths, with its idempotency marker |
 | `src/sources/chat/dingtalk/stream.ts` | `startStream` and `createLongPollingStream`: consume the injected event stream, report its health and reconnect until aborted |
 | `src/sources/chat/dingtalk/kind.ts` | `dingtalkKind` / `createDingTalkKind`, the DingTalk chat `SourceKind`: its schema and fields, the `@`-based scope and the stream-backed Channel |
@@ -514,6 +515,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/notice-channel.spec.ts` | The refusal notice reaches a conversation and nothing else: a work item's channel refuses it at the registry, a chat's accepts it, a channel that never opted in refuses it, and `acceptsNotice` answers before a row is queued |
 | `tests/work-self-write.spec.ts` | The ledger and the adapter around it: one revision per key, bounded, and a poll that drops its own write while keeping a person's later edit |
 | `tests/work-stream.spec.ts` | `pollWorkItems` on a real Store and a stub adapter: the initialized cursor, the three categories, idempotency, aborts and a failed category |
+| `tests/work-images.spec.ts` | Work-item images: `<img fileIdentifier>` parsing (HTML and jsonML), sha256 de-duplication, type/size limits, failure degradation, and reading an archived image back as an attachment |
 | `tests/panel-instances.spec.ts` | The panel's data layer for several instances of one kind: the rows and health of two chat instances, deleting one, and a legacy Source without `kind` |
 | `tests/live/weixin-bridge.live.spec.ts` | The Weixin bridge against a real local sidecar (only with `LIVE=1`): health, status, rooms, members, messages, idempotent sends, and the token and permission failures |
 | `tests/live/gitlab-contract.live.spec.ts` | The GitLab.com contract read-only (only with `LIVE=1`): merge request and note mapping, and an unauthorized token's error that never names the token |

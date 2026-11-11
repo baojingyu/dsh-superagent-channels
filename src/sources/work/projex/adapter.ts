@@ -2,6 +2,8 @@
 import { createYunxiaoApi, YunxiaoHttpError, type YunxiaoApi } from '../../../infra/yunxiao-api.ts'
 import type { Commands } from '../../../infra/commands.ts'
 import type { Person, WorkAdapter, WorkCategory, WorkItem, WorkItemPage, WorkNote, WorkNotePage } from '../port.ts'
+import { imageRefs } from '../images.ts'
+import type { WorkImageFile, WorkImageRef } from '../images.ts'
 import { isSelfWrite, rememberSelfWrite } from '../self-writes.ts'
 
 /** The host this adapter speaks for; the self-write ledger is scoped by it so two hosts never collide on one key. */
@@ -70,6 +72,7 @@ export function createProjexAdapter(options: ProjexAdapterOptions = {}): ProjexA
     readWorkItem: (_commands, project, key) => readWorkItem(adapter, project, key),
     listNotes: (_commands, project, key, cursor) => listNotes(adapter, project, key, cursor),
     postNote: (_commands, item, text, marker) => postNote(adapter, item, text, marker),
+    readImageFile: (_commands, _project, key, image, signal) => readImageFile(adapter, key, image, signal),
     page: (project, key) => projexPage(project, key),
   }
   // Leaving `setStatus` absent keeps the default read-only: callers cannot write back without opting in.
@@ -126,6 +129,7 @@ export function mapWorkItem(raw: Record<string, unknown>, project: string, reque
     category: categoryOf(raw.categoryId ?? raw.categoryIdentifier ?? requested),
     title: String(raw.subject ?? raw.title ?? ''),
     body: workBody(raw),
+    ...imagesOf(raw.description ?? raw.body),
     author: personOf(raw.creator ?? raw.author) ?? { id: '' },
     ...(assignee ? { assignee } : {}),
     status: { id: String(status.id ?? raw.statusIdentifier ?? ''),
@@ -191,11 +195,27 @@ export function mapNote(raw: Record<string, unknown>): WorkNote {
   return {
     id: String(raw.id ?? raw.commentId ?? ''),
     body: noteBody(raw),
+    ...imagesOf(raw.content ?? raw.body),
     // A comment names its author `user`; `creator`/`author` stay for the older shape.
     author: personOf(raw.user ?? raw.creator ?? raw.author) ?? { id: '' },
     at: isoFromMs(raw.gmtCreate ?? raw.createdAt),
     ...(updatedAt ? { updatedAt: isoFromMs(updatedAt) } : {}),
+    self: carriesAgentMarker(raw),
   }
+}
+
+/** The idempotency marker postNote appends to every comment this agent writes. */
+const AGENT_MARKER = 'dsh-superagent:'
+/** True when the raw payload already carries the agent's marker, so the comment is ours and must not become a Trigger. */
+function carriesAgentMarker(comment: Record<string, unknown>): boolean {
+  const content = comment.content ?? comment.body
+  return String(content ?? '').includes(AGENT_MARKER)
+}
+
+/** The image references a rich-text payload embeds, or nothing when it has none (an absent field, not an empty array). */
+function imagesOf(value: unknown): { images?: WorkImageRef[] } {
+  const images = imageRefs(value)
+  return images.length ? { images } : {}
 }
 
 /** Converts a millisecond epoch (or an ISO/date string) to an ISO timestamp; unparsable values become `''`. */
@@ -249,6 +269,16 @@ async function listWorkItems(adapter: ProjexAdapter, project: string, since: str
 async function readWorkItem(adapter: ProjexAdapter, project: string, key: string): Promise<WorkItem> {
   const { body } = await adapter.api.get(itemPath(adapter.organization, key))
   return mapWorkItem(recordOf(body), project)
+}
+
+/** Reads one embedded image's host metadata: the work item's `files/{fileId}` record, whose `url` is a signed download. */
+async function readImageFile(adapter: ProjexAdapter, key: string, image: WorkImageRef, signal?: AbortSignal): Promise<WorkImageFile> {
+  if (signal?.aborted) throw new Error('aborted')
+  const { body } = await adapter.api.get(filesPath(adapter.organization, key, image.key))
+  const meta = recordOf(body)
+  const url = String(meta.url ?? '')
+  if (!url) throw new Error('the host returned no download URL for this image')
+  return { name: String(meta.name ?? image.name ?? 'image'), suffix: String(meta.suffix ?? ''), size: Number(meta.size ?? 0), url }
 }
 
 async function listNotes(adapter: ProjexAdapter, project: string, key: string, cursor: string | undefined): Promise<WorkNotePage> {
@@ -319,6 +349,7 @@ const orgPath = (organization: string): string => `/oapi/v1/projex/organizations
 const searchPath = (organization: string): string => `${orgPath(organization)}/workitems:search`
 const itemPath = (organization: string, key: string): string => `${orgPath(organization)}/workitems/${encodeURIComponent(key)}`
 const commentsPath = (organization: string, key: string): string => `${itemPath(organization, key)}/comments`
+const filesPath = (organization: string, key: string, fileId: string): string => `${itemPath(organization, key)}/files/${encodeURIComponent(fileId)}`
 const statusPath = (organization: string, key: string): string => `${itemPath(organization, key)}/status`
 
 /** Unwraps a `{ result: … }` envelope when present. */

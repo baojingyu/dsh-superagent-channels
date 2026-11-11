@@ -1,8 +1,9 @@
 /** The Yunxiao Projex source kind: the Projex work adapter wrapped with the shared work configuration and its environment. */
 import { z } from 'zod'
-import type { FieldSpec, SourceKind } from '../../kind.ts'
+import type { FieldSpec, SourceKind, ThreadContext } from '../../kind.ts'
 import { workKind, type WorkConfig } from '../kind.ts'
 import { projexAdapter } from './adapter.ts'
+import { readArchivedImage, workImageKeys } from '../images.ts'
 
 /** Instance configuration of the Projex kind: the shared work keys plus the organization ID every Projex path is scoped by. */
 export type ProjexKindConfig = WorkConfig & { organizationId: string }
@@ -26,9 +27,24 @@ const base = workKind<ProjexKindConfig>(projexAdapter, {
   extraSchema: z.object({ organizationId: z.string().min(1) }).strict(),
 })
 
+/**
+ * Thread context for a Projex work item: its text is the Trigger's own text (description + comment text, with image
+ * markers), and images are served from the local archive the poll wrote to `<stateDir>/projex-images`.
+ */
+const threadContext: ThreadContext<ProjexKindConfig> = {
+  messageId: trigger => trigger.id,
+  read: async (_commands, trigger) => ({
+    messages: [{ id: trigger.id, from: trigger.actor.id, at: trigger.at, text: trigger.text }],
+    body: {},
+  }),
+  images: text => workImageKeys(text),
+  image: (agent, _commands, _trigger, _message, key, stateDir, signal) => readArchivedImage(agent, key, stateDir, signal),
+}
+
 /** The Projex SourceKind: the shared work kind plus the environment variables its workers read. */
 export const projexKind: SourceKind<ProjexKindConfig> = {
   ...base,
+  threadContext,
   environment: {
     variables: [
       { key: 'DSH_SUPERAGENT_PROJEX_PROJECT',

@@ -15,7 +15,7 @@ describe('projexKind identity', () => {
   })
   it('offers the shared configuration fields plus the organization ID field', () => {
     expect(projexKind.fields.map(field => field.key))
-      .toEqual(['project', 'tokenFile', 'pollSeconds', 'writeBack', 'organizationId'])
+      .toEqual(['project', 'tokenFile', 'pollSeconds', 'writeBack', 'backfillComments', 'organizationId'])
   })
 })
 
