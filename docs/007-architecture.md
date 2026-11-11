@@ -411,12 +411,13 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/sources/hosting/kind.ts` | `hostingKind`, the factory that turns a `HostAdapter` into a hosting `SourceKind` |
 | `src/sources/hosting/gitlab/adapter.ts` | The GitLab `HostAdapter`: `createGitlabAdapter`, the mapping of a merge request, note and pipeline, and its CI snapshots |
 | `src/sources/hosting/gitlab/kind.ts` | `gitlabKind`, the GitLab hosting `SourceKind` on the GitLab adapter, with `organizationId`, `hostUrl` and its environment |
-| `src/sources/work/port.ts` | The work-item port: `WorkAdapter` and `WorkItem` |
+| `src/sources/work/port.ts` | The work-item port: `WorkAdapter`, `WorkItem`, `WorkNote` and the image-reference types |
+| `src/sources/work/images.ts` | Work-item images: `imageRefs` parses inline `<img fileIdentifier>` in a description or comment, `archiveWorkImages` downloads through the files API, de-duplicates by sha256 and writes `<stateDir>/projex-images`, `readArchivedImage` serves one back as an attachment |
 | `src/sources/work/kind.ts` | `workKind`, the factory that turns a `WorkAdapter` into a work `SourceKind` |
-| `src/sources/work/projex/adapter.ts` | The Projex `WorkAdapter`: `createProjexAdapter`, work items and notes by category with `nextToken` paging, and its marker-idempotent replies |
+| `src/sources/work/projex/adapter.ts` | The Projex `WorkAdapter`: `createProjexAdapter`, work items by category through `workitems:search` paging, one unpaged comments read, and its marker-idempotent replies |
 | `src/sources/work/projex/kind.ts` | `projexKind`, the Yunxiao Projex work `SourceKind` on the Projex adapter, with `organizationId` and its environment |
 | `src/sources/hosting/stream.ts` | `pollHosting`, the hosting polling round: the cursor, the changed change requests, their notes and CI, and the overflow count |
-| `src/sources/work/stream.ts` | `pollWorkItems` and `workTrigger`, the work-item polling round over the configured categories |
+| `src/sources/work/stream.ts` | `pollWorkItems`, `workTrigger`, `noteTrigger` and `observeNotes`: the work-item polling round, plus per-followed-item comment polling with a per-item watermark and a bounded `backfillComments` first-sight backfill |
 | `src/sources/chat/dingtalk/adapter.ts` | The DingTalk adapter: `parseStreamEvent` and `sendMessage` over the sessionWebhook and oapi paths, with its idempotency marker |
 | `src/sources/chat/dingtalk/stream.ts` | `startStream` and `createLongPollingStream`: consume the injected event stream, report its health and reconnect until aborted |
 | `src/sources/chat/dingtalk/kind.ts` | `dingtalkKind` / `createDingTalkKind`, the DingTalk chat `SourceKind`: its schema and fields, the `@`-based scope and the stream-backed Channel |
@@ -487,7 +488,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/weixin-kind.spec.ts` | The Weixin `SourceKind`: its schema and fields, the structured `@` scope rule, the Channel and policy, the environment and its facts |
 | `tests/hosting-gitlab.spec.ts` | The GitLab adapter and the hosting HTTP client: the merge request, note and pipeline mappings, paging, idempotent replies, and the token and path checks |
 | `tests/hosting-gitlab-kind.spec.ts` | The GitLab hosting `SourceKind`: its identity, schema and fields, its environment and its scope rows |
-| `tests/work-projex.spec.ts` | The Projex adapter: work items and notes by category, `nextToken` paging, idempotent replies, and the Yunxiao client's checks |
+| `tests/work-projex.spec.ts` | The Projex adapter: work items by category, `workitems:search` paging, the search response shape, unpaged comments, idempotent replies, and the Yunxiao client's checks |
 | `tests/work-projex-kind.spec.ts` | The Projex work `SourceKind`: its identity and fields, its schema, its scope rows, its environment and Channel capabilities |
 | `tests/dingtalk-adapter.spec.ts` | The DingTalk adapter over injected `fetch`/`connect`: the stream-event parse, the sessionWebhook and oapi sends, the idempotency marker, the failure codes and the stream's abort |
 | `tests/dingtalk-kind.spec.ts` | The DingTalk `SourceKind`: its identity and schema, its fields, its policy, its capabilities and its `@`-based scope |
@@ -495,7 +496,8 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/wecom-webhook.spec.ts` | The WeCom callback handler and sender: the XML parse, the URL verification, signed events, dedupe and the cached access token |
 | `tests/wecom-kind.spec.ts` | The WeCom `SourceKind`: its identity and schema, its fields, its two-branch scope, its at-least-once capabilities and facts |
 | `tests/hosting-stream.spec.ts` | `pollHosting` on a real Store and a stub adapter: the cursor, the changed change requests and CI, the overflow and a failed change |
-| `tests/work-stream.spec.ts` | `pollWorkItems` on a real Store and a stub adapter: the initialized cursor, the three categories, idempotency, aborts and a failed category |
+| `tests/work-stream.spec.ts` | `pollWorkItems` on a real Store and a stub adapter: the initialized cursor, the three categories, idempotency, aborts, a failed category, and the comment path (first-sight backfill N, marker filtering, cursor) |
+| `tests/work-images.spec.ts` | Work-item images: `<img fileIdentifier>` parsing (HTML and jsonML), sha256 de-duplication, type/size limits, failure degradation, and reading an archived image back as an attachment |
 | `tests/panel-instances.spec.ts` | The panel's data layer for several instances of one kind: the rows and health of two chat instances, deleting one, and a legacy Source without `kind` |
 | `tests/live/weixin-bridge.live.spec.ts` | The Weixin bridge against a real local sidecar (only with `LIVE=1`): health, status, rooms, members, messages, idempotent sends, and the token and permission failures |
 | `tests/live/gitlab-contract.live.spec.ts` | The GitLab.com contract read-only (only with `LIVE=1`): merge request and note mapping, and an unauthorized token's error that never names the token |

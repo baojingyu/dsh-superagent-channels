@@ -2,7 +2,8 @@
 import { key, type Trigger } from '../../core/index.ts'
 import { KV } from '../../kv.ts'
 import type { SourceContext } from '../host.ts'
-import type { WorkAdapter, WorkItem } from './port.ts'
+import type { WorkAdapter, WorkItem, WorkNote } from './port.ts'
+import { appendImageMarkers, archiveWorkImages } from './images.ts'
 
 /** Categories polled when neither the caller nor the instance configuration names any. */
 export const DEFAULT_WORK_CATEGORIES: readonly string[] = ['requirement', 'bug', 'task']
@@ -28,7 +29,7 @@ export interface WorkPollResult {
 }
 
 /** The parts of a work config this stream reads; the instance schema supplies both keys. */
-interface WorkStreamConfig extends Record<string, unknown> { project?: string; categories?: readonly string[] }
+interface WorkStreamConfig extends Record<string, unknown> { project?: string; categories?: readonly string[]; backfillComments?: number }
 
 /**
  * The Trigger of one work item. Its ID is derived from native fields (`identifier` + `updatedAt`), so redelivering the
@@ -50,8 +51,52 @@ export function workTrigger(item: WorkItem, instance: string, project: string): 
   }
 }
 
+/** Default number of newest person comments a first-sight work item backfills; a Source may override it by config. */
+const DEFAULT_BACKFILL_COMMENTS = 20
+
+/** The target a comment belongs to: the work item and the instance/project its thread already lives under. */
+export interface NoteTarget { instance: string; project: string; key: string; serial: string }
+
 /**
- * Polls every configured category once. Each category lists through the adapter, which owns `nextToken` paging and
+ * The Trigger of one work-item comment. Its ID is derived from the native comment id + creation time, so re-reading the
+ * same comment is the same event while a later comment is a new one — the same determinism workTrigger has.
+ */
+export function noteTrigger(note: WorkNote, target: NoteTarget): Trigger {
+  return {
+    id: key('projex-note', target.key, note.id, note.at),
+    source: target.instance,
+    threads: [{ source: target.instance, id: target.key }],
+    actor: { source: target.instance, id: note.author.id },
+    human: !note.author.bot,
+    at: note.at,
+    text: note.body,
+    channel: { source: target.instance, thread: `${target.instance}:${target.key}`,
+      address: { project: target.project, key: target.key, serial: target.serial } },
+    meta: { identifier: target.key, serial: target.serial, kind: 'comment', commentId: note.id },
+  }
+}
+
+/** A comment worth a Trigger: a person's words, never the agent's own marked comment or a bot's. */
+function isPersonNote(note: WorkNote): boolean {
+  return !note.self && !note.author.bot && note.body.trim().length > 0 && !note.body.includes('<!-- dsh-superagent:')
+}
+
+/**
+ * The comments to hand over this round: every unseen one after a cursor, or — on the first sight of a work item — only
+ * the newest person comment. The bounded first-sight backfill is what lets a reply that predates this deployment arrive
+ * once without replaying a work item's whole comment history into a ticket.
+ */
+export function notesToDeliver(notes: readonly WorkNote[], cursor: string | undefined,
+  backfill = DEFAULT_BACKFILL_COMMENTS): WorkNote[] {
+  const eligible = notes.filter(isPersonNote).sort((a, b) => a.at.localeCompare(b.at))
+  if (cursor) return eligible.filter(note => note.at > cursor)
+  // First sight: the newest `backfill` person comments, oldest first; anything older is dropped so an upgrade never
+  // replays a long history into a ticket.
+  return backfill > 0 ? eligible.slice(-backfill) : []
+}
+
+/**
+ * Polls every configured category once. Each category lists through the adapter, which owns its own paging and
  * returns one complete page (t16); a failing category is recorded in `errors` and never stops the others.
  * The watermark advances only after a wholly successful round, so a partial round is re-read next time and the derived
  * Trigger IDs deduplicate the repeats.
@@ -77,6 +122,13 @@ export async function pollWorkItems(ctx: SourceContext, adapter: WorkAdapter, op
     }
   }
   if (!signal?.aborted && errors.length === 0) ctx.state.set(KV.work.cursor(options.instance), started)
+  if (signal?.aborted) return { received, errors }
+  // Yunxiao comments do not move an item's gmtModified, so they are read per followed work item after the item scan.
+  // A comment read failure is reported but never blocks the work-item cursor — its own per-key cursor stays put and retries.
+  const backfill = config?.backfillComments ?? DEFAULT_BACKFILL_COMMENTS
+  const notes = await observeNotes(ctx, adapter, options.instance, project, started, backfill, signal)
+  received += notes.received
+  errors.push(...notes.errors)
   return { received, errors }
 }
 
@@ -85,8 +137,9 @@ async function pollCategory(ctx: SourceContext, adapter: WorkAdapter, instance: 
   category: string, signal?: AbortSignal): Promise<number> {
   const page = await adapter.listWorkItems(ctx.commands, project, since, [category], signal)
   let received = 0
-  for (const item of page.items) {
+  for (const listed of page.items) {
     if (signal?.aborted) break
+    const item = await withArchivedImages(ctx, adapter, project, listed, signal)
     const trigger = workTrigger(item, instance, project)
     // The Engine would also answer 'duplicate'; the local check keeps a repeated page from re-entering the queue.
     if (ctx.triggers.get(trigger.id)) continue
@@ -94,4 +147,63 @@ async function pollCategory(ctx: SourceContext, adapter: WorkAdapter, instance: 
     received += 1
   }
   return received
+}
+
+/** Archives an item's embedded images and appends their markers (or failures) to its body text. */
+async function withArchivedImages(ctx: SourceContext, adapter: WorkAdapter, project: string, item: WorkItem,
+  signal?: AbortSignal): Promise<WorkItem> {
+  if (!item.images?.length || !adapter.readImageFile) return item
+  const archived = await archiveWorkImages({ refs: item.images, stateDir: ctx.deployment.stateDir,
+    metadata: (ref, sig) => adapter.readImageFile!(ctx.commands, project, item.key, ref, sig), signal })
+  return { ...item, body: appendImageMarkers(item.body, archived.images, archived.failures) }
+}
+
+/**
+ * Reads comments for every work item a live ticket follows and hands each new person comment over as a Trigger.
+ *
+ * The work-item scan cannot see comments (they do not bump `gmtModified`), so this closes that gap: for each Thread the
+ * instance is subscribed to whose ticket is still open, it lists the item's comments and converts the newest unseen
+ * person comment(s) with `noteTrigger`. `KV.work.notes` is the per-item comment watermark; a first sight backfills only
+ * the newest `backfillComments` person comments (see `notesToDeliver`), so a restart cannot flood a ticket with a history.
+ */
+async function observeNotes(ctx: SourceContext, adapter: WorkAdapter, instance: string, project: string,
+  started: string, backfill: number, signal?: AbortSignal): Promise<{ received: number; errors: string[] }> {
+  let received = 0
+  const errors: string[] = []
+  if (signal?.aborted) return { received, errors }
+  const openIds = new Set(ctx.tickets.open().map(ticket => ticket.id))
+  for (const thread of ctx.threads.subscribed(instance)) {
+    if (signal?.aborted) break
+    if (!thread.subscriptions.some(id => openIds.has(id))) continue
+    const itemKey = thread.ref.id
+    if (!itemKey) continue
+    const address = ctx.triggers.latest(thread.key)?.channel?.address
+    const itemProject = address?.project ?? project
+    const serial = address?.serial ?? itemKey
+    try {
+      const { notes } = await adapter.listNotes(ctx.commands, itemProject, itemKey, undefined)
+      const cursor = ctx.state.get(KV.work.notes(instance, itemKey))
+      for (const picked of notesToDeliver(notes, cursor, backfill)) {
+        const note = await withArchivedNoteImages(ctx, adapter, itemProject, itemKey, picked, signal)
+        const trigger = noteTrigger(note, { instance, project: itemProject, key: itemKey, serial })
+        if (ctx.triggers.get(trigger.id)) continue
+        await ctx.receive(trigger)
+        received += 1
+      }
+      if (!signal?.aborted) ctx.state.set(KV.work.notes(instance, itemKey), started)
+    } catch (error) {
+      if (signal?.aborted) break
+      errors.push(`${itemKey}: ${String(error)}`)
+    }
+  }
+  return { received, errors }
+}
+
+/** Archives a comment's embedded images and appends their markers (or failures) to its body text. */
+async function withArchivedNoteImages(ctx: SourceContext, adapter: WorkAdapter, project: string, itemKey: string,
+  note: WorkNote, signal?: AbortSignal): Promise<WorkNote> {
+  if (!note.images?.length || !adapter.readImageFile) return note
+  const archived = await archiveWorkImages({ refs: note.images, stateDir: ctx.deployment.stateDir,
+    metadata: (ref, sig) => adapter.readImageFile!(ctx.commands, project, itemKey, ref, sig), signal })
+  return { ...note, body: appendImageMarkers(note.body, archived.images, archived.failures) }
 }

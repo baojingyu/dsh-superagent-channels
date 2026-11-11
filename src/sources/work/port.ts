@@ -1,5 +1,6 @@
 /** Host-independent work-item (Projex-style) port: normalized items, notes, and the adapter a work kind builds on. */
 import type { Commands } from '../../infra/commands.ts'
+import type { WorkImageFile, WorkImageRef } from './images.ts'
 
 /** A person on a work host; `bot` marks an automated account, which never authorizes work on its own. */
 export interface Person { id: string; name?: string; bot?: boolean }
@@ -20,6 +21,8 @@ export interface WorkItem {
   category: WorkCategory
   title: string
   body: string
+  /** Images the description embeds, in document order; empty when the item has none. */
+  images?: WorkImageRef[]
   author: Person
   /** Person the item is assigned to; the structured basis for "assigned to the agent". */
   assignee?: Person
@@ -34,7 +37,11 @@ export interface WorkItem {
 }
 
 /** One comment on a work item. */
-export interface WorkNote { id: string; body: string; author: Person; at: string; updatedAt?: string }
+export interface WorkNote { id: string; body: string; author: Person; at: string; updatedAt?: string
+  /** Images the comment embeds, in document order; empty when it has none. */
+  images?: WorkImageRef[]
+  /** True when the comment is the agent's own (it carries the idempotency marker postNote appended), never a person's. */
+  self?: boolean }
 
 /** One page of a work-item listing; `next` continues the listing and its absence ends it. */
 export interface WorkItemPage { items: WorkItem[]; next?: string }
@@ -58,6 +65,8 @@ export interface WorkAdapter<C extends Record<string, unknown> = Record<string, 
   listNotes(commands: Commands, project: string, key: string, cursor: string | undefined): Promise<WorkNotePage>
   /** Posts a comment carrying `marker`; returns `'gone'` when the item no longer accepts comments. */
   postNote(commands: Commands, item: WorkItem, text: string, marker: string): Promise<'sent' | 'gone'>
+  /** Reads one embedded image's host metadata (name, suffix, size, short-lived URL); absent when the host has no files API. */
+  readImageFile?(commands: Commands, project: string, key: string, image: WorkImageRef, signal?: AbortSignal): Promise<WorkImageFile>
   /** Optional status write-back; absent means the host stays read-only for this kind. */
   setStatus?(commands: Commands, item: WorkItem, stage: string, signal?: AbortSignal): Promise<void>
   /** Web page of one item, used by the channel's link. */

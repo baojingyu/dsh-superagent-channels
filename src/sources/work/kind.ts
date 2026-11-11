@@ -1,7 +1,7 @@
 /** Factory of the work (work-item) source kind: shared configuration, admission rows by category, comment channel, and health. */
 import { z } from 'zod'
 import type { OutboundMessage } from '../../core/index.ts'
-import type { ChannelHost, ChannelLink, FieldSpec, Localized, SourceKind } from '../kind.ts'
+import type { ChannelHost, ChannelLink, FieldSpec, Localized, SourceKind, ThreadContext } from '../kind.ts'
 import type { WorkAdapter } from './port.ts'
 
 /** Configuration every work-kind instance shares; a host adapter maps its project and token file onto these keys. */
@@ -16,6 +16,8 @@ const WorkConfigSchema = z.object({
   pollSeconds: z.number().int().min(60).max(3600).optional(),
   /** Status write-back; off by default, so the agent only ever comments. */
   writeBack: z.boolean().default(false),
+  /** How many of the newest person comments a first-sight work item backfills; older comments are dropped (0 disables). */
+  backfillComments: z.number().int().min(0).max(200).default(20),
 }).strict()
 export type WorkConfig = z.infer<typeof WorkConfigSchema>
 
@@ -30,6 +32,9 @@ const FIELDS: readonly FieldSpec[] = [
   { key: 'pollSeconds', type: 'number', advanced: true, min: 60, max: 3600, label: { zh: '轮询间隔 / 秒', en: 'Polling interval / seconds' } },
   { key: 'writeBack', type: 'switch', label: { zh: '回写工作项状态', en: 'Write status back to work items' },
     hint: { zh: '默认关闭：智能体只在评论里交付结论，不改看板状态。', en: 'Off by default: the agent delivers in a comment and never changes the board status.' } },
+  { key: 'backfillComments', type: 'number', advanced: true, min: 0, max: 200,
+    label: { zh: '首见回填评论条数', en: 'First-sight comment backfill' },
+    hint: { zh: '首次看到某工单时补投最近多少条真人评论；更早的丢弃。0 表示不补。', en: 'How many of the newest person comments to backfill when a work item is first seen; older ones are dropped. 0 disables it.' } },
 ]
 
 /** What a configured outbound provider receives to post one work-item comment. */
@@ -63,6 +68,8 @@ export interface WorkKindMeta<C extends Record<string, unknown> = WorkConfig> {
   extraSchema?: z.ZodObject<z.ZodRawShape>
   /** Outbound comment provider; `true` derives one from the adapter's own reads and comment writer. */
   provider?: boolean | WorkNoteProvider
+  /** Bounded thread context (including image reads) this host can serve to assessments; absent when it serves none. */
+  threadContext?: ThreadContext<C>
 }
 
 /** A provider backed by the adapter: read the item named by the reply target, then post the comment on it. */
@@ -114,6 +121,7 @@ export function workKind<C extends Record<string, unknown> = WorkConfig>(
     schema,
     fields: [...(meta.fields ?? FIELDS), ...(meta.extraFields ?? [])],
     health: [meta.host ?? adapter.host],
+    ...meta.threadContext ? { threadContext: meta.threadContext } : {},
     // Work items are received as a whole; the category only selects the admission row of the Policy.
     scope: input => {
       const category = input.meta.category

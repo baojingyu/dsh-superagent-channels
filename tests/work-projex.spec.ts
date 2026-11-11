@@ -56,7 +56,32 @@ describe('Projex mapping', () => {
   it('maps a comment with its author accountID and timestamps', () => {
     expect(mapNote({ id: 'c1', content: 'looks good', creator: 'acc-9', gmtCreate: 1730000000000, gmtModified: 1730000050000 }))
       .toEqual({ id: 'c1', body: 'looks good', author: { id: 'acc-9' },
-        at: new Date(1730000000000).toISOString(), updatedAt: new Date(1730000050000).toISOString() })
+        at: new Date(1730000000000).toISOString(), updatedAt: new Date(1730000050000).toISOString(), self: false })
+  })
+  it('maps a rich-text comment: its user, and the text rendered from htmlValue', () => {
+    const content = JSON.stringify({ htmlValue: '<article><p>已完成&nbsp;<b>联调</b></p></article>',
+      jsonMLValue: ['root', {}, ['p', {}, '已完成']] })
+    expect(mapNote({ id: 'c2', content, contentFormat: 'RICHTEXT', user: { id: 'acc-9', name: '郑超' },
+      gmtCreate: 1730000000000 })).toMatchObject({ id: 'c2', body: '已完成 联调', author: { id: 'acc-9', name: '郑超' } })
+  })
+  it('marks a comment carrying the agent marker as self, so the stream can never treat it as a person', () => {
+    const marked = JSON.stringify({ htmlValue: '<p>done</p><p><!-- dsh-superagent:m1 --></p>' })
+    expect(mapNote({ id: 'c3', content: marked, user: { id: 'acc-9' }, gmtCreate: 1730000000000 }).self).toBe(true)
+    expect(mapNote({ id: 'c4', content: 'a person wrote this', user: { id: 'acc-9' }, gmtCreate: 1730000000000 }).self).toBe(false)
+  })
+  it('renders an item description to readable text and exposes its inline images', () => {
+    const description = JSON.stringify({ htmlValue: '<article><p>修复 <b>图表</b></p>'
+      + '<img src="https://devops.aliyun.com/projex/api/workitem/file/url?fileIdentifier=FID1" alt="shot"></article>' })
+    const item = mapWorkItem({ id: 'w2', serialNumber: 'ESFX-2', subject: 'S', description, categoryId: 'Bug' }, 'p')
+    expect(item.body).toBe('修复 图表')
+    expect(item.images).toEqual([{ key: 'FID1', url: 'https://devops.aliyun.com/projex/api/workitem/file/url?fileIdentifier=FID1', name: 'shot' }])
+  })
+  it('exposes a comment image reference and keeps the comment text image-free', () => {
+    const content = JSON.stringify({ htmlValue: '<p>看这个</p>'
+      + '<img src="https://devops.aliyun.com/projex/api/workitem/file/url?fileIdentifier=FID9">' })
+    const note = mapNote({ id: 'c9', content, user: { id: 'u' }, gmtCreate: 1730000000000 })
+    expect(note.body).toBe('看这个')
+    expect(note.images?.map(image => image.key)).toEqual(['FID9'])
   })
   it('converts milliseconds to ISO and tolerates empty or unparsable values', () => {
     expect(isoFromMs(1730000000000)).toBe(new Date(1730000000000).toISOString())
@@ -66,34 +91,45 @@ describe('Projex mapping', () => {
 })
 
 describe('Projex listWorkItems', () => {
-  it('follows nextToken and passes it back to the next page of the same category', async () => {
-    const { api, calls } = stubApi(call => call.query?.nextToken === 'n1'
-      ? ok({ workitems: [{ identifier: 'B-2', categoryIdentifier: 'Bug' }] })
-      : ok({ workitems: [{ identifier: 'B-1', categoryIdentifier: 'Bug' }], nextToken: 'n1' }))
+  it('searches through the named collection route and pages until a short page', async () => {
+    const full = Array.from({ length: 100 }, (_, index) => ({ id: `B-${index}`, categoryId: 'Bug' }))
+    const { api, calls } = stubApi(call => (call.body as { page?: number }).page === 1
+      ? ok(full)
+      : ok([{ id: 'B-100', categoryId: 'Bug' }]))
     const adapter = createProjexAdapter({ api, organization: 'org-1' })
     const page = await adapter.listWorkItems(commands(), 'proj-1', '', ['bug'])
-    expect(page.items.map(item => item.key)).toEqual(['B-1', 'B-2'])
+    expect(page.items).toHaveLength(101)
+    expect(page.items.at(-1)?.key).toBe('B-100')
     expect(calls).toHaveLength(2)
-    expect(calls[0]).toMatchObject({ method: 'get', path: '/oapi/v1/projex/organizations/org-1/listWorkitems',
-      query: { spaceType: 'Project', spaceIdentifier: 'proj-1', category: 'Bug', maxResults: 100 } })
-    expect(calls[0]!.query?.nextToken).toBeUndefined()
-    expect(calls[1]!.query?.nextToken).toBe('n1')
+    expect(calls[0]).toMatchObject({ method: 'post', path: '/oapi/v1/projex/organizations/org-1/workitems:search',
+      body: { spaceType: 'Project', spaceId: 'proj-1', category: 'Bug', page: 1, perPage: 100 } })
+    expect(calls[1]!.body).toMatchObject({ page: 2 })
   })
   it('maps requested categories to Req|Bug|Task and drops categories the host cannot poll', async () => {
-    const { api, calls } = stubApi(() => ok({ workitems: [] }))
+    const { api, calls } = stubApi(() => ok([]))
     const adapter = createProjexAdapter({ api, organization: 'org-1' })
     await adapter.listWorkItems(commands(), 'proj-1', '', ['requirement', 'bug', 'task', 'risk'])
-    expect(calls.map(call => call.query?.category)).toEqual(['Req', 'Bug', 'Task'])
-    expect(calls.every(call => call.path === '/oapi/v1/projex/organizations/org-1/listWorkitems')).toBe(true)
+    expect(calls.map(call => (call.body as { category?: string }).category)).toEqual(['Req', 'Bug', 'Task'])
+    expect(calls.every(call => call.path === '/oapi/v1/projex/organizations/org-1/workitems:search')).toBe(true)
   })
   it('adds the gmtModified conditions when a watermark is given, and makes no call with no categories', async () => {
-    const { api, calls } = stubApi(() => ok({ workitems: [] }))
+    const { api, calls } = stubApi(() => ok([]))
     const adapter = createProjexAdapter({ api, organization: 'org-1' })
     await adapter.listWorkItems(commands(), 'proj-1', '2026-01-01T00:00:00.000Z', ['bug'])
-    expect(String(calls[0]!.query?.conditions)).toContain('gmtModified')
+    const conditions = JSON.parse(String((calls[0]!.body as { conditions?: string }).conditions))
+    expect(conditions.conditionGroups[0][0]).toMatchObject({ fieldIdentifier: 'gmtModified', operator: 'MORE_THAN',
+      className: 'dateTime', format: 'input', value: ['2026-01-01T00:00:00.000Z'] })
     const before = calls.length
     expect(await adapter.listWorkItems(commands(), 'proj-1', '', [])).toEqual({ items: [] })
     expect(calls).toHaveLength(before)
+  })
+  it('reads the search response shape: categoryId, an object status, statusStageId, and the EMPTY_VALUE parent', () => {
+    const item = mapWorkItem({ id: 'w1', serialNumber: 'ESFX-1', subject: 'Search shape', categoryId: 'Req',
+      status: { id: 's1', name: '待验收', displayName: '待验收' }, statusStageId: '3', parentId: 'EMPTY_VALUE',
+      sprint: { id: 'sprint-1', name: '202611' }, creator: { id: 'acc-1' }, gmtCreate: 1730000000000 }, 'proj-1')
+    expect(item).toMatchObject({ key: 'w1', category: 'requirement', title: 'Search shape',
+      status: { id: 's1', name: '待验收', stage: '3' }, sprint: 'sprint-1' })
+    expect(item.parent).toBeUndefined()
   })
 })
 
@@ -106,32 +142,40 @@ describe('Projex reads and comments', () => {
     expect(item.serial).toBe('ABCD-12')
     expect(calls[0]!.path).toBe('/oapi/v1/projex/organizations/org-1/workitems/AB-12')
   })
-  it('lists comments with the cursor as nextToken and maps each note', async () => {
-    const { api, calls } = stubApi(() => ok({ comments: [{ id: 'c1', content: 'hi', creator: 'acc-9', gmtCreate: 1730000000000 }], nextToken: 'c2' }))
+  it('lists comments as one unpaged array and maps each note', async () => {
+    const { api, calls } = stubApi(() => ok([{ id: 'c1', content: 'hi', creator: 'acc-9', gmtCreate: 1730000000000 }]))
     const adapter = createProjexAdapter({ api, organization: 'org-1' })
     const page = await adapter.listNotes(commands(), 'proj-1', 'AB-12', 'c1')
-    expect(calls[0]).toMatchObject({ path: '/oapi/v1/projex/organizations/org-1/workitems/AB-12/comments',
-      query: { maxResults: 100, nextToken: 'c1' } })
-    expect(page).toEqual({ notes: [{ id: 'c1', body: 'hi', author: { id: 'acc-9' }, at: new Date(1730000000000).toISOString() }], next: 'c2' })
+    expect(calls[0]).toMatchObject({ path: '/oapi/v1/projex/organizations/org-1/workitems/AB-12/comments' })
+    expect(calls[0]!.query).toBeUndefined()
+    expect(page).toEqual({ notes: [{ id: 'c1', body: 'hi', author: { id: 'acc-9' }, at: new Date(1730000000000).toISOString(), self: false }] })
   })
   it('does not post when a comment already carries the marker', async () => {
     const marker = '<!-- dsh-superagent:r1 -->'
-    const { api, calls } = stubApi(() => ok({ comments: [{ id: 'c1', content: `done ${marker}` }] }))
+    const { api, calls } = stubApi(() => ok([{ id: 'c1', content: `done ${marker}` }]))
     const adapter = createProjexAdapter({ api, organization: 'org-1' })
     expect(await adapter.postNote(commands(), workItem, 'done', marker)).toBe('sent')
     expect(calls).toHaveLength(1)
     expect(calls[0]!.method).toBe('get')
   })
+  it('finds the marker inside a rich-text comment so replies stay idempotent', async () => {
+    const marker = '<!-- dsh-superagent:r1 -->'
+    const content = JSON.stringify({ htmlValue: `<article><p>done</p><p><!-- dsh-superagent:r1 --></p></article>` })
+    const { api, calls } = stubApi(() => ok([{ id: 'c1', content, contentFormat: 'RICHTEXT', user: { id: 'acc-9' } }]))
+    const adapter = createProjexAdapter({ api, organization: 'org-1' })
+    expect(await adapter.postNote(commands(), workItem, 'done', marker)).toBe('sent')
+    expect(calls).toHaveLength(1)
+  })
   it('posts the comment with the marker appended when no comment carries it', async () => {
     const marker = '<!-- dsh-superagent:r1 -->'
-    const { api, calls } = stubApi(call => call.method === 'post' ? ok({}) : ok({ comments: [] }))
+    const { api, calls } = stubApi(call => call.method === 'post' ? ok({}) : ok([]))
     const adapter = createProjexAdapter({ api, organization: 'org-1' })
     expect(await adapter.postNote(commands(), workItem, 'done', marker)).toBe('sent')
     expect(calls[1]).toMatchObject({ method: 'post', path: '/oapi/v1/projex/organizations/org-1/workitems/AB-12/comments',
       body: { content: `done\n\n${marker}` } })
   })
   it('reports gone when the item no longer accepts comments', async () => {
-    const { api } = stubApi(call => { if (call.method === 'post') throw new YunxiaoHttpError(410, 'item gone'); return ok({ comments: [] }) })
+    const { api } = stubApi(call => { if (call.method === 'post') throw new YunxiaoHttpError(410, 'item gone'); return ok([]) })
     const adapter = createProjexAdapter({ api, organization: 'org-1' })
     expect(await adapter.postNote(commands(), workItem, 'done', '<!-- dsh-superagent:r1 -->')).toBe('gone')
   })
