@@ -234,12 +234,29 @@ export class Tickets extends EnginePart {
   addInput(ticket: Ticket, input: TicketInput): void {
     if (ticket.inputs.some(existing => existing.id === input.id)) return
     ticket.inputs.push(input); ticket.updatedAt = this.now()
+    // A person's message answers an outstanding question: the stale attention no longer holds the ticket, and a
+    // blocked/failed worker is resumed with a fresh Assignment instead of being delivered to an idle, stalled one.
+    const personReply = input.kind === 'trigger' && input.human === true && !input.context
+    const latest = latestAssignment(ticket)
+    // Only an outstanding question (person/answer) means the worker is stalled on this person; a plain failed
+    // assignment keeps its own delivery/retry path.
+    const stalled = personReply && liveTicket(ticket) && !ticket.delivery && ticket.attention !== undefined
+    if (personReply && ticket.attention) { this.replies.withdrawAttention(ticket.attention.id); delete ticket.attention }
     // Hold back automated inputs while the worker is waiting on a person.
     const held = liveTicket(ticket) && automatic(input) && waitsForPerson(ticket)
     if (!held) ticket.undelivered.push(input.id)
     this.repo.tickets.save(ticket)
     if (!liveTicket(ticket) || held) return
-    const running = runningAssignment(ticket), latest = latestAssignment(ticket)
+    if (stalled) {
+      const current = runningAssignment(ticket) ?? (latest && latest.state !== 'ended' ? latest : undefined)
+      if (current) { this.endAssignment(ticket, current, 'resumed'); this.requeueUntaken(ticket, current) }
+      const assignment = this.newAssignment(ticket)
+      this.repo.tickets.save(ticket)
+      if (current) this.options.executor.stop(ticket, current, 'resumed')
+      this.options.executor.start(ticket, assignment)
+      return
+    }
+    const running = runningAssignment(ticket)
     if (running) this.options.executor.deliver(ticket, running)
     else if (latest?.state === 'pending' && !waitsForPerson(ticket)) this.options.executor.start(ticket, latest)
   }
