@@ -3,7 +3,7 @@
 面向：接手本任务的工程师
 基线日期：2026-11-07　文档版本：**v4**（随本轮微信收口更新）　基线提交：见 §1
 前置决定（已由 owner 确认，交接期内不改变）：**仓库不改名、不回退**；所有后续改动只提交到
-`baojingyu/dsh-superagent-channels`。
+`baojingyu/dsh-superagent-multi-channel`。
 
 > 读完 §5 再动手。**§3.7 的 Windows 阻塞已在 v3 修掉**（平台守卫），但**微信群 `@` 的结论是
 > 「L0 拿不到」**，见 §4.1 —— 这一条改变了微信的可用范围，务必先读。
@@ -24,7 +24,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 仓库（唯一 remote） | `https://github.com/baojingyu/dsh-superagent-channels.git`（**私有、独立仓库**，见 [REPOSITORY.md](REPOSITORY.md)） |
+| 仓库（唯一 remote） | `https://github.com/baojingyu/dsh-superagent-multi-channel.git`（**私有、独立仓库**，见 [REPOSITORY.md](REPOSITORY.md)） |
 | remote 配置 | `origin` fetch/push 均指向上面这一个 URL；**没有 `upstream` 等第二 remote**（要吸上游修复时再加，且只 fetch 不 push） |
 | 主分支 | `main` = v3 落地提交（`feat/win11-portability` 以 `--no-ff` 合并） |
 | 主分支近期提交 | `b7bb154`（README 改写为仓库首页）→ `692e6b1`（`merge: self-hosted sources ...`，`--no-ff` 合并提交）→ `4b7a7f8`（v2 本文档）→ `f2891e8`（v2 文档变更记录） |
@@ -36,14 +36,14 @@
 复核命令（Windows PowerShell，任意目录）：
 
 ```powershell
-cd C:\dev\dsh-superagent-channels
+cd C:\dev\dsh-superagent-multi-channel
 git remote -v
 git log --oneline -3
 git status --porcelain
 git branch -vv
 ```
 
-预期：`origin` 只有一行 fetch、一行 push，URL 均为 `baojingyu/dsh-superagent-channels`；
+预期：`origin` 只有一行 fetch、一行 push，URL 均为 `baojingyu/dsh-superagent-multi-channel`；
 `HEAD -> main` 指向最新提交；`git status` 无输出；只有 `main` 一个分支（主题分支合并后即删）。
 
 ---
@@ -131,7 +131,7 @@ git branch -vv
 
 ```
 C:\dev\
-  dsh-superagent-channels\            ← 本仓库（clone 到这里），全部资产都在里面
+  dsh-superagent-multi-channel\            ← 本仓库（clone 到这里），全部资产都在里面
     sidecar\wxauto-bridge\server.py     ← 契约实现（fake / pc-uia / pad）
     sidecar\wxauto-bridge\contract.md   ← 冻结契约（bridge.ts 引用的就是它）
     sidecar\start-wxbridge.cmd          ← Windows 启动器（路径按本机改）
@@ -151,8 +151,8 @@ C:\dev\
 
 ```powershell
 cd C:\dev
-git clone https://github.com/baojingyu/dsh-superagent-channels.git
-cd dsh-superagent-channels
+git clone https://github.com/baojingyu/dsh-superagent-multi-channel.git
+cd dsh-superagent-multi-channel
 git checkout main
 git pull --ff-only
 # sidecar / 探针 / 契约自测都在仓库里，不需要额外拷贝任何目录
@@ -161,7 +161,7 @@ git pull --ff-only
 ### 3.3 安装依赖（不要用 pnpm）
 
 ```powershell
-cd C:\dev\dsh-superagent-channels
+cd C:\dev\dsh-superagent-multi-channel
 npm install --ignore-scripts --legacy-peer-deps
 ```
 
@@ -179,7 +179,7 @@ npm i @deepseek-ai/cordis-plugin-include@~1.0.10-alpha.1 @deepseek-ai/dsh-http-p
 ### 3.4 跑第 2 节的五条检查（逐条执行，别合并）
 
 ```powershell
-cd C:\dev\dsh-superagent-channels
+cd C:\dev\dsh-superagent-multi-channel
 
 # 1) 类型检查
 .\node_modules\.bin\tsc.cmd --noEmit; echo "tsc=$?"
@@ -222,7 +222,7 @@ Remove-Item Env:\LIVE
 手工验证 sidecar 能单独启动（可选，但排障时很有用）：
 
 ```powershell
-cd C:\dev\dsh-superagent-channels\sidecar\wxauto-bridge
+cd C:\dev\dsh-superagent-multi-channel\sidecar\wxauto-bridge
 python server.py --backend fake --port 8787 --token dev-only
 # 另一个窗口：
 curl.exe -s -H "Authorization: Bearer dev-only" 127.0.0.1:8787/health
@@ -289,7 +289,7 @@ icacls C:\secrets\gitlab.token /inheritance:r /grant:r "%USERNAME%:R"
 **v3 已跑通，并且已经得出结论（见 §4.1）：L0 拿不到结构化 `@`。** 这里只留操作方式。
 
 ```powershell
-cd C:\dev\dsh-superagent-channels\poc
+cd C:\dev\dsh-superagent-multi-channel\poc
 # 用装了 wxautox4 的那个解释器；本机是：
 # `$WX` 是「装了 wxautox4 的那个目录」：它下面有 `.venv\`。这只是本机的目录名，**不进版本库**。
 $WX = '<装了 wxautox4 的目录>'
@@ -525,7 +525,7 @@ POST /listen
 ## 5. 交接注意事项
 
 1. **先复跑、再动手。** 到岗后第一件事是按 §3.4 跑完五条检查，把结果填进 §2 的表格。任何一条与基线不一致，先解决环境，不要开始改代码。**v3 已经把 Win11 上的 64 个失败清零**，所以现在的基线是「Windows 上也是 0 failed」；再出现红，先怀疑是本地状态而不是已知问题。
-2. **只推 `origin`。** `git remote -v` 里应当只有 `baojingyu/dsh-superagent-channels` 一个 remote；**不要**添加任何指向官方/上游仓库的 remote，也不要向其它仓库推送。
+2. **只推 `origin`。** `git remote -v` 里应当只有 `baojingyu/dsh-superagent-multi-channel` 一个 remote；**不要**添加任何指向官方/上游仓库的 remote，也不要向其它仓库推送。
 3. **不改名、不回退。** 仓库名与 `main` 历史均保持现状。**长期分支只留 `main`**：需求分支合并后即删
    （`git push origin --delete <branch>`）；需要回看某个改动时用提交 SHA，不要用长期存活的分支代替历史。
 4. **基于 `main` 拉需求分支或开发分支，不要在 `main` 上直接开发。** 每个需求/任务起一个分支
@@ -552,7 +552,7 @@ POST /listen
 
 ```powershell
 # 环境
-cd C:\dev\dsh-superagent-channels
+cd C:\dev\dsh-superagent-multi-channel
 npm install --ignore-scripts --legacy-peer-deps
 
 # 五条基线
@@ -563,7 +563,7 @@ $env:LIVE='1'; .\node_modules\.bin\vitest.cmd run tests/live; Remove-Item Env:\L
 .\node_modules\.bin\vitest.cmd run tests/docs.spec.ts
 
 # sidecar（排障）
-cd C:\dev\dsh-superagent-channels\sidecar\wxauto-bridge
+cd C:\dev\dsh-superagent-multi-channel\sidecar\wxauto-bridge
 python server.py --backend fake --port 8787 --token dev-only
 
 # sidecar（真机；--listen 已不再需要，群从面板的 POST /listen 下发）
@@ -576,12 +576,12 @@ $PY = "$WX\.venv\Scripts\python.exe"
 #       detail 里能看到 `群 @ 判据：@<本账号显示名>`
 
 # 微信真机探针
-cd C:\dev\dsh-superagent-channels\poc
+cd C:\dev\dsh-superagent-multi-channel\poc
 python win_diag.py                                   # 会话/窗口/代际
 python probe_wxauto.py --selftest                    # 不碰微信，只验证报告链路
 
 # sidecar 契约自测（不依赖微信）
-cd C:\dev\dsh-superagent-channels\verify
+cd C:\dev\dsh-superagent-multi-channel\verify
 node --experimental-strip-types --no-warnings live-contract.mjs
 python signal-check.py
 

@@ -18,3 +18,4 @@ __pycache__/
 *.pyc
 # Never commit a bearer token.
 secrets/
+*.tgz

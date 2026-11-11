@@ -1,4 +1,4 @@
-# dsh-superagent-channels · multi-channel edition
+# dsh-superagent-multi-channel · multi-channel edition
 
 **English** · [简体中文](README.zh-CN.md)
 
@@ -18,8 +18,8 @@ to detach a copy from the prototype.
 
 ## Install
 
-Published as its own package, `dsh-superagent-channels`, so it installs next to the official superagent instead of replacing it.
-Search for that name in the DSH plugin market and install it; the panel then carries a `dsh-superagent-channels` entry. Each
+Published as its own package, `dsh-superagent-multi-channel`, so it installs next to the official superagent instead of replacing it.
+Search for that name in the DSH plugin market and install it; the panel then carries a `dsh-superagent-multi-channel` entry. Each
 release bumps `version` in `package.json` and adds a section to [CHANGELOG.md](CHANGELOG.md), and the market offers the upgrade.
 
 ## What it adds
@@ -141,8 +141,10 @@ patterns strict but is not something a person can type.
 | `sidecar/wxauto-bridge/` | the WeChat sidecar and its frozen contract; the live test runs it |
 | `tests/live/*.live.spec.ts` | live suites, gated by `LIVE=1` |
 
-The bundle's own identifier stays `dsh-superagent`: it is what `cordis.patch.yml` inserts and what
-`scripts/dsh-superagent` is named after. The repository is `dsh-superagent-channels`; the plugin is not.
+The bundle's own identifier stays `dsh-superagent`: it is what `cordis.patch.yml` inserts, what the profile's `stateDir`
+setting targets, and what `scripts/dsh-superagent` is named after. Renaming it would orphan every saved setting and
+Ticket, so the package, the repository and the panel entry carry the new name `dsh-superagent-multi-channel` while the
+internal identifier does not.
 
 ## Documentation
 

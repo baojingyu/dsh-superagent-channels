@@ -1,9 +1,40 @@
 # Changelog
 
 Versions follow semantic versioning; each release is published to the plugin market under the package name
-`dsh-superagent-channels`, so a user upgrades by installing the new version.
+`dsh-superagent-multi-channel`, so a user upgrades by installing the new version.
+
+## 2.0.0
+
+Renamed from `dsh-superagent-channels` to `dsh-superagent-multi-channel`, repository included. A major version because
+the package name an installation pins changes with it.
+
+- Package, repository, bundle module names, panel entry and documentation now say `dsh-superagent-multi-channel`. The
+  repository moved to `github.com/baojingyu/dsh-superagent-multi-channel`.
+- The internal bundle identifier stays `dsh-superagent`. It is what `cordis.patch.yml` inserts, what a profile's
+  `stateDir` setting targets and what `scripts/dsh-superagent` is named after; renaming it would orphan every saved
+  setting and Ticket, so it is deliberately unchanged.
+- `src/infra/paths.ts` resolves all three names this package has shipped under - `dsh-superagent-multi-channel`,
+  `dsh-superagent-channels` and `dsh-superagent` - so a deployment installed before the rename keeps working.
+- Upgrading an existing installation: remove the old `dsh-superagent-channels` package and install
+  `dsh-superagent-multi-channel`; settings, Tickets and the state directory are untouched because the identifier did not
+  change.
+
+## 1.0.7
+
+A ticket's question for a person now reaches the Source even when the main Session never sends an attention reply, so a
+work item no longer goes silent while the work waits on someone.
+
+- `Replies.announceAttention`: when a worker reports a new question, the question is queued to the conversation that must
+  hear it - where the person who raised it wrote, else the ticket's starting conversation - under the same
+  `attention-reply` id an attention reply uses. Whichever is queued first wins, so the question is never posted twice,
+  and replacing or clearing the question withdraws the queued one as before. A ticket a machine asked for is skipped,
+  because there is no person to tell. This matches what `announceEnd` already did for an ending.
+- Prompts: `work.md` now says that ending a turn to wait for a person is the same mistake as leaving the question only in
+  a summary, and `replies.md` tells the main Session that a reported question is already queued, so
+  `orchestrator_reply` attention is for wording it better rather than for posting it.
 
 ## 1.0.6
+
 
 Projex work items now deliver their comments and inline images, and a blocked ticket resumes when a person answers.
 
@@ -22,7 +53,7 @@ Projex work items now deliver their comments and inline images, and a blocked ti
   the reply waiting. Bot/CI inputs do not wake it; duplicate inputs stay idempotent.
 - Panel: a routed attach (recorded as an `ignore` with a `routed` reason) renders as "已转工单 / Attached to ticket" with
   its target ticket, instead of as an ignore.
-- `packageRoot()` accepts both `dsh-superagent-channels` and `dsh-superagent`.
+- `packageRoot()` accepts both `dsh-superagent-multi-channel` and `dsh-superagent`.
 
 ## 1.0.3
 

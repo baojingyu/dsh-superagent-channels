@@ -15,6 +15,7 @@ Once the PR is self-reviewed, validated and ready for human review, report its a
 Do not wait for approval or merge to report an available reviewed PR.
 For an incomplete draft report blocked and name what remains.
 Do not leave the question only in summary, GitHub or the Session and wait.
+Ending a turn to wait for a person is the same mistake: before the turn ends, call orchestrator_report with human_action and state progress or blocked, so the question reaches the Source; a final chat line or a waiting summary is not a question.
 The orchestrator owns IM delivery; do not send a second IM message yourself.
 Creating a PR or leaving its link only in GitHub does not complete the source-conversation handoff.
 

@@ -52,6 +52,34 @@ export class Replies extends EnginePart {
   }
   /** Withdraw a ticket's question for a person from the outbox, unless it went out already. */
   withdrawAttention(attentionId: string): void { this.options.outbox.withdraw(key('attention-reply', attentionId)) }
+  /**
+   * Queue a ticket's open question for a person to the conversation that must hear it, so the Source shows the question
+   * even when the main Session never sends an attention reply.
+   *
+   * A question needs the main Session's `orchestrator_reply`; when that call does not come - a model that asks in its own
+   * chat instead - a work item shows nothing and the person never learns that work waits on them. So the question is
+   * queued here, under the same id an attention reply would use: whichever is queued first wins, and the question is
+   * never posted twice.
+   *
+   * A ticket a machine asked for is skipped: there is no person to tell.
+   */
+  announceAttention(ticketId: string): void {
+    const ticket = this.repo.tickets.get(ticketId)
+    const attention = ticket?.attention
+    if (!ticket || !attention) return
+    const origin = this.source(ticket)
+    if (!origin?.human) return
+    const id = key('attention-reply', attention.id)
+    if (this.options.outbox.status(id)) return
+    const asker = attention.triggerId ? this.repo.triggers.get(attention.triggerId) : undefined
+    const channel = asker?.channel ?? this.sourceChannel(ticket)
+    if (!channel) return
+    try {
+      this.options.outbox.send({ id, channel, text: attention.question, kind: 'reply', ticketId })
+    } catch {
+      /* A channel cap that refuses this text leaves the main Session's own attention reply as the fallback. */
+    }
+  }
   private acknowledge(request: Extract<ReplyRequest, { purpose: 'acknowledgement' }>): Reply {
     const ticket = this.require(request.ticketId)
     if (!liveTicket(ticket)) throw new UserError('ackEnded')

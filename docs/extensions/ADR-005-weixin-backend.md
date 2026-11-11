@@ -13,7 +13,7 @@
 ### 2.1 形态：Windows 常驻 sidecar + loopback HTTP
 
 WeChat 客户端自动化跑在一台 **Windows 常驻机**上，以独立进程（`sidecar/wxauto-bridge`）暴露
-`127.0.0.1` 的 HTTP 契约（见 `sidecar/wxauto-bridge/contract.md`），dsh-superagent-channels 通过
+`127.0.0.1` 的 HTTP 契约（见 `sidecar/wxauto-bridge/contract.md`），dsh-superagent-multi-channel 通过
 `src/sources/chat/weixin/pc-uia/*` 适配器调用。
 
 理由：

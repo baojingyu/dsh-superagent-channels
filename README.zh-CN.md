@@ -1,4 +1,4 @@
-# dsh-superagent-channels · 多通道版
+# dsh-superagent-multi-channel · 多通道版
 
 [English](README.md) · **简体中文**
 
@@ -15,8 +15,12 @@ GitLab、云效 Projex、微信、钉钉、企业微信，以及同一种通道�
 
 ## 安装
 
-作为独立包 `dsh-superagent-channels` 发布，可与官方 superagent 并存安装，不替换它。在 DSH 插件市场搜索这个名字安装即可，面板随后出现
-`dsh-superagent-channels` 入口。每次发布都改 `package.json` 的 `version` 并在 [CHANGELOG.md](CHANGELOG.md) 记一节，插件市场据此提示升级。
+作为独立包 `dsh-superagent-multi-channel` 发布，可与官方 superagent 并存安装，不替换它。在 DSH 插件市场搜索这个名字安装即可，面板随后出现
+`dsh-superagent-multi-channel` 入口。每次发布都改 `package.json` 的 `version` 并在 [CHANGELOG.md](CHANGELOG.md) 记一节，插件市场据此提示升级。
+
+bundle 自身的标识仍是 `dsh-superagent`：`cordis.patch.yml` 插入的就是它，profile 的 `stateDir` 按它定位，
+`scripts/dsh-superagent` 也以它命名。改掉它会孤立每一份已保存的设置和每一个工单，所以包名、仓库名和面板入口用新名字
+`dsh-superagent-multi-channel`，内部标识不动。
 
 ## 加了什么
 

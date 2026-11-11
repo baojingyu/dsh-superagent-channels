@@ -864,6 +864,22 @@ describe('worker reports', () => {
     expect(cleared).not.toHaveProperty('attention')
     expect(h.withdrawn).toEqual([key('attention-reply', asked.attention!.id), key('attention-reply', replaced.attention!.id)])
   })
+  it('posts a new question to the ticket conversation even when the main Session never replies', () => {
+    const h = harness()
+    const ticketId = accepted(h).ticketId!
+    const asked = h.engine.report(ticketId, { state: 'progress', summary: 'need a call', question: 'Which color?', askedBy: '1' })
+    const id = key('attention-reply', asked.attention!.id)
+    const posted = h.outbox.find(item => item.id === id)
+    expect(posted).toMatchObject({ text: 'Which color?', kind: 'reply', ticketId })
+    expect(posted!.channel).toEqual(trigger('1').channel)
+    // Replacing the question withdraws the queued one and queues the new question in its place.
+    const replaced = h.engine.report(ticketId, { state: 'progress', summary: 'other question', question: 'Which size?' })
+    expect(h.withdrawn).toEqual([id])
+    const next = key('attention-reply', replaced.attention!.id)
+    expect(h.outbox.find(item => item.id === next)).toMatchObject({ text: 'Which size?' })
+    // An attention reply reuses the queued question rather than posting the same question twice.
+    expect(h.engine.reply({ purpose: 'attention', ticketId, question: 'Which size?', text: 'Which size?' })).toMatchObject({ reused: true })
+  })
   it('ends the ticket on a final report: dropped drops it, ready completes it unless it follows a Source\'s Thread that is open', () => {
     const outcome = (state: 'ready' | 'dropped' | 'failed', follows: boolean, closed = false) => {
       const h = harness()
@@ -1146,8 +1162,8 @@ describe('replies', () => {
     expect(() => h.engine.reply({ purpose: 'attention', ticketId: quiet, question: '', text: 'Anything to send.' })).toThrow(new UserError('notAttention'))
     const attention = h.repo.tickets.get(ticketId)!.attention!
     expect(h.engine.reply({ purpose: 'attention', ticketId, question: 'Which color?', text: 'Which color?' }).id).toBe(key('attention-reply', attention.id))
-    // A question goes where the message that raised it was written.
-    expect(h.outbox.at(-1)!.channel).toEqual(asked.channel)
+    // A question goes where the message that raised it was written, whether the worker's report queued it or this reply did.
+    expect(h.outbox.find(item => item.id === key('attention-reply', attention.id))!.channel).toEqual(asked.channel)
     h.engine.report(ticketId, { state: 'ready', summary: 'Done' })
     expect(h.engine.reply({ purpose: 'result', ticketId, text: 'Done' })).toMatchObject({ status: 'pending' })
     expect(h.outbox.at(-1)!.channel).toEqual(trigger('1').channel)

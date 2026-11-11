@@ -3,26 +3,26 @@
 # refuses to start without stateDir.
 - insert:
     - id: dsh-superagent
-      name: dsh-superagent-channels
+      name: dsh-superagent-multi-channel
     - id: dsh-superagent-github
-      name: dsh-superagent-channels/github-watch
+      name: dsh-superagent-multi-channel/github-watch
     # Every Source is registered, so the panel can list it and its switch decides whether it runs. A Source with no
     # configuration reports `sourceOff` and idles, which is what "off" means; editing this file is not how a Source is
     # turned on. Each of these still needs its own setup before it can read anything: Feishu a bot CLI, Weixin the
     # wxauto-bridge sidecar and its token file, GitLab a project and token file, Projex a project space and organization
     # ID, DingTalk app credentials plus an injected stream transport, WeCom a public reverse-proxied callback route.
     - id: dsh-superagent-feishu
-      name: dsh-superagent-channels/feishu-watch
+      name: dsh-superagent-multi-channel/feishu-watch
     - id: dsh-superagent-weixin
-      name: dsh-superagent-channels/weixin-watch
+      name: dsh-superagent-multi-channel/weixin-watch
     - id: dsh-superagent-gitlab
-      name: dsh-superagent-channels/gitlab-watch
+      name: dsh-superagent-multi-channel/gitlab-watch
     - id: dsh-superagent-projex
-      name: dsh-superagent-channels/projex-watch
+      name: dsh-superagent-multi-channel/projex-watch
     - id: dsh-superagent-dingtalk
-      name: dsh-superagent-channels/dingtalk-watch
+      name: dsh-superagent-multi-channel/dingtalk-watch
     - id: dsh-superagent-wecom
-      name: dsh-superagent-channels/wecom-watch
+      name: dsh-superagent-multi-channel/wecom-watch
     # The agent preset of every Executor Session (WORKER_PRESET in src/app/sessions.ts); the main Session has its own, below.
     # It is DSH's `standard` preset with only what a worker needs, and a shell whose foreground command moves to a background job
     # after 5 seconds, so a long command does not hold back a person's message, which the Session takes at its next step. Left

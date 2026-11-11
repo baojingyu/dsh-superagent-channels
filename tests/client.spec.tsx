@@ -56,7 +56,7 @@ it('registers a localized main panel, sidebar entry and Plugin Manager row page,
   expect(Object.keys(dictionaries)).toEqual(['dshSuperagent'])
   expect(main.options).toMatchObject({ key: 'dsh-superagent', locale: 'dshSuperagent' })
   expect(nav.options).toMatchObject({ id: 'dsh-superagent', order: 10, locale: 'dshSuperagent' })
-  expect(nav.options.label?.()).toBe('dsh-superagent-channels')
+  expect(nav.options.label?.()).toBe('dsh-superagent-multi-channel')
 })
 
 it('opens a listed Session through the workspace from the main panel', async () => {
