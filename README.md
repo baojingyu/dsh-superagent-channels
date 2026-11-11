@@ -43,6 +43,22 @@ in [ADR-007](docs/extensions/ADR-007-weixin-capability-alignment.md).
 Full feature detail — every field, endpoint, idempotency rule, capability state and known gap — is
 in [EXTENSIONS.md](EXTENSIONS.md).
 
+## Yunxiao Projex: comments, backfill and images (1.0.6)
+
+For every work item a **live ticket follows**, the Projex Source reads its `/comments` every 60 s. A person's comment
+becomes a human Trigger on the item's thread (text = the comment, actor = its author); the agent's own comments carry
+`<!-- dsh-superagent:<id> -->` and are never re-ingested, and comments are de-duplicated by native id and time. On the
+**first sight** of a followed work item, `backfillComments` — a per-Source advanced setting, default **20**, `0` off —
+of the newest person comments are delivered oldest first; older comments are dropped. A per-item watermark
+(`KV.work.notes`) then limits delivery to newer comments, so a restart never repeats what was seen.
+
+Images embedded as `<img src="…fileIdentifier=…">` in a description or a comment are resolved through
+`GET …/workitems/{id}/files/{fileId}` (a short-lived signed URL), downloaded, de-duplicated by sha256 and archived under
+`<stateDir>/projex-images/<sha256>.<ext>` (mode `0600`). Only PNG/JPEG/WebP/GIF are accepted, with a 10 MiB default cap;
+a failed or oversized image is recorded in the Trigger text and never blocks the text Trigger. The Trigger text names
+each image as `projex-image:<sha256>.<ext>` plus its local path, so the assessment window (`orchestrator_eval_read`
+resource `image`) and an Executor's `read_image` can both read it. Images stay on the local state directory.
+
 ## Status
 
 Measured on `main`, on both platforms this project is developed on:

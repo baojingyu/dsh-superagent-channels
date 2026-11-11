@@ -3,6 +3,27 @@
 Versions follow semantic versioning; each release is published to the plugin market under the package name
 `dsh-superagent-channels`, so a user upgrades by installing the new version.
 
+## 1.0.6
+
+Projex work items now deliver their comments and inline images, and a blocked ticket resumes when a person answers.
+
+- Comment polling: for every work item a live ticket follows, read `/comments` every 60 s; a person's comment becomes a
+  human Trigger on the item's thread (text = the comment, actor = the author). Deduplicated by comment id + creation
+  time; comments carrying the agent's `<!-- dsh-superagent:` marker, and bots, are skipped.
+- First-sight backfill `backfillComments` (default 20, per-Source advanced setting, 0 disables): the newest N person
+  comments are delivered oldest first; older ones are dropped. After the per-item watermark (`KV.work.notes`) only newer
+  comments are delivered, so a restart re-delivers nothing.
+- Inline images in a description or comment (`<img src="...fileIdentifier=...">`) are resolved through the Projex files
+  API, de-duplicated by sha256 and archived under `<stateDir>/projex-images` (0600; PNG/JPEG/WebP/GIF, 10 MiB default
+  cap). Failed or oversized images are recorded and never block the text Trigger; the Trigger text names each image so
+  the assessment window (`image_id`) and an Executor's `read_image` can read it. Images stay local.
+- Resume fix: when a human Trigger reaches a ticket still in `person/answer`, `Tickets.addInput` clears the stale
+  `attention`, withdraws its unanswered reply, ends the stalled Assignment (`reason=resumed`) and starts a new one with
+  the reply waiting. Bot/CI inputs do not wake it; duplicate inputs stay idempotent.
+- Panel: a routed attach (recorded as an `ignore` with a `routed` reason) renders as "已转工单 / Attached to ticket" with
+  its target ticket, instead of as an ignore.
+- `packageRoot()` accepts both `dsh-superagent-channels` and `dsh-superagent`.
+
 ## 1.0.3
 
 The WeChat bridge is controlled entirely from the panel, with no command line and no scheduled-task setup.
