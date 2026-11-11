@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.6
+
+A blocked ticket now resumes when a person answers its question, and a routed attach is shown as "attached to a ticket".
+
+- Person reply fixes: `Tickets.addInput` clears a stale `attention` when a human Trigger reaches a ticket still in
+  `person/answer`, withdraws the unanswered attention reply, ends the stalled Assignment (`reason=resumed`) and starts a
+  new one with the reply waiting. Bot/CI inputs neither wake nor clear it; duplicate inputs stay idempotent.
+- Panel: a routed attach (recorded as an `ignore` whose reason is `routed`) now renders as "已转工单 / Attached to ticket"
+  with its target ticket, instead of being shown as an ignore.
+- Includes the 1.0.5 `backfillComments` change and the package-root double-name fix.
+
 ## 1.0.5
 
 Projex comment collection backfills the newest N person comments on first sight (default 20, configurable per Source).
