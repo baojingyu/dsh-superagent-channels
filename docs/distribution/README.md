@@ -1,6 +1,21 @@
 # 发布与收录材料（待审）
 
-**状态：等待项目所有者 review，尚未开源、尚未提交任何收录申请。** 本目录只是准备好、可直接发送的文本与清单。
+**状态：文档已 review 通过并开源（2026-11-14）；npm 发布被登录状态阻塞，尚未向任何平台提交收录。**
+
+## 已完成
+
+- [x] 开源：`main` 已推送（commit `5f2ade3`），tag `v2.4.0` 已推送
+- [x] 仓库：https://github.com/baojingyu/dsh-superagent-multi-channel
+- [x] 包名 `dsh-superagent-multi-channel`（未占用，`npm view` 404）；`npm publish --dry-run` 72 files / 1.1 MB
+
+## 阻塞项
+
+- [ ] **npm 登录**：`npm whoami` 返回 `ENEEDAUTH`。请在本机执行 `npm login`（账号 `baojingyu` 或你指定的 npm 账号）后我立即
+      `npm publish`；或用有 publish 权限的 token 配置到本机 npm（不必发我）。
+- [ ] **Community Market 托管**：manifest 的 `transport.endpoint` 必须是 HTTPS 且路径以 `/v1/plugins` 结尾（无 `.json`）。
+      GitHub Pages 对无扩展名文件按 `application/octet-stream` 返回，Host 的 `getJson` 可能拒绝；需要部署到能设
+      `content-type: application/json` 的静态主机（Cloudflare Pages / Vercel / 自有反代均可），或改用路径 B 受审 adapter。
+      这步在发送前单独确认。
 
 ## 发布前清单（Lead 已核对）
 
@@ -9,10 +24,11 @@
 - [x] README 中英文均按 2.4.0 现状重写，含实机截图（敏感信息已打码）与示意图
 - [x] 能力矩阵与平台限制成文（`docs/extensions/capability-matrix.md`）
 - [x] 六个来源技能齐备；`docs/images/` 只含打码后的截图
-- [ ] **待所有者确认**：仓库地址（`package.json` 暂填 `github.com/baojingyu/dsh-superagent-multi-channel`）
-- [ ] **待所有者确认**：npm 发布账号与是否使用 `@dsh-community` scope
-- [ ] 开源（打 tag `v2.4.0`、推送仓库）——**review 通过后执行**
-- [ ] 向下列平台提交收录——**开源后执行**
+- [x] 仓库地址已确认为 `github.com/baojingyu/dsh-superagent-multi-channel`
+- [x] npm 包名确认为无 scope 的 `dsh-superagent-multi-channel`
+- [x] 开源：`main` 推送（`5f2ade3`）+ tag `v2.4.0` 推送
+- [ ] npm 发布——**待本机 `npm login`**（当前 `ENEEDAUTH`）
+- [ ] 向下列平台提交收录——**npm 发布后执行**
 
 ## 收录目标与材料
 
