@@ -11,7 +11,7 @@
   },
   "transport": {
     "kind": "https-json",
-    "endpoint": "https://baojingyu.github.io/dsh-superagent-multi-channel/v1/plugins",
+    "endpoint": "https://baojingyu.github.io/dsh-superagent-multi-channel/distribution/catalog/v1/plugins",
     "method": "GET"
   },
   "query": {

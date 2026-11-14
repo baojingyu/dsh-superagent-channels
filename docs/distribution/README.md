@@ -11,7 +11,11 @@
 - [x] GitHub topics 已加 `dsh-plugin`、`deepseek-harness` 等（dshfind / 1024Store 按 topic 扫描）
 - [x] **dsh-desktop Issue #1650**：https://github.com/anywhere-labs/dsh-desktop/issues/1650
 - [x] **dshfind Issue #80**：https://github.com/hikariming/dshfind/issues/80
-- [x] `npm publish --dry-run` 通过：72 files / 1.1 MB
+- [x] **npm 已发布**：`dsh-superagent-multi-channel@2.4.0`，latest 已指向 2.4.0
+      https://www.npmjs.com/package/dsh-superagent-multi-channel
+- [x] GitHub Pages 已开启（main /docs）；目录 manifest：
+      https://baojingyu.github.io/dsh-superagent-multi-channel/distribution/catalog/catalog-source.json
+      endpoint：https://baojingyu.github.io/dsh-superagent-multi-channel/distribution/catalog/v1/plugins
 
 ## 阻塞项
 
