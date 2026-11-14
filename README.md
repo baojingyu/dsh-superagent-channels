@@ -127,7 +127,7 @@ URL and token, DingTalk's injected stream connection, the WeChat bridge `/health
 
 ## Documentation map
 
-| Document | What it covers |
+| Document | What it covers | Length / Audience |
 | --- | --- | --- |
 | [docs/README.en-US.md](docs/README.en-US.md) | Reading order and the full map (中文：[docs/README.md](docs/README.md)) | 46 lines · start here |
 | [docs/000-philosophy.md](docs/000-philosophy.md) | Why assess → ticket → execute | 35 lines · everyone, ~10 min |

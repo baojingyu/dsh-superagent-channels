@@ -119,7 +119,7 @@
 
 ## 文档地图
 
-| 文档 | 内容 |
+| 文档 | 内容 | 篇幅 / 适合谁读 |
 | --- | --- | --- |
 | [docs/README.md](docs/README.md) | 文档总览与阅读顺序（[English](docs/README.en-US.md)） | 46 行 · 第一次读 |
 | [docs/000-philosophy.zh-CN.md](docs/000-philosophy.zh-CN.md) | 设计哲学：为什么是「评估→工单→执行」 | 35 行 · 所有人，约 10 分钟 |
