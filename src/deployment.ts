@@ -1,11 +1,12 @@
 /** Plugin configuration and startup verification for repository access and agent CLI identities. */
 import { LIMITS } from './limits.ts'
-import { accessSync, constants, statSync } from 'node:fs'
+import { accessSync, constants, existsSync, statSync } from 'node:fs'
 import { delimiter, isAbsolute, join } from 'node:path'
 import type { Volatile } from '@deepseek-ai/cordis'
 import s from '@deepseek-ai/schemastery'
 import { z } from 'zod'
 import type { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
+import { homedir } from 'node:os'
 import { runAsWorker, sameDirectory, withoutDirectory, workerBin } from './infra/environment.ts'
 import { SetupError } from './setup.ts'
 
@@ -20,9 +21,18 @@ const reason = (error: unknown): string => error instanceof Error ? error.messag
 const ABSOLUTE_PATH = process.platform === 'win32' ? /^(?:[A-Za-z]:[\\/]|\\\\[^\\/]+[\\/][^\\/]+|\/)/ : /^\//
 const absolute = (description: string) => s.string().pattern(ABSOLUTE_PATH)
   .description(`${description} Absolute path, such as ${process.platform === 'win32' ? 'C:\\dsh-superagent' : '/srv/dsh-superagent'}.`)
+/**
+ * Where this plugin keeps its state when the configuration names no directory: an existing installation's directory if
+ * there is one (so a switch from the pre-2.3 entry keeps every setting and ticket), else this plugin's own.
+ */
+export function defaultStateDir(home = homedir()): string {
+  const legacy = join(home, '.dsh', 'state', 'superagent')
+  return existsSync(legacy) ? legacy : join(home, '.dsh', 'state', 'dsh-superagent-multi-channel')
+}
 /** Plugin configuration of the dsh-superagent entry. Volatile fields apply without a restart because dsh-superagent reads them on each use; changing `stateDir` remounts the plugin. */
 export const Config = s.object({
-  stateDir: absolute('Directory for the database, locks, worker shims, the agent\'s git configuration and, by default, the ticket directories.').required(),
+  stateDir: absolute('Directory for the database, locks, worker shims, the agent\'s git configuration and, by default, the ticket directories.')
+    .default(defaultStateDir()),
   promptMaxChars: s.number().min(LIMITS.promptMaxChars.min).max(LIMITS.promptMaxChars.max).step(1).default(100000)
     .description('Largest saved prompt configuration, in characters.').volatile(),
   admissionContextMaxPages: s.number().min(LIMITS.admissionContextMaxPages.min).max(LIMITS.admissionContextMaxPages.max).step(1).default(10)

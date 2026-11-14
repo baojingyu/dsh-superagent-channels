@@ -138,6 +138,8 @@ function toChatEvent(raw: unknown, selfWxid: string): ChatEvent {
     text: text(event.text),
     at: text(event.at),
     ...(event.own === true ? { ownMessage: true } : {}),
+    // A message the sidecar read back after a re-attach is history: context for the assessment, never a request to answer.
+    ...(event.historical === true ? { historical: true as const } : {}),
     mentionsAgent: ats.includes(selfWxid),
     ats,
     ...(media.length ? { media } : {}),

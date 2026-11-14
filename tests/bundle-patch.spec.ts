@@ -28,9 +28,10 @@ const presetOf = (rows: readonly Row[], id: string) => rows.map(row => row.confi
 
 it('defines the worker preset Executor Sessions run under, with a shell that moves long commands to the background', async () => {
   const rows = await patched()
-  expect(rows.map(row => row.id)).toEqual(['dsh-superagent', 'dsh-superagent-github', 'dsh-superagent-feishu', 'dsh-superagent-weixin',
-    'dsh-superagent-gitlab', 'dsh-superagent-projex', 'dsh-superagent-dingtalk', 'dsh-superagent-wecom', 'dsh-superagent-worker-preset',
-    'dsh-superagent-router-preset'])
+  expect(rows.map(row => row.id)).toEqual(['dsh-superagent-multi-channel', 'dsh-superagent-multi-channel-github',
+    'dsh-superagent-multi-channel-feishu', 'dsh-superagent-multi-channel-weixin', 'dsh-superagent-multi-channel-gitlab',
+    'dsh-superagent-multi-channel-projex', 'dsh-superagent-multi-channel-dingtalk', 'dsh-superagent-multi-channel-wecom',
+    'dsh-superagent-multi-channel-worker-preset', 'dsh-superagent-multi-channel-router-preset'])
   const preset = presetOf(rows, WORKER_PRESET)
   expect(preset.id).toBe(WORKER_PRESET)
   const plugins = flat(preset.plugins)
@@ -78,8 +79,7 @@ it('names every own module under the package name, or DSH cannot find its client
   // A mismatch leaves the host half running while the client half is never served - the panel entry simply does not appear.
   const pkg = JSON.parse(readFileSync(join(import.meta.dirname, '..', 'package.json'), 'utf8')) as { name: string }
   const rows = await patched()
-  const own = rows.map(row => row.name).filter(name => name === 'dsh-superagent' || name.startsWith('dsh-superagent/')
-    || name.startsWith(`${pkg.name}/`) || name === pkg.name)
+  const own = rows.map(row => row.name).filter(name => name === pkg.name || name.startsWith(`${pkg.name}/`))
   expect(own.length).toBeGreaterThan(0)
   for (const name of own) {
     const root = name.split('/')[0]!.replace(/^@[^/]+$/, '')

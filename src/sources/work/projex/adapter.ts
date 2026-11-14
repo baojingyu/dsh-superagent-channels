@@ -1,7 +1,7 @@
 /** Aliyun Yunxiao Projex work adapter: list/read work items, list/post comments, and optional status write-back. */
 import { createYunxiaoApi, YunxiaoHttpError, type YunxiaoApi } from '../../../infra/yunxiao-api.ts'
 import type { Commands } from '../../../infra/commands.ts'
-import type { Person, WorkAdapter, WorkCategory, WorkItem, WorkItemPage, WorkNote, WorkNotePage } from '../port.ts'
+import type { Person, WorkAdapter, WorkCategory, WorkItem, WorkItemPage, WorkNote, WorkNotePage, WorkAttachment, WorkflowStatus } from '../port.ts'
 import { imageRefs } from '../images.ts'
 import type { WorkImageFile, WorkImageRef } from '../images.ts'
 import { isSelfWrite, rememberSelfWrite } from '../self-writes.ts'
@@ -51,6 +51,10 @@ export interface ProjexAdapter extends WorkAdapter<ProjexConfig> {
 const PAGE_SIZE = 100
 /** Safety cap on pages consumed per category per poll: 5 × 100 items is a week of a busy project. */
 const MAX_PAGES = 5
+/** Safety cap on member pages read in one sync: 20 × 100 members covers a large organization project. */
+const MAX_MEMBER_PAGES = 20
+/** Safety cap on work item types read per category when listing the status vocabulary. */
+const MAX_TYPES_PER_CATEGORY = 10
 /** Work category to the API's `category` code; categories without a code (risk/topic/request) are not polled. */
 const API_CATEGORY: Readonly<Record<string, string>> = { requirement: 'Req', bug: 'Bug', task: 'Task' }
 
@@ -71,8 +75,11 @@ export function createProjexAdapter(options: ProjexAdapterOptions = {}): ProjexA
     listWorkItems: (_commands, project, since, categories) => listWorkItems(adapter, project, since, categories),
     readWorkItem: (_commands, project, key) => readWorkItem(adapter, project, key),
     listNotes: (_commands, project, key, cursor) => listNotes(adapter, project, key, cursor),
-    postNote: (_commands, item, text, marker) => postNote(adapter, item, text, marker),
+    postNote: (_commands, item, text, marker, attachments) => postNote(adapter, item, text, marker, attachments),
     readImageFile: (_commands, _project, key, image, signal) => readImageFile(adapter, key, image, signal),
+    listStatuses: (_commands, project, categories, signal) => listStatuses(adapter, project, categories, signal),
+    listMembers: (_commands, project, signal) => listMembers(adapter, project, signal),
+    uploadFile: (_commands, item, file, signal) => uploadFile(adapter, item, file, signal),
     page: (project, key) => projexPage(project, key),
   }
   // Leaving `setStatus` absent keeps the default read-only: callers cannot write back without opting in.
@@ -168,7 +175,8 @@ export function noteBody(raw: Record<string, unknown>): string {
       /* Plain text that happens to start with a brace. */
     }
   }
-  return trimmed
+  // A comment this agent wrote with attachments is stored as HTML; strip it the same way so a reader sees text, not tags.
+  return /<[a-z][\s\S]*>/i.test(trimmed) ? stripTags(trimmed) : trimmed
 }
 
 const ENTITIES: Readonly<Record<string, string>> = { '&nbsp;': ' ', '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"' }
@@ -281,6 +289,91 @@ async function readImageFile(adapter: ProjexAdapter, key: string, image: WorkIma
   return { name: String(meta.name ?? image.name ?? 'image'), suffix: String(meta.suffix ?? ''), size: Number(meta.size ?? 0), url }
 }
 
+/**
+ * The people on a project, by `userId`, which is the value a work item's `assignedTo` carries in the central edition.
+ * `userId` is what the Policy's member list compares against, so the roster can be synced instead of typed by hand.
+ */
+async function listMembers(adapter: ProjexAdapter, project: string, signal?: AbortSignal): Promise<Person[]> {
+  const members: Person[] = []
+  const seen = new Set<string>()
+  for (let page = 1; page <= MAX_MEMBER_PAGES; page += 1) {
+    if (signal?.aborted) break
+    const { body } = await adapter.api.get(membersPath(adapter.organization, project), { page, perPage: PAGE_SIZE })
+    const values = itemsOf(body, 'members')
+    for (const entry of values) {
+      const id = String(entry.userId ?? entry.id ?? '')
+      if (!id || seen.has(id)) continue
+      seen.add(id)
+      const name = entry.userName ?? entry.name
+      members.push({ id, ...(typeof name === 'string' && name ? { name } : {}) })
+    }
+    if (values.length < PAGE_SIZE) break
+  }
+  return members
+}
+
+/**
+ * Uploads one file and returns what a comment shows for it: the host's HTML embed (an `<img>`), a Markdown fallback, and
+ * the link. A RICHTEXT comment uses `html`; a Markdown one uses `markdown`.
+ */
+async function uploadFile(adapter: ProjexAdapter, item: WorkItem, file: { name: string; data: string }, signal?: AbortSignal): Promise<WorkAttachment> {
+  if (signal?.aborted) throw new Error('aborted')
+  if (!adapter.api.postForm) throw new Error('This Yunxiao client cannot upload attachments')
+  const bytes = Buffer.from(file.data, 'base64')
+  const form = new FormData()
+  form.append('file', new Blob([bytes]), file.name)
+  const { body } = await adapter.api.postForm(attachmentsPath(adapter.organization, item.key), form)
+  const record = recordOf(body)
+  const name = typeof record.name === 'string' && record.name ? record.name : file.name
+  const embedHtml = typeof record.embedHtml === 'string' ? record.embedHtml.trim() : ''
+  const embedMarkdown = typeof record.embedMarkdown === 'string' ? record.embedMarkdown.trim() : ''
+  // Prefer `embedUrl` (the permanent proxy path) over `url`, which the host signs with an expiry.
+  const permanent = typeof record.embedUrl === 'string' ? record.embedUrl.trim() : ''
+  const temporary = typeof record.url === 'string' ? record.url.trim() : ''
+  const url = permanent || temporary
+  if (!embedHtml && !embedMarkdown && !url) throw new Error('The host returned no link for the uploaded file')
+  // The host's embed renders an image; a caption link under it keeps the file reachable even where the image does not load.
+  const caption = url ? `<a href="${escapeHtml(url)}">${escapeHtml(name)}</a>` : escapeHtml(name)
+  const html = `<p>${embedHtml ? `${embedHtml}<br/>` : ''}${caption}</p>`
+  const markdown = embedMarkdown || (url ? `[${name}](${url})` : name)
+  return { name, html, markdown }
+}
+
+/**
+ * The statuses the project's work item types offer: the type list per category, then each type's workflow statuses.
+ * This is the real vocabulary an operator picks a write-back status from, read from the same routes the panel's own
+ * configuration lists; a type whose workflow cannot be read is skipped rather than losing the whole list.
+ */
+async function listStatuses(adapter: ProjexAdapter, project: string, categories: readonly string[], signal?: AbortSignal): Promise<WorkflowStatus[]> {
+  const codes = apiCategories(categories)
+  const byId = new Map<string, WorkflowStatus>()
+  for (const category of codes) {
+    if (signal?.aborted) break
+    const { body } = await adapter.api.get(typesPath(adapter.organization, project), { category })
+    for (const type of itemsOf(body, 'workitemTypes').slice(0, MAX_TYPES_PER_CATEGORY)) {
+      if (type.enable === false) continue
+      const typeId = String(type.id ?? '')
+      if (!typeId) continue
+      try {
+        const workflow = await adapter.api.get(workflowPath(adapter.organization, project, typeId))
+        const record = recordOf(workflow.body)
+        const statuses = Array.isArray(record.statuses) ? record.statuses : []
+        for (const status of statuses) {
+          const id = String((status as Record<string, unknown>).id ?? '')
+          if (!id || byId.has(id)) continue
+          const name = String((status as Record<string, unknown>).displayName ?? (status as Record<string, unknown>).name ?? '')
+          const nameEn = (status as Record<string, unknown>).nameEn
+          if (!name) continue
+          byId.set(id, { id, name, ...(typeof nameEn === 'string' && nameEn ? { nameEn } : {}) })
+        }
+      } catch {
+        /* One unreadable workflow must not hide the statuses the others offer. */
+      }
+    }
+  }
+  return [...byId.values()]
+}
+
 async function listNotes(adapter: ProjexAdapter, project: string, key: string, cursor: string | undefined): Promise<WorkNotePage> {
   const page = cursor ? Math.max(1, Number(cursor) || 1) : 1
   const { body } = await adapter.api.get(commentsPath(adapter.organization, key), { page, perPage: PAGE_SIZE })
@@ -289,19 +382,40 @@ async function listNotes(adapter: ProjexAdapter, project: string, key: string, c
 }
 
 /** Posts a comment unless one already carries `marker`; returns `'gone'` when the item no longer accepts comments. */
-async function postNote(adapter: ProjexAdapter, item: WorkItem, text: string, marker: string): Promise<'sent' | 'gone'> {
+async function postNote(adapter: ProjexAdapter, item: WorkItem, text: string, marker: string,
+  attachments: readonly WorkAttachment[] = []): Promise<'sent' | 'gone'> {
   const existing = await adapter.api.get(commentsPath(adapter.organization, item.key), { page: 1, perPage: PAGE_SIZE })
   const mine = itemsOf(existing.body, 'comments').some(comment =>
     JSON.stringify(comment).includes(marker) || noteBody(comment).includes(marker))
   if (mine) return 'sent'
   try {
-    await adapter.api.post(commentsPath(adapter.organization, item.key), { content: `${text}\n\n${marker}` })
+    // A plain comment keeps the text as written; a comment carrying attachments is RICHTEXT, the only body that embeds
+    // the host's own `<img>`/link fragments. The marker rides along as an HTML comment.
+    const body = attachments.length
+      ? { content: richText(text, attachments, marker), formatType: 'RICHTEXT' }
+      : { content: `${text}\n\n${marker}` }
+    await adapter.api.post(commentsPath(adapter.organization, item.key), body)
     await rememberWrite(adapter, item.key)
     return 'sent'
   } catch (error) {
     if (error instanceof YunxiaoHttpError && (error.status === 404 || error.status === 410)) return 'gone'
     throw error
   }
+}
+
+/**
+ * A RICHTEXT comment body: the text as escaped paragraphs (blank lines separate them, single newlines become `<br/>`),
+ * then each attachment's own HTML, then the idempotency marker. HTML is the form Projex documents for RICHTEXT, so an
+ * image keeps the host's `<img>` and a file keeps a link rather than a Markdown string a rich-text reader never renders.
+ */
+export function richText(text: string, attachments: readonly WorkAttachment[], marker: string): string {
+  const paragraphs = text.split(/\n{2,}/).map(block => `<p>${escapeHtml(block).replace(/\n/g, '<br/>')}</p>`).join('')
+  return `${paragraphs}${attachments.map(attachment => attachment.html).join('')}${marker}`
+}
+
+/** Escapes the five characters that would otherwise be read as HTML. */
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
 /**
@@ -350,6 +464,10 @@ const searchPath = (organization: string): string => `${orgPath(organization)}/w
 const itemPath = (organization: string, key: string): string => `${orgPath(organization)}/workitems/${encodeURIComponent(key)}`
 const commentsPath = (organization: string, key: string): string => `${itemPath(organization, key)}/comments`
 const filesPath = (organization: string, key: string, fileId: string): string => `${itemPath(organization, key)}/files/${encodeURIComponent(fileId)}`
+const attachmentsPath = (organization: string, key: string): string => `${itemPath(organization, key)}/attachments`
+const membersPath = (organization: string, project: string): string => `${orgPath(organization)}/projects/${encodeURIComponent(project)}/members`
+const typesPath = (organization: string, project: string): string => `${orgPath(organization)}/projects/${encodeURIComponent(project)}/workitemTypes`
+const workflowPath = (organization: string, project: string, typeId: string): string => `${typesPath(organization, project)}/${encodeURIComponent(typeId)}/workflows`
 const statusPath = (organization: string, key: string): string => `${itemPath(organization, key)}/status`
 
 /** Unwraps a `{ result: … }` envelope when present. */

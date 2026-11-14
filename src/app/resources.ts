@@ -6,6 +6,12 @@ import { readGithub } from '../sources/github-read.ts'
 import { feishuReferences, feishuRead } from '../sources/feishu-read.ts'
 import { feishuRef } from '../sources/feishu.ts'
 import { feishuTriggerId } from '../sources/feishu-trigger.ts'
+import { readWeixin, weixinRef, weixinReferences } from '../sources/chat/weixin/read.ts'
+import { SOURCE as WEIXIN_SOURCE, weixinBridge } from '../sources/chat/weixin/kind.ts'
+import { readWecom, wecomRef, wecomReferences } from '../sources/chat/wecom/read.ts'
+import { readDingtalk, dingtalkRef, dingtalkReferences } from '../sources/chat/dingtalk/read.ts'
+import { readProjex, projexRef, projexReferences } from '../sources/work/projex/read.ts'
+import { projexAdapters } from '../sources/work/projex/kind.ts'
 import { ASSIGNMENTS, INPUTS, assignmentLine, decisionCard, decisionDetails, inputLine, newestPage, preview, textPage, threadCard, ticketCard,
   ticketDetails, triggerCard, type TicketThread } from './cards.ts'
 import { threadTitle } from './views/records.ts'
@@ -51,6 +57,10 @@ export const RESOURCES: readonly { name: string; holds: string; executor?: true 
   { name: 'models', holds: 'model providers, the DSH default and each role\'s model' },
   { name: 'models/<provider>', holds: 'one provider\'s models' },
   { name: 'feishu/<trigger-id>/…', holds: 'a Feishu original, as the dsh-superagent-feishu skill describes', executor: true },
+  { name: 'weixin/<trigger-id>/…', holds: 'a WeChat original, as the dsh-superagent-weixin skill describes', executor: true },
+  { name: 'wecom/<trigger-id>/…', holds: 'a WeCom callback message, as the dsh-superagent-wecom skill describes', executor: true },
+  { name: 'dingtalk/<trigger-id>/…', holds: 'a DingTalk callback message, as the dsh-superagent-dingtalk skill describes', executor: true },
+  { name: 'projex/<trigger-id>/…', holds: 'a Projex work item and its comments, as the dsh-superagent-projex skill describes', executor: true },
   { name: 'github/…', holds: 'a GitHub original, as the dsh-superagent-github skill describes', executor: true },
 ]
 export const resourceGrammar = (executor: boolean): string => RESOURCES.filter(resource => !executor || resource.executor)
@@ -101,10 +111,10 @@ const trigger = (host: ResourceHost, id: string, ticketId?: string): Trigger => 
   return found
 }
 /** Fetch and cache a source resource on offset 0, serving subsequent offsets from the session cache. */
-async function sourcePage(read: Read, source: string, fetch: () => Promise<unknown>) {
+async function sourcePage(read: Read, label: string, fetch: () => Promise<unknown>) {
   const { host, resource, offset, sessionId } = read
   const body = offset === 0 ? JSON.stringify(await fetch()) : host.pages.get(`${sessionId}:${resource}`)
-  if (body === undefined) throw new Error(`Read this ${source === 'feishu' ? 'Feishu' : 'GitHub'} resource from offset 0 first`)
+  if (body === undefined) throw new Error(`Read this ${label} resource from offset 0 first`)
   if (offset === 0) host.pages.set(`${sessionId}:${resource}`, body)
   return text(read, body)
 }
@@ -204,14 +214,49 @@ const ROUTES: readonly Route[] = [
     const ref = feishuRef(source)
     if (!ref) throw new Error('A Feishu source trigger is required')
     const commands = read.host.commands.withSignal(read.signal)
-    return sourcePage(read, 'feishu', () => feishuRead(commands, ref, read.resource, read.host.feishuPageSize()))
+    return sourcePage(read, 'Feishu', () => feishuRead(commands, ref, read.resource, read.host.feishuPageSize()))
   }],
-  ['github/', read => sourcePage(read, 'github', () => readGithub(read.host.commands.withSignal(read.signal), read.resource))],
+  ['weixin/', async read => {
+    const source = trigger(read.host, read.rest.split('/')[0]!, read.ticketId)
+    const room = String(source.meta.room ?? '')
+    if (!room && !source.meta.nativeId) throw new Error('A WeChat source trigger is required')
+    const instance = read.host.store.settings().sources[source.source]
+    const config = (instance?.config ?? {}) as Record<string, unknown>
+    const pageSize = typeof config.readPageSize === 'number' ? config.readPageSize : 50
+    const bridge = weixinBridge(config)
+    return sourcePage(read, 'WeChat', () => readWeixin(bridge, source, read.resource, pageSize))
+  }],
+  ['wecom/', read => {
+    const source = trigger(read.host, read.rest.split('/')[0]!, read.ticketId)
+    if (!wecomRef(source)) throw new Error('A WeCom source trigger is required')
+    return sourcePage(read, 'WeCom', async () => readWecom(source, read.resource))
+  }],
+  ['dingtalk/', read => {
+    const source = trigger(read.host, read.rest.split('/')[0]!, read.ticketId)
+    if (!dingtalkRef(source)) throw new Error('A DingTalk source trigger is required')
+    return sourcePage(read, 'DingTalk', async () => readDingtalk(source, read.resource))
+  }],
+  ['projex/', read => {
+    const source = trigger(read.host, read.rest.split('/')[0]!, read.ticketId)
+    const ref = projexRef(source)
+    if (!ref) throw new Error('A Projex source trigger is required')
+    const instance = read.host.store.settings().sources[source.source]
+    const config = (instance?.config ?? {}) as Record<string, unknown>
+    if (typeof config.project !== 'string' || config.project.trim() === '') throw new Error('The Projex instance names no project space')
+    const adapter = projexAdapters.create(config)
+    const commands = read.host.commands.withSignal(read.signal)
+    return sourcePage(read, 'Projex', async () => readProjex(adapter, commands, ref, read.resource, read.signal))
+  }],
+  ['github/', read => sourcePage(read, 'GitHub', () => readGithub(read.host.commands.withSignal(read.signal), read.resource))],
   ['trigger/', async read => {
     const { host, rest, ticketId, offset, signal } = read
     if (!rest || rest.includes('/')) throw new Error('Unknown context resource')
     const found = trigger(host, rest, ticketId)
     const ref = feishuRef(found)
+    const wxRef = weixinRef(found)
+    const wcRef = wecomRef(found)
+    const dtRef = dingtalkRef(found)
+    const pjRef = projexRef(found)
     // Redact decision IDs, other tickets, and unreachable neighbour triggers when a worker session reads a trigger.
     const ticket = ticketId ? host.store.tickets.get(ticketId) : undefined
     const shown = (item: Trigger | undefined) => item && (!ticket || readable(host, ticket, item)) ? item : undefined
@@ -220,12 +265,15 @@ const ROUTES: readonly Route[] = [
       : disposition
     // Omit card preview and self-reference because this resource returns the full text.
     const { preview: _preview, chars: _chars, read: _read, ...card } = triggerCard(found, visible)
-    const parent = found.source === 'feishu' && typeof found.meta.parentId === 'string' ? found.meta.parentId : undefined
-    const repliedTo = shown(parent ? host.store.triggers.get(feishuTriggerId(parent)) : undefined)
+    const parent = typeof found.meta.parentId === 'string' ? found.meta.parentId : undefined
+    const parentTriggerId = parent ? (found.source === 'feishu' ? feishuTriggerId(parent) : ref ? undefined : key(WEIXIN_SOURCE, parent)) : undefined
+    const repliedTo = shown(parentTriggerId ? host.store.triggers.get(parentTriggerId) : undefined)
     const neighbours = host.store.read.neighbours(threadKey(found.threads[0]!), found.at, found.id)
     const around = { before: shown(neighbours.before), after: shown(neighbours.after) }
     return { ...card, ...await host.sourceLink(found, signal), acknowledgement: host.store.replyStatus(key('ack', found.id)) ?? 'not_requested',
-      ...(ref ? { context: feishuReferences(ref) } : {}),
+      ...(ref ? { context: feishuReferences(ref) } : wxRef ? { context: weixinReferences(wxRef) }
+        : wcRef ? { context: wecomReferences(wcRef) } : dtRef ? { context: dingtalkReferences(dtRef) }
+        : pjRef ? { context: projexReferences(pjRef) } : {}),
       ...(offset === 0 ? {
         ...repliedTo ? { replied_to: triggerLine(repliedTo) } : {},
         around: { ...around.before ? { before: triggerLine(around.before) } : {}, ...around.after ? { after: triggerLine(around.after) } : {} },

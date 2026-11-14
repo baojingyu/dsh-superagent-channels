@@ -9,7 +9,7 @@ import { health, sourceContext, type SourceContext } from './host.ts'
 import { pause } from './poll.ts'
 
 export const kind = weixinKind
-export const name = 'dsh-superagent-weixin'
+export const name = 'dsh-superagent-multi-channel-weixin'
 export const inject = ['orchestrator']
 
 export function apply(ctx: Context): void {
@@ -94,6 +94,13 @@ export async function pollChat(ctx: SourceContext, bridge: BridgeClient, instanc
     // answered this chat, so the "still working" notes for it stop here.
     if (event.ownMessage) {
       for (const [id, pending] of awaiting) if (pending.chat === chat && pending.owner === instance) awaiting.delete(id)
+      continue
+    }
+    // A message the bridge read back after a re-attach (or on first listen) is history, not a fresh request: it reaches the
+    // assessment like Feishu's backfill, but never earns a receipt or a canned reply for something said before we listened.
+    if (event.historical) {
+      await ctx.receive(triggerOf(event, instance))
+      received += 1
       continue
     }
     // A receipt goes out before the model is asked anything: the assessor takes from 53 s to over two minutes here, and a

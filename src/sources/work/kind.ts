@@ -1,8 +1,10 @@
 /** Factory of the work (work-item) source kind: shared configuration, admission rows by category, comment channel, and health. */
 import { z } from 'zod'
-import type { OutboundMessage } from '../../core/index.ts'
+import type { OutboundFile, OutboundMessage } from '../../core/index.ts'
 import type { AdmissionRowView, ChannelHost, ChannelLink, FieldSpec, Localized, SourceKind, SourcePolicyPart, ThreadContext } from '../kind.ts'
-import type { WorkAdapter } from './port.ts'
+import { workThreadContext } from './context.ts'
+import { workEnvironment, type WorkEnvironmentAddition } from './environment.ts'
+import type { WorkAdapter, WorkAttachment } from './port.ts'
 
 /** Configuration every work-kind instance shares; a host adapter maps its project and token file onto these keys. */
 const WorkConfigSchema = z.object({
@@ -16,6 +18,12 @@ const WorkConfigSchema = z.object({
   pollSeconds: z.number().int().min(60).max(3600).optional(),
   /** Status write-back; off by default, so the agent only ever comments. */
   writeBack: z.boolean().default(false),
+  /** Status id written to the item while a ticket works on it; only used when `writeBack` is on. */
+  statusOnStart: z.string().trim().max(120).optional(),
+  /** Status id written to the item once the ticket ended; only used when `writeBack` is on. */
+  statusOnDone: z.string().trim().max(120).optional(),
+  /** Whether a ticket's model may attach a file from its working directory to a work-item comment. */
+  sendFiles: z.boolean().default(false),
   /** How many of the newest person comments a first-sight work item backfills; older comments are dropped (0 disables). */
   backfillComments: z.number().int().min(0).max(200).default(20),
 }).strict()
@@ -43,6 +51,8 @@ const CATEGORY_ROWS: readonly { id: string; category: string; label: { zh: strin
   { id: 'tasks', category: 'task', label: { zh: '任务', en: 'Tasks' } },
 ]
 const DEFAULT_CATEGORIES: readonly string[] = ['requirement', 'bug', 'task']
+/** Largest file a work-item comment accepts; the operator's `sendFiles` switch gates whether any may be sent at all. */
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 /**
  * The rows of one instance: a category it polls is received, one it does not poll has nothing to admit.
  *
@@ -68,7 +78,19 @@ const FIELDS: readonly FieldSpec[] = [
     hint: { zh: '保存访问令牌的文件路径；凭证不写进设置。', en: 'Path of the file holding the access token; credentials are not stored in settings.' } },
   { key: 'pollSeconds', type: 'number', advanced: true, min: 60, max: 3600, label: { zh: '轮询间隔 / 秒', en: 'Polling interval / seconds' } },
   { key: 'writeBack', type: 'switch', label: { zh: '回写工作项状态', en: 'Write status back to work items' },
-    hint: { zh: '默认关闭：智能体只在评论里交付结论，不改看板状态。', en: 'Off by default: the agent delivers in a comment and never changes the board status.' } },
+    hint: { zh: '默认关闭：智能体只在评论里交付结论，不改看板状态。打开后，还要填下面两个状态，看板才会跟着工单走。',
+      en: 'Off by default: the agent delivers in a comment and never changes the board status. Once on, name the two statuses below so the board follows the ticket.' } },
+  { key: 'statusOnStart', type: 'text', advanced: true, choose: { zh: '选择状态（先在卡片上读取云效状态词表）', en: 'Choose a status (read the status list on the card first)' },
+    label: { zh: '开始执行时写入的状态 ID', en: 'Status id while the agent works' },
+    hint: { zh: '工单一开始就写到工作项上的状态；从下拉里选（先点卡片上的「读取云效状态词表」，或字段旁的刷新），存的是状态 ID，显示的是看板上的名字。留空则不写。',
+      en: 'Status written to the item as soon as a ticket starts; pick it from the list (read the status list on the card first, or use the refresh beside the field). The id is stored, the board name is shown. Empty writes nothing.' } },
+  { key: 'statusOnDone', type: 'text', advanced: true, choose: { zh: '选择状态（先在卡片上读取云效状态词表）', en: 'Choose a status (read the status list on the card first)' },
+    label: { zh: '工单结束时写入的状态 ID', en: 'Status id when the ticket ends' },
+    hint: { zh: '工单完成、合并或放弃时写到工作项上的状态；从下拉里选（先读取状态词表），存 ID、显示名字；人工停止的工单不写。留空把工作项留在原状态。',
+      en: 'Status written to the item when the ticket completes, merges, or is dropped; pick it from the list (read the status list first). The id is stored, the name is shown; a ticket a person stopped writes nothing. Empty leaves the item where it is.' } },
+  { key: 'sendFiles', type: 'switch', advanced: true, label: { zh: '允许模型把文件挂到评论', en: 'Let the model attach files to comments' },
+    hint: { zh: '开启后，工单里的模型可以把执行目录内的文件（≤10 MiB、非可执行文件）作为附件加到工作项评论上。默认关闭——这等于给模型一条把文件发出去的通道。',
+      en: 'When on, the model working a ticket may attach a file from its ticket directory (≤ 10 MiB, not an executable) to a work-item comment. Off by default: it is a channel for files to leave the machine.' } },
   { key: 'backfillComments', type: 'number', advanced: true, min: 0, max: 200,
     label: { zh: '首见回填评论条数', en: 'First-sight comment backfill' },
     hint: { zh: '首次看到某工单时补投最近多少条真人评论；更早的丢弃。0 表示不补。', en: 'How many of the newest person comments to backfill when a work item is first seen; older ones are dropped. 0 disables it.' } },
@@ -82,6 +104,8 @@ export interface WorkNoteReply {
   readonly text: string
   /** Idempotency marker to embed in the comment; a retry carrying the same marker stays one comment. */
   readonly marker: string
+  /** Files to attach to the comment, already gated by the operator's `sendFiles` switch. */
+  readonly files?: readonly OutboundFile[]
 }
 /** Posts work-item comments for the channel; without one the kind is read-only and refuses to reply. */
 export type WorkNoteProvider = (reply: WorkNoteReply) => Promise<'sent' | 'gone'>
@@ -107,14 +131,45 @@ export interface WorkKindMeta<C extends Record<string, unknown> = WorkConfig> {
   provider?: boolean | WorkNoteProvider
   /** Bounded thread context (including image reads) this host can serve to assessments; absent when it serves none. */
   threadContext?: ThreadContext<C>
+  /** Execution-environment variables a host adds beyond the shared per-item set (an organization ID, a base URL). */
+  extraEnvironment?: WorkEnvironmentAddition<C>
+  /** Extra Policy schema keys and their fields, for a host's own authorization switch (such as a member sync). */
+  policyExtras?: { schema: z.ZodRawShape; fields: readonly FieldSpec[] }
+  /** Roster sync that fills the Policy's member list from the host; shown as its own button on the Policy card. */
+  sync?: SourcePolicyPart<Record<string, unknown> & { allowed: { id: string; name?: string }[] }>['sync']
+  /** Reference resolution for the panel's search and for links found in text; defaults to none. */
+  find?: (query: string) => { threads: string[]; terms: string[] }
 }
 
-/** A provider backed by the adapter: read the item named by the reply target, then post the comment on it. */
+/**
+ * A provider backed by the adapter: read the item named by the reply target, upload any files the operator allowed, then
+ * post the comment with one line per attachment. A host that cannot upload refuses the files rather than dropping them,
+ * and a file over the channel's cap is named in the comment instead of failing the delivery.
+ */
 function adapterProvider(adapter: WorkAdapter): WorkNoteProvider {
-  return async ({ host, project, key, text, marker }) => {
+  return async ({ host, project, key, text, marker, files }) => {
     const item = await adapter.readWorkItem(host.commands, project, key)
-    return adapter.postNote(host.commands, item, text, marker)
+    let body = text
+    const attachments: WorkAttachment[] = []
+    if (files?.length) {
+      if (!adapter.uploadFile) throw new Error('This work host cannot attach files to a comment')
+      for (const file of files) {
+        const bytes = decodedSize(file.data)
+        if (bytes > MAX_ATTACHMENT_BYTES) {
+          body += `\n\n[附件 ${file.name} 未发送：${bytes} 字节，超过 ${MAX_ATTACHMENT_BYTES} 字节上限]`
+          continue
+        }
+        attachments.push(await adapter.uploadFile(host.commands, item, file))
+      }
+    }
+    return adapter.postNote(host.commands, item, body, marker, attachments)
   }
+}
+
+/** The decoded size of a standard-base64 payload, without decoding it (this module also loads in the panel bundle). */
+function decodedSize(data: string): number {
+  const padding = data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0
+  return Math.floor(data.length / 4) * 3 - padding
 }
 
 /** Resolves the meta flag: a function is used as is, `true` means the adapter itself can write, and nothing else is read-only. */
@@ -131,7 +186,11 @@ async function sendNote(provider: WorkNoteProvider | undefined, host: ChannelHos
   if (!provider) throw new Error('provider not configured')
   const { project, key } = message.channel.address
   if (!project || !key) throw new Error('Missing work item reply target')
-  return provider({ host, project, key, text: message.text, marker: `<!-- dsh-superagent:${message.id} -->` })
+  // Files only leave when the operator turned them on; the tool that produces them refuses earlier, and this is the second
+  // guard for anything else that puts files on a message.
+  const files = host.config.sendFiles === true ? message.files ?? [] : []
+  return provider({ host, project, key, text: message.text, marker: `<!-- dsh-superagent:${message.id} -->`,
+    ...files.length ? { files } : {} })
 }
 
 /**
@@ -150,6 +209,9 @@ export function workKind<C extends Record<string, unknown> = WorkConfig>(
   }
   // The shared schema stays exactly as before when a host brings no extra keys; a host that does merges them in.
   const schema = (meta.extraSchema ? WorkConfigSchema.extend(meta.extraSchema.shape) : WorkConfigSchema) as unknown as z.ZodType<C>
+  // Likewise for the Policy: the shared part plus whatever authorization switch a host adds (a member sync, for instance).
+  const policySchema = (meta.policyExtras ? WorkPolicySchema.extend(meta.policyExtras.schema) : WorkPolicySchema) as unknown as
+    z.ZodType<Record<string, unknown> & { allowed: { id: string; name?: string }[] }>
   const provider = resolveProvider(adapter, meta.provider)
   return {
     kind: meta.kind ?? adapter.host,
@@ -158,10 +220,12 @@ export function workKind<C extends Record<string, unknown> = WorkConfig>(
     schema,
     fields: [...(meta.fields ?? FIELDS), ...(meta.extraFields ?? [])],
     health: [meta.host ?? adapter.host],
-    ...meta.threadContext ? { threadContext: meta.threadContext } : {},
+    threadContext: meta.threadContext ?? workThreadContext(() => adapter),
+    environment: workEnvironment<C>(meta.host ?? adapter.host, meta.extraEnvironment),
+    ...meta.find ? { find: meta.find } : {},
     policy: {
       unnamed: { person: { zh: '云效成员', en: 'Yunxiao member' }, bot: { zh: '云效机器人', en: 'Yunxiao bot' } },
-      schema: WorkPolicySchema,
+      schema: policySchema,
       fields: [
         { key: 'allowed', type: 'rows', label: { zh: '能发起工作的云效成员', en: 'Members who may originate work' },
           hint: { zh: '这里是授权：名单里的人的工作项（需求/缺陷/任务）才会被当作可接的工作。填云效的成员 accountId——就是工作项'
@@ -172,6 +236,7 @@ export function workKind<C extends Record<string, unknown> = WorkConfig>(
             { key: 'id', type: 'text', label: { zh: '成员 ID', en: 'Member ID' } },
             { key: 'name', type: 'text', label: { zh: '名字', en: 'Name' }, optional: true },
           ] },
+        ...meta.policyExtras?.fields ?? [],
       ],
       // A work item has no mention to give, so nothing about it can be an explicit request on its own; the table decides.
       explicit: { zh: '云效工作项没有「@」这回事，所以这张表说了算。负责人（没有负责人时用创建人）在名单里，这条就落到「名单内」那一列；不在名单里，就落到「名单外」那一列。两列各配什么就按什么处理：配「忽略」就不接，配「允许推断」就成为候选，并在「自动接单」模式下接单。',
@@ -179,10 +244,11 @@ export function workKind<C extends Record<string, unknown> = WorkConfig>(
       rows: admissionRows,
       warnings(_config, part) {
         if (part.allowed.length > 0) return []
-        return [{ zh: '「能发起工作的云效成员」是空的：任何工作项都会被判「名单外」而拒绝。填入成员 accountId（工作项「指派给」里那个人的 id）。',
+        return [{ zh: '「能发起工作的云效成员」是空的：任何工作项都会被判「名单外」而拒绝。填入成员 accountId（工作项「指派给」里那个人的 id），或打开同步从项目成员生成。',
           en: 'The member list is empty, so every work item is refused as unlisted. Add the member account id - the id the item '
-            + 'is assigned to.' }]
+            + 'is assigned to - or turn on the sync to build it from the project members.' }]
       },
+      ...meta.sync ? { sync: meta.sync } : {},
     } satisfies SourcePolicyPart<Record<string, unknown> & { allowed: { id: string; name?: string }[] }>,
     // Work items are received as a whole; the category only selects the admission row of the Policy.
     scope: input => {
@@ -191,7 +257,7 @@ export function workKind<C extends Record<string, unknown> = WorkConfig>(
       return row ? { listened: true, observed: true, row } : { listened: true, observed: true }
     },
     channel: {
-      capabilities: { idempotency: 'marker', markdown: true, maxChars: 60000 },
+      capabilities: { idempotency: 'marker', markdown: true, maxChars: 60000, files: { maxBytes: MAX_ATTACHMENT_BYTES } },
       send: (host, message) => sendNote(provider, host, message),
       link: (address): ChannelLink => {
         const key = address.key ?? ''

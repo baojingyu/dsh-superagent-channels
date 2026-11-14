@@ -5,7 +5,7 @@
  */
 import { readFileSync, statSync } from 'node:fs'
 import { requireOwnerOnly } from '../../../infra/secret-file.ts'
-import type { ChatEvent } from '../port.ts'
+import type { ChatEvent, ChatMedia } from '../port.ts'
 
 /** One callback message as this adapter reads it: the normalized event plus the WeCom fields the kind keeps. */
 export interface WecomEvent extends ChatEvent {
@@ -41,6 +41,10 @@ export interface WecomSenderOptions {
 export interface WecomSender {
   accessToken(config: WecomConfig): Promise<string>
   sendMessage(config: WecomConfig, address: WecomAddress, text: string): Promise<'sent' | 'gone'>
+  /** Downloads one image's bytes by its callback `MediaId`; the platform answers JSON on an error, binary on success. */
+  media(config: WecomConfig, mediaId: string, maxBytes?: number): Promise<{ bytes: Uint8Array; mime: string }>
+  /** Lists the users of one department (name for the Policy pickers); requires the app's contact read permission. */
+  users(config: WecomConfig, departmentId: string): Promise<{ id: string; name?: string }[]>
 }
 
 /**
@@ -84,7 +88,8 @@ const unescape = (text: string): string => text.replace(/&lt;/g, '<').replace(/&
  * `MsgType` (an event, an image, a voice note) returns `null`, since this adapter carries text only.
  */
 export function parseXml(xml: string): WecomEvent | null {
-  if (tag(xml, 'MsgType') !== 'text') return null
+  const msgType = tag(xml, 'MsgType')
+  if (msgType !== 'text' && msgType !== 'image') return null
   const msgId = tag(xml, 'MsgId')
   const from = tag(xml, 'FromUserName')
   if (!msgId || !from) return null
@@ -93,14 +98,25 @@ export function parseXml(xml: string): WecomEvent | null {
   const at = Number.isFinite(created) && created > 0 ? new Date(created * 1000).toISOString() : new Date(0).toISOString()
   const agentId = tag(xml, 'AgentID')
   const toUser = tag(xml, 'ToUserName')
+  // An image callback carries no text, only a MediaId the media API downloads; a text one carries Content.
+  const media: ChatMedia[] = []
+  let text = ''
+  if (msgType === 'image') {
+    const mediaId = tag(xml, 'MediaId')
+    if (!mediaId) return null
+    media.push({ id: mediaId, kind: 'image' })
+  } else {
+    text = unescape(tag(xml, 'Content') ?? '')
+  }
   return {
     nativeId: msgId,
     chatId,
     direct: chatId === from,
     threadRoot: chatId,
     sender: { id: from, bot: false },
-    text: unescape(tag(xml, 'Content') ?? ''),
+    text,
     at,
+    ...media.length ? { media } : {},
     ...agentId ? { agentId } : {},
     ...toUser ? { toUser } : {},
   }
@@ -148,5 +164,34 @@ export function createWecomSender(options: WecomSenderOptions = {}): WecomSender
     throw new Error(`The WeCom message was not sent (errcode ${code}: ${body.errmsg ?? 'no message'})`)
   }
 
-  return { accessToken, sendMessage }
+  /** Downloads one image by `MediaId`. WeCom answers JSON with an `errcode` on failure even at HTTP 200, so the body is read
+   * as bytes only after the content type proves it is not JSON, and the byte cap is checked on the whole body. */
+  const media = async (config: WecomConfig, mediaId: string, maxBytes?: number): Promise<{ bytes: Uint8Array; mime: string }> => {
+    const token = await accessToken(config)
+    const url = `${base(config)}/cgi-bin/media/get?access_token=${encodeURIComponent(token)}&media_id=${encodeURIComponent(mediaId)}`
+    const answer = await fetcher(url, { signal: AbortSignal.timeout(timeout) })
+    if (!answer.ok) throw new Error(`The WeCom media request answered HTTP ${answer.status}`)
+    const type = answer.headers.get('content-type') ?? ''
+    if (type.includes('json')) {
+      const body = await answer.json() as { errcode?: number; errmsg?: string }
+      throw new Error(`The WeCom media request failed (errcode ${body.errcode ?? 'unknown'}: ${body.errmsg ?? 'no message'})`)
+    }
+    const bytes = new Uint8Array(await answer.arrayBuffer())
+    if (maxBytes !== undefined && bytes.length > maxBytes) throw new Error(`The WeCom image is ${bytes.length} bytes, over the ${maxBytes}-byte limit`)
+    return { bytes, mime: type.split(';')[0] || 'application/octet-stream' }
+  }
+
+  /** Lists one department's users (recursively) for the Policy pickers. An app without contact permission answers a JSON error. */
+  const users = async (config: WecomConfig, departmentId: string): Promise<{ id: string; name?: string }[]> => {
+    const token = await accessToken(config)
+    const url = `${base(config)}/cgi-bin/user/simplelist?access_token=${encodeURIComponent(token)}&department_id=${encodeURIComponent(departmentId)}&fetch_child=1`
+    const answer = await fetcher(url, { signal: AbortSignal.timeout(timeout) })
+    if (!answer.ok) throw new Error(`The WeCom user list answered HTTP ${answer.status}`)
+    const body = await answer.json() as { errcode?: number; errmsg?: string; userlist?: { userid?: string; name?: string }[] }
+    if ((body.errcode ?? 0) !== 0) throw new Error(`The WeCom user list failed (errcode ${body.errcode}: ${body.errmsg ?? 'no message'})`)
+    return (body.userlist ?? []).filter(user => typeof user.userid === 'string' && user.userid !== '')
+      .map(user => ({ id: user.userid!, ...user.name ? { name: user.name } : {} }))
+  }
+
+  return { accessToken, sendMessage, media, users }
 }

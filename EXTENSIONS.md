@@ -72,11 +72,66 @@ unchanged; identity and scope are the only provider-specific parts. Section 6 is
 | Categories | requirement / bug / task are polled by default; other categories are dropped rather than guessed |
 | Transport | polling (`pollSeconds`) |
 | Identity | `organizationId` + `project`; `assignedTo` is an Aliyun **accountID**, so the configuration must hold the bot's own accountID |
-| Credentials | a `pt-…` personal token in a file, owner-only, reread per call |
+| Credentials | a `pt-…` personal token in a file, owner-only, reread per call; or **Sign in with Yunxiao** on the source card, which runs OAuth 2.0 (authorization code + PKCE, the browser signs in, a loopback listener takes the callback) and writes the token to the same file - 24 hours, renewed automatically, refresh token 90 days |
 | Path safety | confined to `/oapi/v1/`, with an organization allowlist; dot-segment escapes are refused before any request, plain or percent-encoded |
-| Read-only by default | `writeBack` defaults to **false**, so the adapter never changes a work item's status unless asked |
 | Outbound | comments, marker-idempotent |
-| Known gap | read/write against a real instance is unverified here (no token) |
+| Status write-back | Both status fields are **dropdowns**: press **Read Yunxiao status list** on the source card (or the refresh beside a field), which lists the work item types per category (`ListWorkitemTypes`) and each type's workflow (`GetWorkitemWorkflow`, central form), then stores the statuses as `id -> name` for the pickers — the board name is shown, the status id is stored; a name or an id is accepted, and statuses seen in a poll are the fallback. A name neither place has seen is refused with the action that fills the vocabulary, never sent to Yunxiao as a status |
+| Comment attachments | With "Let the model attach files to comments" on, a file in the worker's report (inside the ticket directory, ≤10 MiB, not an executable) is uploaded to the item's attachments, and the comment is posted as **RICHTEXT**: escaped paragraphs, the host's `embedHtml` for an image (a native `<img>`) plus a caption link to the file, a link for any other file - always the **permanent `embedUrl`**, never the expiring `url` - and the marker as an HTML comment. A comment with no attachment stays plain text, so Markdown the agent writes is unchanged. Off by default |
+| Member list | With "Sync the list from project members" on, "Sync project members" replaces the list with the project's members (`userId`, the id an item is assigned to), keeping your order, refreshing names, and appending new members; one sync runs at startup. Like Feishu's, the sync applies to the **default instance** only (instance id `projex`) |
+| Panel search | A serial (`ESFX-6228`) or a work-item page address finds that item's triggers and tickets (the page is addressed by serial while a thread is keyed by the internal id, so linking to a thread still goes through the conversation id) |
+| Deleted items | A work item in the recycle bin answers a comment/status call with HTTP 400 "已进回收站"; the plugin treats that as **gone** - it marks the Thread `gone`, stops reading it, and never counts it as a poll error (deleting an item is a person's act, not a plugin failure) |
+| Site | Empty uses the central site `https://openapi-rdc.aliyuncs.com`; a Region deployment names its instance domain under "API site", and sign-in and calls use the same site |
+| Known gap | the write paths (status PUT, attachment upload and the RICHTEXT body) are unverified against a real instance here (no token); `GetWorkitemWorkflow` needs a work item type the project actually has |
+
+Two ready ways to check against a real organisation: **Sign in with Yunxiao** on the source card, or
+`python verify/oauth-check.py --token-file <path>` in a terminal (the same OAuth flow; it prints the authorization URL and
+writes the same token file, never a token value). With a token,
+`LIVE=1 YUNXIAO_ORG=… YUNXIAO_PROJECT=… YUNXIAO_TOKEN_FILE=… npx vitest run tests/live/projex-contract.live.spec.ts`
+checks work items, comments, the member roster and the workflow status list, read-only.
+
+#### 3.2.1 The three-stage loop: assess / execute / feed back
+
+This channel used to do "receive and reply" and nothing else, and each of the three stages was missing one
+piece. All three now have a defined landing place.
+
+| Stage | What was missing | What it does now | Where |
+| --- | --- | --- | --- |
+| **Assess** | A Trigger carried only its own text. An assessment of a comment saw no title, no description and no earlier answer - the model faced "any news on this?" and had to guess the whole thing, so it either took on the wrong work or ignored everything; and a comment Trigger carried no category, so the admission table judged it on its defaults and an operator's decision about a category did not reach that category's comments | **The item is read as one conversation**: the description is the root message (`[ESFX-6228] title` plus body), comments follow in time order and continue across the host's pages, the agent's own marked comments are `bot` (never a person's request), and embedded images are read back from the local archive as attachments. A comment Trigger also carries its item's **category**, so a comment and its item fall in the same admission row | `src/sources/work/context.ts`, `src/sources/work/stream.ts` |
+| **Execute** | A worker on such a ticket did not know which item it was on: it could not name the item in a commit message, a PR or a reply | **Every ticket carries the item's identity**: `DSH_SUPERAGENT_PROJEX_PROJECT / _WORKITEM / _SERIAL / _CATEGORY / _STATUS / _URL` (plus `_ORG`), in the execution-environment prompt where the GitHub kind puts `DSH_SUPERAGENT_GITHUB_REPOSITORY / _NUMBER` | `src/sources/work/environment.ts` |
+| **Feed back** | Outside the comments the board was dead: an item sat in its original column from acceptance to delivery, so a person had to open the comments to learn whether the agent was on it | **The status follows the ticket**: with `writeBack` on and the two status ids named, the start status is written as soon as a ticket starts and the done status once it ends (completed, merged, dropped). Each phase is written once per ticket (KV ledger), the item is read first so a status already current is not rewritten, and a failure is recorded in the poll result and retried next round | `src/sources/work/feedback.ts` |
+
+Why each of them matters:
+
+- **An assessment needs a conversation, not a sentence.** Yunxiao has no `@`, so the admission table decides from
+  whether the assignee (or the creator) is on the list - which makes the assessment the only place that can read what
+  the person actually wants. Handing it half a sentence makes an accurate table useless.
+- **Execution has to be able to name things.** The serial (`ESFX-6228`) is what people search, review and quote; without
+  it a deliverable cannot be tied back to the board item.
+- **Feedback belongs on the board.** A comment is written to one person, a status to a team: a stand-up reads columns,
+  not comments. Write-back is therefore **opt-in** (`writeBack` is false by default), does nothing until the statuses
+  are named, and **never touches a ticket a person stopped** - whoever stopped it knows.
+
+#### 3.2.2 Against the GitHub and Feishu channels
+
+| Capability | GitHub | Feishu | Yunxiao Projex |
+| --- | --- | --- | --- |
+| Assessment context | `threadContext`: the whole Issue / PR discussion | `threadContext`: messages and images in the topic | **added here**: description, every comment, embedded images |
+| Who may originate work | accounts on the list | members on the list | the assignee's (else the creator's) accountID |
+| Execution environment | repository, account, commit email, number, PR head | - (a chat channel relies on the source context in its prompt) | **added here**: project, work item, serial, category, status, URL, organisation |
+| Feedback - acknowledgement | a comment | a message | a comment |
+| Feedback - result | a comment (`announceEnd` speaks on its own when the ticket ends) | a message | the same: "completed / merged / dropped" is posted when the ticket ends |
+| Feedback - status | expressed by the PR merging or closing | - | **added here**: board status write-back, a name taken from the project's workflow |
+| Feedback - attachments | files in the PR | message attachments | **added here**: a file is uploaded to the item's attachments and embedded in a RICHTEXT comment (switch off by default) |
+| Panel lists | accounts that may originate work + bots whose comments may become candidates | members (synced from the chat) | members' accountIDs, **syncable from project members** (switch off by default) |
+| Panel search | `#12` / an Issue or PR address | - (a chat searches by message) | `ESFX-6228` / a work-item page address |
+| Refusal notice | not sent (public record) | sent (a conversation) | not sent (public record) |
+
+What stays different on purpose: a work item has no `@`, so the "outsider who addresses the agent" cell of the
+admission table is always a dash; and the sync takes the project's members only, never the whole organization. Why a
+status resolves through the project's workflow, how an attachment reaches a comment, why the sync is limited to the
+default instance, and what is still unverified, are in
+[ADR-009](docs/extensions/ADR-009-projex-feedback-and-parity.md) and
+[ADR-010](docs/extensions/ADR-010-yunxiao-signin-status-and-identity.md).
 
 ### 3.3 WeChat — `chat/weixin`
 
@@ -144,6 +199,32 @@ are the detail.
 > answering "no signed-in main window found" while its window sits visible with the account signed in. `/status`
 > carries `client` for exactly that reason: check the build before blaming the configuration.
 
+#### 3.3.1 Alignment with the Feishu channel (this round)
+
+WeChat already had: structured `@` detection, groups and direct messages, inbound images, voice transcripts, outbound text
+and files, keyed idempotency, instant acknowledgement, still-working notes, keyword listening and canned replies, mentioning
+the sender in a reply, per-instance isolation, and a listener that re-attaches itself. After comparing it with Feishu item by
+item, these were added:
+
+| Capability | Feishu | WeChat (now) |
+| --- | --- | --- |
+| Worker reads of the conversation | `feishu/<trigger-id>/message|root|parent|thread|around` | **added** `weixin/<trigger-id>/message|thread|around`, with `next_resource` paging |
+| Source skill | `dsh-superagent-feishu` | **added** `dsh-superagent-weixin` (the resource grammar and image markers; WeChat has no CLI and no message deep link) |
+| Assessment context | thread/root/parent/around | thread/**parent**/root; WeChat has no topic root, so `root` answers `no_root` instead of inventing one |
+| Panel search by message | `om_…` becomes a term | **added** a platform message ID becomes a term; `meta.nativeId` matches exactly |
+| Reply mapping | `repliesTo` from the parent | **added** `repliesTo`, so a thread shows which message an answer replies to |
+| Messages per page | `readPageSize` | **added** `readPageSize` (1–50, the bridge's ceiling), shared by assessment reads and resources |
+| Member roster sync | `syncChat` + Sync now | already present (`syncChat` + Sync now, from the members the bridge has seen) |
+| Panel facts | bot identity | already present (signed-in account and mention evidence strength) |
+| Inbound images | yes | already present; the assessment can attach `[image:<id>]`, and a worker downloads one with a single `curl`/`Invoke-WebRequest` against `GET /media/<id>` from its environment, then reads it |
+| History backfill | a bot added to a chat recovers recent history | **present**: after a re-attach or first listen the bridge reads back the last 20 messages (up to 3 chats a round), now marked `historical` so they reach the assessment without a receipt or a canned reply |
+| Message deep link | AppLink | **not possible**: the sidecar exposes no deep link, so `link` returns an empty address (ADR-007) |
+| Bot list | bot messages can become candidates | **not possible**: WeChat has no bot-account concept, the bridge always reports `bot:false`, and pretending otherwise would be a lie |
+
+Two limits are the backend's, not omissions: there is **no message deep link** (the sidecar exposes none) and **no bot list**
+(WeChat has no bot-account concept; the bridge always reports `bot:false`). Both are recorded in
+[ADR-011](docs/extensions/ADR-011-weixin-feishu-alignment.md).
+
 ### 3.4 DingTalk — `chat/dingtalk`
 
 | Aspect | Detail |
@@ -163,11 +244,35 @@ are the detail.
 | What it listens to | the application's messages: group chats by `chatid`, and direct messages |
 | Transport | **webhook** (signed, encrypted callback) |
 | Identity | `corpId` + `agentId` |
-| Credentials | `corpSecret` inline or in a file; `encodingAesKeyFile` holds the 43-character EncodingAESKey |
+| Credentials | `corpSecret` inline or in a file; the callback `token` and the 43-character `encodingAesKey` (or `encodingAesKeyFile`) verify and decrypt |
+| Callback URL | `<public origin>/wecom/<instance>`: the plugin mounts that public route; ops points the application's receive URL at it |
+| Conversation context | the assessment reads the one message the callback carried (`thread`); `root`/`parent` answer `no_root`/`no_parent` because a callback has neither a topic nor a quote, and no history to page |
+| Inbound images | an `image` callback's `MediaId` becomes `[image:<id>]`, and the assessment downloads it through `GET /cgi-bin/media/get` as an attachment |
+| Panel search | a decimal `MsgId` becomes a search term; `repliesTo` exists, but a callback carries no quoted message so it is normally empty |
+| Worker read | `wecom/<trigger-id>/message` (Feishu's resource grammar, one message and no next page) |
 | Crypto | signature check, AES-CBC decryption, replay rejection (a redelivered message yields no second event) |
 | Capabilities | `idempotency: none`, `maxChars: 2048`, `markdown: false`, `proactive: true` |
 | Honest weakness | outbound is at-least-once; the message API has no idempotency key |
-| Known gap | the callback needs a public reverse-proxied route; only the pure `handleWebhook` function exists today |
+| Known gap | no history backfill, no message deep link and no chat member roster; a worker reads only the one message the callback carried |
+
+### 3.6 Prompt skills — one set for six sources
+
+Every Session (main and executor) registers six built-in Source skills, each viewable and overridable in **Prompts → team
+prompts**, exactly like Feishu and GitHub (the dimension-by-dimension comparison is in
+[capability-matrix.md](docs/extensions/capability-matrix.md)):
+
+| Skill | File | What it covers |
+| --- | --- | --- |
+| Feishu `dsh-superagent-feishu` | `skills/dsh-superagent-feishu/SKILL.md` | `feishu/<trigger-id>/message|root|parent|thread|around`, lark-cli usage, following attachments and documents |
+| GitHub `dsh-superagent-github` | `skills/dsh-superagent-github/SKILL.md` | reading with `gh`, issue/PR context, pre-publish checks |
+| WeChat `dsh-superagent-weixin` | `skills/dsh-superagent-weixin/SKILL.md` | `weixin/<trigger-id>/message|thread|around`, `[image:<id>]` and a `GET /media` download, the honest no-deep-link limit |
+| Yunxiao Projex `dsh-superagent-projex` | `skills/dsh-superagent-projex/SKILL.md` | the work item is the thread root and comments are replies; `DSH_SUPERAGENT_PROJEX_*` identity; deliver with `orchestrator_reply`, the plugin owns status write-back |
+| WeCom `dsh-superagent-wecom` | `skills/dsh-superagent-wecom/SKILL.md` | the callback carries only that message (no history, no deep link), plain text up to 2048, no idempotency key so a retry duplicates |
+| DingTalk `dsh-superagent-dingtalk` | `skills/dsh-superagent-dingtalk/SKILL.md` | the stream carries only that message (no history, no deep link), Markdown up to 5000, at-least-once delivery, `@` judged on staffId |
+
+`composeSkill` now composes every built-in Source skill from its `skill/<name>` part (which is what the panel shows and
+overrides), while a team skill keeps its own text; `tests/model-surface.spec.ts` unions the environment variables every kind
+declares, so a new source never fails the "variable is not registered" check again.
 
 ## 4. The WeChat sidecar
 

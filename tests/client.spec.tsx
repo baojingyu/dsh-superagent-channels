@@ -52,11 +52,12 @@ afterEach(() => { vi.unstubAllGlobals() })
 it('registers a localized main panel, sidebar entry and Plugin Manager row page, and no settings section', () => {
   const { entries, dictionaries, main, nav } = fixture([])
   expect(entries.map(entry => entry.options.name)).toEqual(['main', 'sidebar.panellist', 'plugins.row.config'])
-  expect(entries[2]!.options).toMatchObject({ key: 'dsh-superagent#dsh-superagent', locale: 'dshSuperagent' })
-  expect(Object.keys(dictionaries)).toEqual(['dshSuperagent'])
-  expect(main.options).toMatchObject({ key: 'dsh-superagent', locale: 'dshSuperagent' })
-  expect(nav.options).toMatchObject({ id: 'dsh-superagent', order: 10, locale: 'dshSuperagent' })
-  expect(nav.options.label?.()).toBe('dsh-superagent-multi-channel')
+  expect(entries[2]!.options).toMatchObject({ key: 'dsh-superagent-multi-channel#dsh-superagent-multi-channel',
+    locale: 'dshSuperagentMultiChannel' })
+  expect(Object.keys(dictionaries)).toEqual(['dshSuperagentMultiChannel'])
+  expect(main.options).toMatchObject({ key: 'dsh-superagent-multi-channel', locale: 'dshSuperagentMultiChannel' })
+  expect(nav.options).toMatchObject({ id: 'dsh-superagent-multi-channel', order: 10, locale: 'dshSuperagentMultiChannel' })
+  expect(nav.options.label?.()).toBe('Superagent 多通道')
 })
 
 it('opens a listed Session through the workspace from the main panel', async () => {

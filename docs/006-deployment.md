@@ -12,7 +12,7 @@ Plugin configuration holds the state directory and machine limits. Use the panel
 
 ### Permissions and isolation
 
-The bundle defines `dsh-superagent-worker` for Executors and `dsh-superagent-router` for the main Session. They appear in the DeepSeek Harness preset list but are intended only for dsh-superagent. Do not select them for personal Sessions or disable their configuration rows. The application needs them to create and resume its Sessions.
+The bundle defines `dsh-superagent-worker` for Executors and `dsh-superagent-router` for the main Session — the same preset ids the pre-2.3 bundle used, so a switch from an older install resumes its existing Sessions instead of failing with `Unknown agent preset`. They appear in the DeepSeek Harness preset list but are intended only for this plugin. Do not select them for personal Sessions or disable their configuration rows. The application needs them to create and resume its Sessions.
 
 Opening a blank managed Session in the Web UI can select the profile's default preset. dsh-superagent restores its role-specific preset before the first turn.
 
@@ -88,14 +88,47 @@ Run the profile-creation command only for a new installation. If the profile alr
 
 ## Machine configuration
 
-Copy [examples/profile.cordis.patch.yml](../examples/profile.cordis.patch.yml) to `~/.dsh/profiles/superagent/cordis.patch.yml`, replacing that file, and replace every `<placeholder>`. For Feishu, also enable the `dsh-superagent-feishu` entry there. The `webserver` entry sets the panel's port.
+Copy [examples/profile.cordis.patch.yml](../examples/profile.cordis.patch.yml) to `~/.dsh/profiles/superagent/cordis.patch.yml`, replacing that file, and replace every `<placeholder>`. For Feishu, also enable the `dsh-superagent-multi-channel-feishu` entry there. The `webserver` entry sets the panel's port.
 
 | Key | Required | Meaning |
 | --- | --- | --- |
-| `stateDir` | yes | Absolute path: the database, the lock, the command shims in `worker-bin`, the agent's git configuration and, by default, the Ticket directories in `work`. Back it up before upgrades |
+| `stateDir` | no | Absolute path: the database, the lock, the command shims in `worker-bin`, the agent's git configuration and, by default, the Ticket directories in `work`. Defaults to an existing `~/.dsh/state/superagent` (a pre-2.3 installation) or `~/.dsh/state/dsh-superagent-multi-channel`. Back it up before upgrades |
 | `promptMaxChars`, `admissionContextMaxPages`, `admissionContextTimeoutMs` | no | The largest saved prompt configuration, and how many Thread pages one assessment reads within what time |
 
 After the first start, edit machine limits in **Settings → Deployment** or the DeepSeek Harness Plugin Manager. Changes apply without restart. `stateDir` cannot be changed there. Invalid values or unknown configuration keys prevent startup; the log identifies the key.
+
+## Install beside the official superagent
+
+This bundle is a separate package with its own entry ids, agent presets and panel entry, so it can be **installed** beside
+another superagent bundle without overwriting its rows, presets or panel slot.
+
+A Harness Host holds **one Source kind per id**, and every superagent bundle registers the same kind ids (`github`,
+`feishu`, `projex`, …). So two superagent bundles can be installed, but only **one may be enabled at a time**; enabling
+both leaves the second bundle's Source rows reporting `Source kind already registered`. Switching is a bundle disable plus a
+bundle enable, and each bundle keeps its own `stateDir`, so switching back changes nothing else.
+
+| | official superagent | this bundle |
+| --- | --- | --- |
+| Package | the official package | `dsh-superagent-multi-channel` |
+| Profile entry ids | `dsh-superagent`, `dsh-superagent-<source>` | `dsh-superagent-multi-channel`, `dsh-superagent-multi-channel-<source>` |
+| Agent presets | `dsh-superagent-worker`, `dsh-superagent-router` | the **same ids**, deliberately: one superagent bundle is enabled at a time, and a switch then resumes the Sessions either bundle created |
+| Panel entry | its own | sidebar "Superagent multi-channel" |
+| State | one `stateDir` | its own `stateDir` (default below) |
+
+To move an installation of an older version of this bundle: disable the old bundle, enable this one, and leave `stateDir`
+empty - the default adopts the existing `~/.dsh/state/superagent`, so the database, tickets and cursors come along. If both
+stay installed, each needs its **own** `stateDir` (one directory admits one instance, and the lock says so).
+
+## Install from a plugin market or a tarball
+
+- Plugin manager or market: install `dsh-superagent-multi-channel@<version>`. The market reads `dsh.bundle.patch` and the
+  display metadata (`locale/en.json`, `locale/zh.json`, `icon.svg`) from the package, so the entry appears with its own title,
+  description and icon.
+- Custom plugin index (the Discover tab of the "Custom plugin indexes" bundle) or the community market: point it at the
+  published package, or host the repository tarball and install that URL - a profile bundle also installs from
+  `…/archive/refs/tags/v<version>.tar.gz`.
+- Local development: `plugin_manager` `install_bundle` with the absolute checkout directory links the working tree, so a
+  rebuild is visible without reinstalling; `npm pack --dry-run` shows exactly what a published tarball would contain.
 
 ## Start and stop
 

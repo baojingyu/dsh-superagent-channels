@@ -361,7 +361,8 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/infra/health.ts` | The `HealthBoard`, every part's health entry, each claimed by its one writer |
 | `src/infra/secret-file.ts` | The one owner-only rule for a secret file: `readSecretFile` and `requireOwnerOnly`, which hold the `0600` check where the platform has POSIX bits, name the mode a refused file actually had, and leave Windows to its ACL |
 | `src/infra/hosting-api.ts` | The code-hosting HTTP client: `HostingApi` and `createHostingApi`, a token read from its `0600` file, `PRIVATE-TOKEN`, an allowlisted `/projects` path and a 30-second timeout |
-| `src/infra/yunxiao-api.ts` | The Yunxiao HTTP client: `YunxiaoApi`, `createYunxiaoApi` and `YunxiaoHttpError`, its token file read on every call, the `/oapi/v1/` path limit and the organization allowlist |
+| `src/infra/yunxiao-api.ts` | The Yunxiao HTTP client: `YunxiaoApi`, `createYunxiaoApi` and `YunxiaoHttpError`, its token file read on every call, the `/oapi/v1/` path limit and the organization allowlist, JSON and multipart bodies, and a 401 that renews an OAuth token once before retrying |
+| `src/infra/yunxiao-oauth.ts` | Yunxiao OAuth 2.0 sign-in: authorization-server metadata discovery, dynamic client registration, PKCE S256, a 127.0.0.1 loopback callback, the token exchange and refresh, and the owner-only token file (with the refresh material beside it) the rest of the plugin already reads |
 | `src/sources/kind.ts` | The `SourceKind` protocol |
 | `src/sources/instance.ts` | Instance id normalization: `instanceId`, `kindOf` and `storesKind` |
 | `src/sources/registry.ts` | `SourceRegistry` |
@@ -408,7 +409,8 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/sources/chat/weixin/bridge.ts` | `createBridgeClient`, the sidecar bridge's HTTP client: health, status, rooms, members, messages and send, with its token file, timeouts and retryable failures |
 | `src/sources/chat/weixin/kind.ts` | `weixinKind` / `createWeixinKind`, the Weixin chat `SourceKind`: its schema and fields, the structured `@` scope rule, the bridge-backed Channel and its environment |
 | `src/sources/chat/weixin/media.ts` | `readWeixinImage` and `sniffImageMediaType`: downloads a message image from the sidecar, trusts only its magic bytes, and commits it as an attachment |
-| `src/sources/chat/weixin/thread.ts` | `weixinThreadContext`, the Weixin `ThreadContext`: the recent messages of a chat and the images one carries, read through the bridge client |
+| `src/sources/chat/weixin/thread.ts` | `weixinThreadContext`, the Weixin `ThreadContext`: the conversation page, the replied-to message and the images one carries, read through the bridge client; `root` answers `no_root` because WeChat has no topic root |
+| `src/sources/chat/weixin/read.ts` | Worker-facing WeChat reads: `weixinRef`/`weixinReferences`/`weixinResource` and `readWeixin` for `weixin/<trigger-id>/message`, `/thread` and `/around`, the same shapes as the Feishu resource grammar |
 | `src/sources/hosting/port.ts` | The code-hosting port: `HostAdapter`, `ChangeRequest` and `ChangeNote` |
 | `src/sources/hosting/kind.ts` | `hostingKind`, the factory that turns a `HostAdapter` into a hosting `SourceKind` |
 | `src/sources/hosting/gitlab/adapter.ts` | The GitLab `HostAdapter`: `createGitlabAdapter`, the mapping of a merge request, note and pipeline, and its CI snapshots |
@@ -416,20 +418,26 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/sources/work/port.ts` | The work-item port: `WorkAdapter` and `WorkItem` |
 | `src/sources/work/images.ts` | Work-item images: parse inline `<img fileIdentifier>` references, download through the files API, de-duplicate by sha256 under `<stateDir>/projex-images`, and serve one back as an attachment |
 | `src/sources/work/kind.ts` | `workKind`, the factory that turns a `WorkAdapter` into a work `SourceKind` |
+| `src/sources/work/context.ts` | `workThreadContext`: a work item read as a conversation - the description as the root message, the comments as the thread with paging, the agent's own comments marked `bot`, and the archived images served back as attachments |
+| `src/sources/work/environment.ts` | `workEnvironment`: the per-ticket variables naming the work item a worker is on (`_PROJECT`, `_WORKITEM`, `_SERIAL`, `_CATEGORY`, `_STATUS`, `_URL`), plus whatever a host adds, such as a Projex organization |
+| `src/sources/work/feedback.ts` | `reflectWorkTickets`: the status a work item shows while a ticket works on it and after it ended, written once per phase through a KV ledger, so the board follows the ticket rather than staying untouched |
 | `src/sources/work/projex/adapter.ts` | The Projex `WorkAdapter`: `createProjexAdapter`, work items and notes by category with `nextToken` paging, and its marker-idempotent replies |
-| `src/sources/work/projex/kind.ts` | `projexKind`, the Yunxiao Projex work `SourceKind` on the Projex adapter, with `organizationId` and its environment |
+| `src/sources/work/projex/kind.ts` | `projexKind`, the Yunxiao Projex work `SourceKind` on the Projex adapter, with `organizationId`, its environment and the `refreshLabels` that fills the status dropdowns |
+| `src/sources/work/projex/read.ts` | Worker-facing Projex reads: `projexRef`/`projexReferences`/`projexResource` and `readProjex` for `projex/<trigger-id>/item` and `/comments` |
 | `src/sources/hosting/stream.ts` | `pollHosting`, the hosting polling round: the cursor, the changed change requests, their notes and CI, and the overflow count |
 | `src/sources/work/self-writes.ts` | The self-write ledger: the work-item revisions this process wrote, which a poll must not read back as new requests, because a comment or a status write bumps the modification time a Trigger ID is derived from |
 | `src/sources/work/stream.ts` | `pollWorkItems`, `workTrigger`, `noteTrigger` and `observeNotes`: the work-item polling round, plus per-followed-item comment polling with a per-item watermark and a bounded `backfillComments` first-sight backfill |
 | `src/sources/chat/dingtalk/adapter.ts` | The DingTalk adapter: `parseStreamEvent` and `sendMessage` over the sessionWebhook and oapi paths, with its idempotency marker |
 | `src/sources/chat/dingtalk/stream.ts` | `startStream` and `createLongPollingStream`: consume the injected event stream, report its health and reconnect until aborted |
-| `src/sources/chat/dingtalk/kind.ts` | `dingtalkKind` / `createDingTalkKind`, the DingTalk chat `SourceKind`: its schema and fields, the `@`-based scope and the stream-backed Channel |
+| `src/sources/chat/dingtalk/kind.ts` | `dingtalkKind` / `createDingTalkKind`, the DingTalk chat `SourceKind`: its schema and fields, the `@`-based scope, the stream-backed Channel and the ThreadContext that reads only the callback's message |
+| `src/sources/chat/dingtalk/read.ts` | Worker-facing DingTalk read: `dingtalkRef`/`dingtalkReferences`/`dingtalkResource` and `readDingtalk` for `dingtalk/<trigger-id>/message` |
 | `src/sources/chat/wecom/crypto.ts` | WeCom callback crypto: `signatureOf`/`verifySignature`, and `encrypt`/`decrypt` of the AES-256-CBC payload |
 | `src/sources/chat/wecom/adapter.ts` | The WeCom callback adapter: `parseXml`, and `createWecomSender` with its cached `access_token` and the message send |
 | `src/sources/chat/wecom/webhook.ts` | `handleWebhook`, the pure callback handler: verify, decrypt, parse, dedupe, and the URL-verification echo |
-| `src/sources/chat/wecom/kind.ts` | `wecomKind` / `createWecomKind`, the WeCom chat `SourceKind`: its schema and fields, the `@`-based scope, the callback Channel and its facts |
+| `src/sources/chat/wecom/kind.ts` | `wecomKind` / `createWecomKind`, the WeCom chat `SourceKind`: its schema and fields, the `@`-based scope, the callback Channel and its facts, `wecomTriggerOf` and the ThreadContext that reads only the callback's own message |
+| `src/sources/chat/wecom/read.ts` | Worker-facing WeCom read: `wecomRef`/`wecomReferences`/`wecomResource` and `readWecom` for `wecom/<trigger-id>/message`, the one message a callback carried |
 | `src/sources/dingtalk-watch.ts` | The DingTalk plugin entry, exported as `./dingtalk-watch`: registers the DingTalk kind and runs its injected stream |
-| `src/sources/wecom-watch.ts` | The WeCom plugin entry, exported as `./wecom-watch`: registers the WeCom callback kind |
+| `src/sources/wecom-watch.ts` | The WeCom plugin entry, exported as `./wecom-watch`: registers the WeCom callback kind and mounts its public signed callback route at `/wecom/<instance>`, turning each callback into a Trigger |
 | `src/sources/weixin-watch.ts` | The Weixin plugin entry, exported as `./weixin-watch`: registers the Weixin kind and polls its sidecar bridge for new messages in the configured chats |
 | `src/sources/gitlab-watch.ts` | The GitLab plugin entry, exported as `./gitlab-watch`: registers the GitLab kind whose note channel posts through the instance's bound adapter |
 | `src/sources/projex-watch.ts` | The Projex plugin entry, exported as `./projex-watch`: registers the Projex kind whose comment channel posts through the instance's bound adapter |
@@ -488,6 +496,9 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/hosting-port.spec.ts` | `hostingKind`'s schema, `scope` and channel capabilities over a stub `HostAdapter` |
 | `tests/chat-dedupe.spec.ts` | `DeliveredRing`'s bounded deduplication, and the `chatKind` built on a stub `InboundTransport` |
 | `tests/work-port.spec.ts` | `workKind`'s category-to-row mapping and its outbound replies over a stub `WorkAdapter` |
+| `tests/work-context.spec.ts` | The work thread context: the description as root, the comments as the thread across pages, the item read once per conversation, a failed read retried, the agent's own comment marked `bot`, and an archived image served back |
+| `tests/work-environment.spec.ts` | The shared work environment: variable names per host, item values from the Trigger's channel address or its meta, empty values for a ticket that started elsewhere, and the host's own additions |
+| `tests/work-feedback.spec.ts` | `reflectWorkTickets`: the start status once, the done status after the ending, the already-current status skipped but recorded, a failed write retried, a forgotten ticket dropped, and the read-only host left alone |
 | `tests/weixin-bridge.spec.ts` | The Weixin bridge client over a stub `fetch`: its six endpoints, the bearer token file's mode, the event mapping, the idempotency key and the failure codes |
 | `tests/weixin-watch.spec.ts` | The Weixin polling loop's listen set: the configured ids it pushes each round, the chats the backend could not resolve, and the two cases where it must send nothing |
 | `tests/execution-directory.spec.ts` | The ticket directory root: an absolute path on either platform (`/x`, `C:\x`, `C:/x`, `\\server\share`), refused when relative, in both the schema and the input's own pattern |
@@ -495,7 +506,8 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/state-lock.spec.ts` | `acquireStateLock`: takes a free state directory, takes over a lock whose holder is gone, waits out one that is briefly held, and names the remedy when it is really held |
 | `tests/person-notice.spec.ts` | `personNotice`: the one line a person gets when their message is refused, per reason code and the fallback |
 | `tests/outbound-file.spec.ts` | `resolveTicketFile`, the gate between a ticket's model and the machine's files: a path that climbs out, a symlink that leaves the directory, an executable, an empty file, an oversized one, and a ticket with no directory |
-| `tests/weixin-kind.spec.ts` | The Weixin `SourceKind`: its schema and fields, the structured `@` scope rule, the Channel and policy, the environment and its facts |
+| `tests/weixin-kind.spec.ts` | The Weixin `SourceKind`: its schema and fields, the structured `@` scope rule, the Channel and policy, the environment and its facts, its search terms and reply mapping |
+| `tests/weixin-read.spec.ts` | WeChat worker reads: the reference and resource grammar, `message`/`thread`/`around` shapes with their next_resource, the `no_room`/`not_found` answers, and the `root`/`parent`/`thread` ThreadContext parts |
 | `tests/hosting-gitlab.spec.ts` | The GitLab adapter and the hosting HTTP client: the merge request, note and pipeline mappings, paging, idempotent replies, and the token and path checks |
 | `tests/hosting-gitlab-kind.spec.ts` | The GitLab hosting `SourceKind`: its identity, schema and fields, its environment and its scope rows |
 | `tests/source-actions.spec.ts` | Source card actions: the WeChat kind offers start/stop/restart/check, each calls `schtasks` with a fixed argv against the configured task, readiness follows the task name, and a name that is not a task name is refused by both the schema and the runner |
@@ -504,17 +516,21 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/admission-tables.spec.ts` | Every Source's admission table reads the same: a chat names one row per conversation plus other chats and direct messages (and its scope reports those ids), WeChat does the same for its groups, and GitLab declares a Policy with the four reception ranges |
 | `tests/work-admission-rows.spec.ts` | The Projex rows are built from an instance configuration that also holds the host's keys: a whole config builds them, a category off the list is marked not received with no cells, and the Policy and Source blocks the panel sends validate |
 | `tests/work-policy.spec.ts` | Projex admission: an assignment is the direct request, an unassigned item stays ambient, a listed member's assigned item is explicit, an unlisted one is refused, and the three category rows are offered |
-| `tests/work-projex.spec.ts` | The Projex adapter: work items and notes by category, `workitems:search` paging, idempotent replies, and the Yunxiao client's checks |
-| `tests/work-projex-kind.spec.ts` | The Projex work `SourceKind`: its identity and fields, its schema, its scope rows, its environment and Channel capabilities |
+| `tests/work-projex.spec.ts` | The Projex adapter: work items and notes by category, `workitems:search` paging, idempotent replies, the project roster, attachment upload with its `embedHtml`/link fallback, the RICHTEXT comment body, the workflow status list, and the Yunxiao client's checks (JSON and multipart bodies included) |
+| `tests/work-projex-kind.spec.ts` | The Projex work `SourceKind`: its identity and fields, its schema, its scope rows, its environment and Channel capabilities, its search resolution, its member sync, and its status-list action |
+| `tests/yunxiao-oauth.spec.ts` | Yunxiao OAuth: PKCE, metadata discovery, the full browser sign-in against an injected fetch and a real loopback callback, a forged-state rejection, the token file, and renewal |
 | `tests/dingtalk-adapter.spec.ts` | The DingTalk adapter over injected `fetch`/`connect`: the stream-event parse, the sessionWebhook and oapi sends, the idempotency marker, the failure codes and the stream's abort |
-| `tests/dingtalk-kind.spec.ts` | The DingTalk `SourceKind`: its identity and schema, its fields, its policy, its capabilities and its `@`-based scope |
+| `tests/dingtalk-kind.spec.ts` | The DingTalk `SourceKind`: its identity and schema, its fields, its policy, its capabilities, its `@`-based scope and the ThreadContext parts |
+| `tests/dingtalk-read.spec.ts` | DingTalk worker reads: the reference and resource grammar, the one message, and the `no_root`/`no_parent` parts |
+| `tests/projex-read.spec.ts` | Projex worker reads: the item with its status and images, a paged comment thread with the agent's own comment marked, and the reference grammar |
 | `tests/wecom-crypto.spec.ts` | The WeCom callback crypto: the sorted signature, key validation without naming the key, and the encrypt/decrypt round trip |
 | `tests/wecom-webhook.spec.ts` | The WeCom callback handler and sender: the XML parse, the URL verification, signed events, dedupe and the cached access token |
-| `tests/wecom-kind.spec.ts` | The WeCom `SourceKind`: its identity and schema, its fields, its two-branch scope, its at-least-once capabilities and facts |
+| `tests/wecom-kind.spec.ts` | The WeCom `SourceKind`: its identity and schema, its fields, its two-branch scope, its at-least-once capabilities and facts, the callback message and the ThreadContext parts |
+| `tests/wecom-read.spec.ts` | WeCom worker reads and Trigger mapping: the reference and resource grammar, the message with its image marker, a group reply by `chatid` and a direct one by `touser`, and the `no_root`/`no_parent` ThreadContext parts |
 | `tests/hosting-stream.spec.ts` | `pollHosting` on a real Store and a stub adapter: the cursor, the changed change requests and CI, the overflow and a failed change |
 | `tests/notice-channel.spec.ts` | The refusal notice reaches a conversation and nothing else: a work item's channel refuses it at the registry, a chat's accepts it, a channel that never opted in refuses it, and `acceptsNotice` answers before a row is queued |
 | `tests/work-self-write.spec.ts` | The ledger and the adapter around it: one revision per key, bounded, and a poll that drops its own write while keeping a person's later edit |
-| `tests/work-stream.spec.ts` | `pollWorkItems` on a real Store and a stub adapter: the initialized cursor, the three categories, idempotency, aborts and a failed category |
+| `tests/work-stream.spec.ts` | `pollWorkItems` on a real Store and a stub adapter: the initialized cursor, the three categories, idempotency, aborts and a failed category, and the comment rounds - a person's comment handed over in its item's admission row, the agent's and a bot's skipped, and a thread whose ticket is not open read not at all |
 | `tests/work-images.spec.ts` | Work-item images: `<img fileIdentifier>` parsing (HTML and jsonML), sha256 de-duplication, type/size limits, failure degradation, and reading an archived image back as an attachment |
 | `tests/panel-instances.spec.ts` | The panel's data layer for several instances of one kind: the rows and health of two chat instances, deleting one, and a legacy Source without `kind` |
 | `tests/live/weixin-bridge.live.spec.ts` | The Weixin bridge against a real local sidecar (only with `LIVE=1`): health, status, rooms, members, messages, idempotent sends, and the token and permission failures |

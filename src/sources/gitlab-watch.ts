@@ -11,7 +11,7 @@ import { pause } from './poll.ts'
 import type { SourceRegistry } from './registry.ts'
 
 export const kind = gitlabKind
-export const name = 'dsh-superagent-gitlab'
+export const name = 'dsh-superagent-multi-channel-gitlab'
 export const inject = ['orchestrator']
 
 /** The kind whose note channel posts through an adapter bound to `config`; without one, the kind's unbound adapter reports it. */

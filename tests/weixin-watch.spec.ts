@@ -113,6 +113,16 @@ describe('pollChat canned replies', () => {
     expect(own.sent).toEqual([])
     expect(own.received).toEqual([])
   })
+
+  it('hands a backfilled message to the agent without a receipt or a canned reply', async () => {
+    // A catch-up message is history: it must reach the assessment (so an old "fix this" is seen) but never answer old words.
+    const backfilled = { ...event('m4', 'order 999'), historical: true, mentionsAgent: true } as ReturnType<typeof event>
+    const { bridge, ctx, sent, received } = harness([backfilled])
+    await expect(pollChat(ctx, bridge, 'weixin', 'wxname_group',
+      { autoReplies: [{ any: 'order', reply: 'x' }], acknowledge: true, ackText: 'ok' })).resolves.toBe(1)
+    expect(sent).toEqual([])
+    expect(received).toHaveLength(1)
+  })
 })
 
 describe('pollChat receipt and heartbeat', () => {

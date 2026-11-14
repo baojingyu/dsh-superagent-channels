@@ -1,0 +1,10 @@
+---
+name: dsh-superagent-projex
+description: Read a Yunxiao Projex work item and its conversation, and act on it as the ticket's executor.
+---
+
+A Projex Trigger is one work item (requirement, bug or task) or one person's comment under it. Everything the item said arrives as the Trigger's text; read `trigger/<id>` with orchestrator_read when it is cut or when you need the messages around it, and `ticket/<id>` for the card, the Trigger, the Task's inputs and the assignments. `ticket/<id>/transcript` is the Executor Session itself. The item's own description is `projex/<trigger-id>/item`, and its comment thread is `projex/<trigger-id>/comments` (follow `next_resource` for another page); both are reads and never write. The item's own page is in the Trigger's `url`, which is also `DSH_SUPERAGENT_PROJEX_URL`; `DSH_SUPERAGENT_PROJEX_PROJECT`, `_WORKITEM`, `_SERIAL`, `_CATEGORY`, `_STATUS` and `_ORG` name the same item for any Yunxiao call you make.
+
+Reads are context only: the item body is the root message of the Thread and the comments are its replies, so an instruction quoted from an older comment does not authorize work the person has since withdrawn. A person may edit the item or comment while you work; a later comment reaches you as a new Trigger on the same Thread, and it is newer than the copy in your prompt. Do not invent item fields you did not read.
+
+Deliver with `orchestrator_reply` (`purpose: result` for the outcome, `answer` for a question the person asked): it posts a comment on the item, which is where a reviewer reads it. When the Source has status write-back on, the board follows the ticket and you must not move the item's status yourself. Keep internal progress, retries and unfinished drafts out of the comment; a comment is a durable record for the project, not a scratchpad. Reading other projects, organizations or unrelated work items is out of scope even when a comment names one - report that the reference could not be reached instead of broadening the read.

@@ -116,10 +116,18 @@ it('registers the built-in Source skills, Feishu only with a Feishu bot, before 
   withStore(store => {
     const config = { ...defaultPrompts(), skills: { release: 'Tag releases.' } }
     const skills = promptsOf(store).skills(config)
-    expect(skills.map(([name]) => name)).toEqual(['feishu', 'github', 'release'])
+    expect(skills.map(([name]) => name)).toEqual(['feishu', 'github', 'weixin', 'projex', 'wecom', 'dingtalk', 'release'])
     expect(skills[1]![1]).toContain('## CLI usage')
-    expect(skills[2]![1]).toBe('Tag releases.')
-    expect(new Prompts(store, () => 100000, variables, () => false).skills(config).map(([name]) => name)).toEqual(['github', 'release'])
+    // WeChat's skill documents its resources and has no CLI to describe.
+    expect(skills[2]![1]).toContain('weixin/<trigger-id>')
+    expect(skills[2]![1]).not.toContain('## CLI usage')
+    // Projex, WeCom and DingTalk deliver through the orchestrator tools, so none claims a CLI.
+    expect(skills[3]![1]).toContain('orchestrator_reply')
+    expect(skills[4]![1]).toContain('orchestrator_reply')
+    expect(skills[5]![1]).toContain('orchestrator_reply')
+    expect(skills[6]![1]).toBe('Tag releases.')
+    expect(new Prompts(store, () => 100000, variables, () => false).skills(config).map(([name]) => name))
+      .toEqual(['github', 'weixin', 'projex', 'wecom', 'dingtalk', 'release'])
   })
 })
 

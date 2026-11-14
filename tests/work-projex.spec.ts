@@ -12,7 +12,7 @@ import { withPlatform } from './fixtures/platform.ts'
 import type { WorkItem } from '../src/sources/work/port.ts'
 import { testDeployment } from './fixtures/deployment.ts'
 
-interface Recorded { method: 'get' | 'post'; path: string; query?: YunxiaoQuery; body?: unknown }
+interface Recorded { method: 'get' | 'post' | 'put' | 'postForm'; path: string; query?: YunxiaoQuery; body?: unknown; form?: FormData }
 type Responder = (call: Recorded) => YunxiaoResult | Promise<YunxiaoResult>
 /** A YunxiaoApi stand-in that records every call and answers through `respond`. */
 function stubApi(respond: Responder): { api: YunxiaoApi; calls: Recorded[] } {
@@ -20,7 +20,8 @@ function stubApi(respond: Responder): { api: YunxiaoApi; calls: Recorded[] } {
   const api: YunxiaoApi = {
     get: async (path, query) => { const call: Recorded = { method: 'get', path, query }; calls.push(call); return respond(call) },
     post: async (path, body) => { const call: Recorded = { method: 'post', path, body }; calls.push(call); return respond(call) },
-    put: async (path, body) => { const call: Recorded = { method: 'put' as unknown as 'post', path, body }; calls.push(call); return respond(call) },
+    put: async (path, body) => { const call: Recorded = { method: 'put', path, body }; calls.push(call); return respond(call) },
+    postForm: async (path, form) => { const call: Recorded = { method: 'postForm', path, form }; calls.push(call); return respond(call) },
   }
   return { api, calls }
 }
@@ -279,5 +280,111 @@ describe('Yunxiao client', () => {
     await api.post(workPath, { content: 'hi' })
     expect(calls[0]!.init).toMatchObject({ method: 'POST', body: '{"content":"hi"}',
       headers: { 'x-yunxiao-token': 'tok', 'content-type': 'application/json' } })
+  })
+  it('posts a multipart body without a content-type of its own, leaving the boundary to fetch', async () => {
+    const { fetchFn, calls } = captureFetch(200, JSON.stringify({ id: 'f1' }))
+    const api = createYunxiaoApi({ tokenFile: tokenFile('tok'), orgWhitelist: ['org-1'], fetchFn })
+    const form = new FormData()
+    form.append('file', new Blob([new Uint8Array([1, 2, 3])]), 'shot.png')
+    await api.postForm!(workPath, form)
+    expect(calls[0]!.init.method).toBe('POST')
+    expect(calls[0]!.init.body).toBeInstanceOf(FormData)
+    expect((calls[0]!.init.headers as Record<string, string>)['content-type']).toBeUndefined()
+  })
+})
+
+describe('Projex project members', () => {
+  it('reads the project roster and keeps each userId with its name', async () => {
+    const { api, calls } = stubApi(() => ok([{ userId: 'acc-1', userName: 'Lin' }, { userId: 'acc-2', userName: '郑超' }]))
+    const adapter = createProjexAdapter({ api, organization: 'org-1' })
+    expect(await adapter.listMembers!(commands(), 'proj-1')).toEqual([{ id: 'acc-1', name: 'Lin' }, { id: 'acc-2', name: '郑超' }])
+    expect(calls[0]).toMatchObject({ method: 'get', path: '/oapi/v1/projex/organizations/org-1/projects/proj-1/members',
+      query: { page: 1, perPage: 100 } })
+  })
+  it('follows pages until a short one, and never lists the same member twice', async () => {
+    const full = Array.from({ length: 100 }, (_, index) => ({ userId: `acc-${index}`, userName: `P${index}` }))
+    const pages = [full, [{ userId: 'acc-0', userName: 'Again' }, { userId: 'acc-x', userName: 'New' }]]
+    const { api, calls } = stubApi(call => ok(pages[Number((call.query as { page: number }).page) - 1]))
+    const adapter = createProjexAdapter({ api, organization: 'org-1' })
+    const members = await adapter.listMembers!(commands(), 'proj-1')
+    expect(members).toHaveLength(101)
+    expect(members.at(-1)).toEqual({ id: 'acc-x', name: 'New' })
+    expect(calls.map(call => (call.query as { page: number }).page)).toEqual([1, 2])
+  })
+})
+
+describe('Projex attachments', () => {
+  it('uploads one file as multipart and returns the host embeds, linking the permanent address', async () => {
+    const { api, calls } = stubApi(call => call.method === 'postForm'
+      ? ok({ id: 'f1', name: 'shot.png', embedHtml: '<img src="https://x.test/embed/1" alt="shot"/>',
+        embedMarkdown: '![shot](https://x.test/embed/1)', embedUrl: 'https://x.test/embed/1', url: 'https://x.test/tmp/1' })
+      : ok({}))
+    const adapter = createProjexAdapter({ api, organization: 'org-1' })
+    const attachment = await adapter.uploadFile!(commands(), workItem, { name: 'shot.png', data: Buffer.from('png').toString('base64') })
+    expect(attachment).toEqual({ name: 'shot.png',
+      // The image embed, then a caption link to the permanent address (never the expiring `url`).
+      html: '<p><img src="https://x.test/embed/1" alt="shot"/><br/><a href="https://x.test/embed/1">shot.png</a></p>',
+      markdown: '![shot](https://x.test/embed/1)' })
+    expect(calls[0]).toMatchObject({ method: 'postForm',
+      path: '/oapi/v1/projex/organizations/org-1/workitems/AB-12/attachments' })
+    expect(calls[0]!.form!.get('file')).toBeInstanceOf(Blob)
+  })
+  it('falls back to a link for a file the host returns no embed for', async () => {
+    const { api } = stubApi(() => ok({ id: 'f2', name: 'report.pdf', url: 'https://x.test/tmp/2' }))
+    const adapter = createProjexAdapter({ api, organization: 'org-1' })
+    expect(await adapter.uploadFile!(commands(), workItem, { name: 'report.pdf', data: 'AA==' })).toEqual({
+      name: 'report.pdf', html: '<p><a href="https://x.test/tmp/2">report.pdf</a></p>', markdown: '[report.pdf](https://x.test/tmp/2)' })
+  })
+  it('refuses a host response that carries no link at all', async () => {
+    const { api } = stubApi(() => ok({ id: 'f3', name: 'x.bin' }))
+    const adapter = createProjexAdapter({ api, organization: 'org-1' })
+    await expect(adapter.uploadFile!(commands(), workItem, { name: 'x.bin', data: 'AA==' }))
+      .rejects.toThrow(/no link/)
+  })
+  it('posts a RICHTEXT comment carrying the attachment HTML, escaped text, and the marker', async () => {
+    const { api, calls } = stubApi(call => call.method === 'post' ? ok({ id: 'c1' }) : ok([]))
+    const adapter = createProjexAdapter({ api, organization: 'org-1' })
+    const marker = '<!-- dsh-superagent:r1 -->'
+    await adapter.postNote(commands(), workItem, '看附件 <b>\n\n第二段', marker,
+      [{ name: 'shot.png', html: '<img src="u"/>', markdown: '![shot](u)' }])
+    const body = calls[1]!.body as { content: string; formatType: string }
+    expect(body.formatType).toBe('RICHTEXT')
+    expect(body.content).toContain('<p>看附件 &lt;b&gt;</p><p>第二段</p>')
+    expect(body.content).toContain('<img src="u"/>')
+    expect(body.content).toContain(marker)
+  })
+  it('detects its own RICHTEXT comment by the marker, so a retry stays one comment', async () => {
+    const marker = '<!-- dsh-superagent:r1 -->'
+    const { api, calls } = stubApi(() => ok([{ id: 'c1', content: `<p>done</p>${marker}` }]))
+    const adapter = createProjexAdapter({ api, organization: 'org-1' })
+    expect(await adapter.postNote(commands(), workItem, 'done', marker, [])).toBe('sent')
+    expect(calls).toHaveLength(1)
+  })
+})
+
+describe('Projex workflow statuses', () => {
+  it('reads each category\'s item types and their workflow statuses, deduplicated', async () => {
+    const types = [{ id: 't1', name: '技术需求', categoryId: 'Req', enable: true }, { id: 't2', name: '停用类型', categoryId: 'Req', enable: false }]
+    const workflow = { defaultStatusId: 's1', id: 'w1', name: 'flow',
+      statuses: [{ id: 's1', name: '待处理', displayName: '待处理' }, { id: 's2', name: '已完成', displayName: '已完成', nameEn: 'Done' }] }
+    const { api, calls } = stubApi(call => call.path.endsWith('/workitemTypes') ? ok(types) : ok(workflow))
+    const adapter = createProjexAdapter({ api, organization: 'org-1' })
+    expect(await adapter.listStatuses!(commands(), 'proj-1', ['requirement']))
+      .toEqual([{ id: 's1', name: '待处理' }, { id: 's2', name: '已完成', nameEn: 'Done' }])
+    expect(calls[0]).toMatchObject({ method: 'get',
+      path: '/oapi/v1/projex/organizations/org-1/projects/proj-1/workitemTypes', query: { category: 'Req' } })
+    expect(calls[1]!.path).toBe('/oapi/v1/projex/organizations/org-1/projects/proj-1/workitemTypes/t1/workflows')
+    // A disabled type is not asked for a workflow.
+    expect(calls.map(call => call.path).filter(path => path.includes('t2'))).toEqual([])
+  })
+  it('skips a type whose workflow cannot be read, keeping the statuses the others returned', async () => {
+    const types = [{ id: 'bad', enable: true }, { id: 'good', enable: true }]
+    const { api } = stubApi(call => {
+      if (call.path.endsWith('/workitemTypes')) return ok(types)
+      if (call.path.includes('/bad/')) throw new YunxiaoHttpError(403, 'no permission')
+      return ok({ statuses: [{ id: 's1', name: '待处理' }] })
+    })
+    const adapter = createProjexAdapter({ api, organization: 'org-1' })
+    expect(await adapter.listStatuses!(commands(), 'proj-1', ['bug'])).toEqual([{ id: 's1', name: '待处理' }])
   })
 })

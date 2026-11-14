@@ -65,11 +65,52 @@ src/sources/chat/      ChatAdapter  →  消息、线程、媒体
 | 类别 | 默认轮询需求 / 缺陷 / 任务；其它类别直接丢弃，不猜 |
 | 传输 | 轮询（`pollSeconds`） |
 | 身份 | `organizationId` + `project`；`assignedTo` 是阿里云 **accountID**，所以配置里必须存机器人自己的 accountID |
-| 凭据 | `pt-…` 个人令牌放在文件里，owner-only，每次调用重读 |
+| 凭据 | `pt-…` 个人令牌放在文件里，owner-only，每次调用重读；也可以用来源卡片上的**「用云效账号授权」**走 OAuth 2.0（授权码 + PKCE，浏览器登录后由本地回环回调接回，令牌写进同一个文件，24 小时有效并用刷新令牌自动续期，刷新令牌 90 天） |
 | 路径安全 | 限制在 `/oapi/v1/`，并有组织白名单；点段逃逸（明文或百分号编码）在任何请求之前就被拒 |
-| 默认只读 | `writeBack` 默认 **false**，除非明确要求，适配器绝不改工作项状态 |
 | 出站 | 评论，标记幂等 |
-| 已知缺口 | 对真实实例的读写在未本机验证（没有 token） |
+| 状态回写 | 两个状态字段现在是**下拉框**：先点来源卡片上的**「读取云效状态词表」**（或字段旁的刷新按钮），它按类别列出工作项类型（`ListWorkitemTypes`），再读每个类型的工作流（`GetWorkitemWorkflow` 中心版），把状态以 `ID → 名字` 存下来，供下拉直接选——显示的是看板上的名字，存的仍是状态 ID；填名字或 ID 都行，轮询读到的状态作为回退。本实例两处都没见过的名字会被拒绝并说明去哪取，不会当成状态发给云效 |
+| 评论附件 | 打开「允许模型把文件挂到评论」后，worker 报告里的文件（执行目录内、≤10 MiB、非可执行）先上传到工作项附件，再以 **RICHTEXT** 评论发出：正文转义成段落，图片用云效返回的 `embedHtml`（原生 `<img>`）并附一条文件名链接，其它文件用链接；链接一律用**永久代理地址 `embedUrl`**（不用会过期的 `url`），标记以 HTML 注释同行；没有附件时仍是原来的纯文本评论（保留 Markdown）。默认关闭 |
+| 成员名单 | 打开「从项目成员同步名单」后，策略卡片上的「同步项目成员」会把名单换成项目成员（`userId`，即工作项「指派给」里那个 id），保留你排好的顺序、同步名字、追加新成员；启动时同步一次。同步与飞书一样只作用于**默认实例**（实例 id 就是 `projex`） |
+| 面板检索 | 输入编号（`ESFX-6228`）或工作项页面地址，就能定位到该工作项的触发与工单（工作项页面用编号寻址，线程用内部 id，所以链接到线程仍按会话 id 走） |
+| 已删的工作项 | 工作项进回收站后，云效的评论/状态接口答 400「已进回收站」；插件把它当成**已消失**：把线程标记 `gone`、不再读它，也不再把它算作轮询错误（删东西是人的操作，不是插件失败） |
+| 站点 | 留空用中心站 `https://openapi-rdc.aliyuncs.com`；Region 版在「API 站点」填实例域名，授权与调用都走同一站点 |
+| 已知缺口 | 对真实实例的写路径（状态 PUT、附件上传与评论正文）未在本机验证（没有 token）；`GetWorkitemWorkflow` 支持中心版与 Region 版，但需要项目里有可用的工作项类型 |
+
+真机自检有两条现成路径：面板上点「用云效账号授权」；或在终端跑 `python verify/oauth-check.py --token-file <路径>`（同一套 OAuth 流程，打印授权地址、写同一个令牌文件，不打印令牌）。拿到令牌后 `LIVE=1 YUNXIAO_ORG=… YUNXIAO_PROJECT=… YUNXIAO_TOKEN_FILE=… npx vitest run tests/live/projex-contract.live.spec.ts` 会只读校验工作项、评论、成员名册和状态词表。
+
+#### 3.2.1 三段闭环：评估 / 执行 / 反馈
+
+工作项通道此前只做到「收得到、回得去」，三段里各缺一块，协作就卡在这三处。现在三段各有明确的落点。
+
+| 段 | 缺什么 | 现在怎么做 | 位置 |
+| --- | --- | --- | --- |
+| **评估** | 触发器只带自己那段文字。评论触发的评估既看不到标题、也看不到描述，更看不到之前的回答——模型只能对着「这个怎么样了？」猜整件事，于是要么乱接、要么全程 `ignore`；而且评论触发不带类别，准入表按默认格子判，操作员对某个类别的接收决定对评论不生效 | **把工作项读成一条会话**：描述是根消息（`[ESFX-6228] 标题` + 正文），评论按时间排在其后，按宿主的页继续读；agent 自己带标记的评论标成 `bot`，不会被当成人的请求；内嵌图片按本地归档读回成附件。评论触发同时带上它所在工作项的**类别**，于是评论和它的工作项落在准入表的同一行 | `src/sources/work/context.ts`、`src/sources/work/stream.ts` |
+| **执行** | 工单里的 worker 不知道自己在哪个工作项上：写提交信息、开 PR、回评论都没法点名，只能泛泛说「这个改动」 | **每个工单带上工作项身份**：`DSH_SUPERAGENT_PROJEX_PROJECT / _WORKITEM / _SERIAL / _CATEGORY / _STATUS / _URL`（外加 `_ORG`）。它们出现在执行环境提示词里，和 GitHub 的 `DSH_SUPERAGENT_GITHUB_REPOSITORY / _NUMBER` 同一个位置 | `src/sources/work/environment.ts` |
+| **反馈** | 评论之外看板一片死水：工作项从接单到交付一直停在原状态，别人只能翻评论才知道机器人是否在做 | **状态跟着工单走**：`writeBack` 打开并填「开始执行时写入的状态」「工单结束时写入的状态」后，工单一起步就写开始状态，工单结束（完成 / 合并 / 放弃）再写结束状态。两个字段**填状态名或 ID 都行**——名字按云效工作流词表解析（来源卡片的「读取云效状态词表」用 `ListWorkitemTypes` + `GetWorkitemWorkflow` 读出来并存下），轮询读到的状态作回退。每条工单每个阶段只写一次（KV 账本），写前先读一次、已经是该状态就不写；失败只记进轮询结果，下一轮重试 | `src/sources/work/feedback.ts` |
+
+三点各自的理由：
+
+- **评估要的是会话，不是句子。** 云效没有 `@`，准入表由负责人（没有则创建人）是否在名单里决定，所以评估是唯一读得到「他到底要什么」的地方。给它一条只有半句话的触发，准入表再准也没用。
+- **执行要能点名。** 工作项编号（`ESFX-6228`）是人搜索、评审、写提交信息用的名字；没有它，交付物和看板对不上号，人只能自己拼。
+- **反馈要落在看板上。** 评论是写给一个人的，状态是写给一个团队的：站会上看的是列，不是评论。回写因此是**可关**的（`writeBack` 默认 false），填了状态才生效，且**人工停止的工单不写**——停它的人自己知道。
+
+#### 3.2.2 与 GitHub、飞书通道的对照
+
+| 能力 | GitHub | 飞书 | 云效 Projex |
+| --- | --- | --- | --- |
+| 评估上下文 | `threadContext`：Issue / PR 的整条讨论 | `threadContext`：话题内消息与图片 | **本次补齐**：描述 + 全部评论 + 内嵌图片 |
+| 谁算发起人 | 名单里的账号 | 名单里的成员 | 负责人（没有则创建人）的 accountID |
+| 执行环境变量 | 仓库、账号、提交邮箱、编号、PR head | —（会话通道靠提示词里的来源上下文） | **本次补齐**：项目、工作项、编号、类别、状态、URL、组织 |
+| 反馈·接单 | 评论 | 消息 | 评论 |
+| 反馈·结论 | 评论（`announceEnd`，结束自动补一条） | 消息 | 同左：结束自动补一条「已完成 / 已合并 / 已放弃」 |
+| 反馈·状态 | 由 PR 合并 / 关闭体现 | — | **本次补齐**：看板状态回写，名字来自云效工作流词表 |
+| 反馈·附件 | PR 里的文件 | 消息附件 | **本次补齐**：文件上传到工作项附件，以 RICHTEXT 评论嵌入（开关默认关） |
+| 面板名单 | 「能发起工作的账号」+「评论可成为候选的机器人」 | 「能发起工作的成员」（可同步群成员） | 「能发起工作的云效成员」，**可同步项目成员**（开关默认关） |
+| 面板检索 | `#12` / Issue、PR 地址 | —（聊天按消息） | `ESFX-6228` / 工作项页面地址 |
+| 拒绝回执 | 不发（公开记录） | 发（会话） | 不发（公开记录） |
+
+仍然不一样的、且刻意不一样的地方：工作项没有「@」，所以准入表里「名单外·点名」那一格永远是「—」；工作项也拿不到成员名册以外的项目信息，所以「同步项目成员」只同步项目成员，不会把整个组织的人拉进来。为什么状态按云效工作流解析、附件以 RICHTEXT 嵌入、同步为什么只作用于默认实例，以及登录与插件独立性的取舍，见 [ADR-009](docs/extensions/ADR-009-projex-feedback-and-parity.md) 与 [ADR-010](docs/extensions/ADR-010-yunxiao-signin-status-and-identity.md)。
+
 
 ### 3.3 微信 — `chat/weixin`
 
@@ -133,6 +174,27 @@ Node 侧只认契约，后端因此可替换。第 4、5 节是细节。
 > 已登录，attach 也会一直报「未找到已登录的客户端主窗口」。`/status` 的 `client` 字段就是为此加的——**升级前先看它**；
 > 出现这个报错时，先确认客户端版本，而不是怀疑配置。
 
+#### 3.3.1 与飞书通道的对齐（本轮补齐）
+
+微信此前已经有的：结构化 `@` 判定、群与私聊、入站图片、语音转写、出站文本与文件、keyed 幂等、即时回执、处理中提醒、关键词/自动回复、回复时 @ 发言人、按实例隔离、监听自愈。下面是与飞书逐项对照后补齐的：
+
+| 能力 | 飞书 | 微信（现在） |
+| --- | --- | --- |
+| 工作线程读会话 | `feishu/<trigger-id>/message|root|parent|thread|around`，worker 可读 | **新增** `weixin/<trigger-id>/message|thread|around`，worker 可读；`next_resource` 翻页 |
+| 会话技能 | `dsh-superagent-feishu` | **新增** `dsh-superagent-weixin`（说明资源语法与图片标记；微信没有 CLI，也没有消息深链） |
+| 评估用的会话上下文 | thread/root/parent/around | thread/**parent**/root；微信没有话题根，`root` 明确返回 `no_root` 而不是编一个 |
+| 面板按消息检索 | `om_…` → 检索词 | **新增** 平台消息 ID → 检索词；`meta.nativeId` 精确命中 |
+| 回复映射（谁回答谁） | `repliesTo` 由 parent 推导 | **新增** `repliesTo`，工单线程里显示"这条回答的是哪条" |
+| 每页消息数 | `readPageSize` | **新增** `readPageSize`（1–50，桥的上限 50），评估与资源读取共用 |
+| 成员名册同步 | `syncChat` + 立即同步 | 已有（`syncChat` + 立即同步，按桥能看到的成员） |
+| 面板事实 | 机器人身份 | 已有（登录账号 + `@` 证据强度） |
+| 入站图片 | 有 | 已有；评估侧可把 `[image:<id>]` 取成附件；worker 按技能里的一条 `curl`/`Invoke-WebRequest` 从 `GET /media/<id>` 下载后 `read_image` |
+| 历史回补 | 加机器人回补最近历史 | **已有**：重挂/首次监听时桥读回最近 20 条（每轮最多 3 个会话），现在标记 `historical`，只进评估、不回执、不自动回复 |
+| 消息深链 | AppLink | **做不到**：sidecar 没有深链接口，`link` 返回空地址（ADR-007 已记） |
+| 机器人名单 | 可把机器人消息当候选 | **做不到**：微信里没有"机器人账号"这个概念，桥一律报 `bot:false`，不假装能识别 |
+
+仍有两项是微信后端物理限制，不是没做：**没有消息深链**（sidecar 没有深链接口），**没有机器人名单**（微信没有"机器人账号"概念，桥一律 `bot:false`）。这两条写进了 [ADR-011](docs/extensions/ADR-011-weixin-feishu-alignment.md)。
+
 ### 3.4 钉钉 — `chat/dingtalk`
 
 | 方面 | 细节 |
@@ -152,11 +214,31 @@ Node 侧只认契约，后端因此可替换。第 4、5 节是细节。
 | 监听什么 | 应用的消息：按 `chatid` 的群聊，以及私聊 |
 | 传输 | **webhook**（签名 + 加密回调） |
 | 身份 | `corpId` + `agentId` |
-| 凭据 | `corpSecret` 可内联或放文件；`encodingAesKeyFile` 放 43 字符的 EncodingAESKey |
+| 凭据 | `corpSecret` 可内联或放文件；回调 `token` 与 43 字符 `encodingAesKey`（或放 `encodingAesKeyFile`）用于验签解密 |
+| 回调地址 | `<公网源>/wecom/<实例>`：插件自己挂这条公共路由，运维把它填到应用「接收消息」的 URL |
+| 会话上下文 | 评估读回调自带的那条消息（`thread`）；`root`/`parent` 明确回答 `no_root`/`no_parent`，因为回调既没有话题也没有引用，更没有历史可翻 |
+| 入站图片 | `MsgType=image` 的 `MediaId` 变成 `[image:<id>]`，评估按 `GET /cgi-bin/media/get` 下载成附件 |
+| 面板检索 | 十进制 `MsgId` 变成检索词；`repliesTo` 存在，但回调不带被引用消息，通常为空 |
+| worker 读原文 | `wecom/<trigger-id>/message`（同飞书的资源语法，一条消息、无下一页） |
 | 加密 | 验签、AES-CBC 解密、重放拒绝（重投的消息不会产生第二个事件） |
 | 能力 | `idempotency: none`、`maxChars: 2048`、`markdown: false`、`proactive: true` |
 | 诚实的弱点 | 出站至少一次；消息 API 没有幂等键 |
-| 已知缺口 | 回调需要公网反代路由；目前只有纯函数 `handleWebhook` |
+| 已知缺口 | 没有历史回补、没有消息深链、没有群成员名册；worker 只能读回调带来的那一条消息 |
+
+### 3.6 提示词技能 — 六个来源一套
+
+每个 Session（主 Session 与执行器）都注册六个内置来源技能，和飞书、GitHub 一样可以在「提示词 → 团队约定」里逐段查看与覆盖（逐项能力对照见 [capability-matrix.md](docs/extensions/capability-matrix.md)）：
+
+| 技能 | 文件 | 讲什么 |
+| --- | --- | --- |
+| 飞书技能 `dsh-superagent-feishu` | `skills/dsh-superagent-feishu/SKILL.md` | `feishu/<trigger-id>/message|root|parent|thread|around`、lark-cli 用法、附件与文档的追读 |
+| GitHub 技能 `dsh-superagent-github` | `skills/dsh-superagent-github/SKILL.md` | `gh` 的读法、Issue/PR 上下文、发布前检查 |
+| 微信技能 `dsh-superagent-weixin` | `skills/dsh-superagent-weixin/SKILL.md` | `weixin/<trigger-id>/message|thread|around`、`[image:<id>]` 与 `GET /media` 下载、无深链的诚实边界 |
+| 云效 Projex 技能 `dsh-superagent-projex` | `skills/dsh-superagent-projex/SKILL.md` | 工作项即线程根、评论即回复；`DSH_SUPERAGENT_PROJEX_*` 身份变量；用 `orchestrator_reply` 交付，状态回写由插件负责 |
+| 企业微信技能 `dsh-superagent-wecom` | `skills/dsh-superagent-wecom/SKILL.md` | 回调只带来当条消息、没有历史与深链；纯文本 2048 上限；发送 API 无幂等键，重试会重复 |
+| 钉钉技能 `dsh-superagent-dingtalk` | `skills/dsh-superagent-dingtalk/SKILL.md` | 流回调只带当条消息、无历史无深链；Markdown 5000；投递至少一次；`@` 按 staffId 结构化判定 |
+
+实现上，`composeSkill` 从内置分段 `skill/<name>` 取文本（面板据此展示与覆盖），团队自定义技能仍用自己的文本；`tests/model-surface.spec.ts` 把所有来源声明的环境变量并成一个集合来校验技能里点名的变量，新增来源不会再因为"变量未登记"而误报。
 
 ## 4. 微信 sidecar
 

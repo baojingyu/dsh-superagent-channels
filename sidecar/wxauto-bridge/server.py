@@ -995,7 +995,7 @@ class PcUiaBackend(Backend):
             room = self._room_id_for(name) if self._chat_kind.get(wxname(name)) == "group" else ""
             added = 0
             for msg in history[-CATCHUP_MAX_MESSAGES:]:
-                if self._enqueue_event(msg, room) is not None:
+                if self._enqueue_event(msg, room, historical=True) is not None:
                     added += 1
             self._catchup_total += added
             if added and self.verbose:
@@ -1270,13 +1270,16 @@ class PcUiaBackend(Backend):
             return text
         return PLACEHOLDERS.get(kind, GENERIC_PLACEHOLDER)
 
-    def _enqueue_event(self, msg, room):
+    def _enqueue_event(self, msg, room, historical=False):
         """Convert one client message into a queued event, or `None` when it is already queued.
 
         The listener callback and the post-re-attach catch-up both come through here: same conversion, same dedupe, same
-        observation, so the order in which a message reaches us cannot change what the Engine sees.
+        observation, so the order in which a message reaches us cannot change what the Engine sees. A catch-up message is
+        marked `historical` so the Node side hands it to the assessment without receipting or auto-replying to old words.
         """
         event = self._to_event(msg, room)
+        if historical:
+            event["historical"] = True
         native = event["nativeId"]
         if native in self._seen:
             return None

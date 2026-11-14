@@ -6,6 +6,7 @@ import type { PromptVersion } from './app/prompts.ts'
 import type { SettingsVersion } from './app/store.ts'
 import type { SettingsSave } from './policy.ts'
 import type { Retry } from './sources/github.ts'
+import type { ReflectedTicket } from './sources/work/feedback.ts'
 
 /** Key of a KV record whose value has type `V`; a plain string represents an untyped key. */
 export type Key<V> = string & { readonly __value?: V }
@@ -72,7 +73,10 @@ export const KV = {
     history: family<string, [instance: string, chat: string]>('chat-history:'),
     seen: family<string[], [instance: string, thread: string]>('chat-seen:'),
     topics: family<Record<string, string>, [instance: string, chat: string]>('chat-topics:') },
-  /** Work Source, per instance: notification cursor and the per-key read cursor of its notes. */
+  /** Work Source, per instance: notification cursor, the per-key read cursor of its notes, the tickets its status write-back has already reflected, and the status names seen on it. */
   work: { cursor: family<string, [instance: string]>('work-cursor:'),
-    notes: family<string, [instance: string, key: string]>('work-notes:') },
+    notes: family<string, [instance: string, key: string]>('work-notes:'),
+    reflected: family<Record<string, ReflectedTicket>, [instance: string]>('work-reflected:'),
+    /** Status name → status id, as seen on the items this instance read; that is what lets a status be configured by name. */
+    statuses: family<Record<string, string>, [instance: string]>('work-statuses:') },
 }

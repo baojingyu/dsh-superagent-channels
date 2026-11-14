@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>dsh-superagent 多通道 · 文档预览</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: "Microsoft YaHei", system-ui, sans-serif; margin: 0; background: #f6f7f9; color: #1d2027; }
+  main { max-width: 1180px; margin: 0 auto; padding: 40px 24px 80px; }
+  h1 { font-size: 32px; margin: 0 0 6px; }
+  .lead { color: #5b6270; margin: 0 0 28px; }
+  section { background: #fff; border: 1px solid #e3e6ec; border-radius: 16px; padding: 22px; margin: 20px 0; }
+  h2 { font-size: 20px; margin: 0 0 10px; }
+  p { line-height: 1.75; color: #343a45; }
+  figure { margin: 18px 0 0; }
+  img { width: 100%; border: 1px solid #e3e6ec; border-radius: 12px; display: block; }
+  figcaption { color: #6b7280; font-size: 13px; margin-top: 8px; }
+  .note { background: #fff8e6; border-color: #f0d9a8; }
+  code { background: #eef0f4; padding: 1px 6px; border-radius: 6px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>dsh-superagent 多通道 · 文档预览</h1>
+  <p class="lead">版本 2.4.0 · 六种来源（飞书 / GitHub / 微信 / 企业微信 / 钉钉 / 云效 Projex）· 实机截图与示意图合集</p>
+
+  <section class="note">
+    <h2>截图说明</h2>
+    <p>带 <code>panel-</code> 前缀的是<strong>实机截图</strong>，项目/组织 ID、令牌路径、姓名、群名、会话标题等敏感信息已打码；
+    其余为按当前实现绘制的<strong>示意图</strong>。发布前请再核对一遍是否有遗漏的敏感信息。</p>
+  </section>
+
+  <section>
+    <h2>一张图：一条链路，六种来源</h2>
+    <figure><img src="images/architecture.png" alt="架构">
+      <figcaption>来源适配 → 评估 → 工单 / 执行器 → 回复与回写；面板与本地状态。</figcaption></figure>
+  </section>
+
+  <section>
+    <h2>一条消息的一生</h2>
+    <figure><img src="images/lifecycle.png" alt="生命周期">
+      <figcaption>触发 → 评估 → 接单 → 执行 → 报告 → 回复；人工可在任一步接手。</figcaption></figure>
+  </section>
+
+  <section>
+    <h2>凭什么变成工作？</h2>
+    <figure><img src="images/policy-flow.png" alt="准入与评估">
+      <figcaption>四道闸门：启用的来源 → 授权名单 → 结构化点名 → 评估；任何一道不过都只观察。</figcaption></figure>
+  </section>
+
+  <section>
+    <h2>六种来源，一套面板</h2>
+    <figure><img src="images/sources.png" alt="来源总览">
+      <figcaption>两种官方来源与四种新增来源的接收方式与能力差异。</figcaption></figure>
+  </section>
+
+  <section>
+    <h2>安全与数据边界</h2>
+    <figure><img src="images/security.png" alt="安全边界">
+      <figcaption>本机状态、0600 凭据、只被动回复、网络入口与反代边界。</figcaption></figure>
+  </section>
+
+  <section>
+    <h2>实机截图：评估与策略</h2>
+    <figure><img src="images/panel-policy.png" alt="评估与策略">
+      <figcaption>按来源配置名单与准入表；红框为讲解标注，姓名/群名已打码。</figcaption></figure>
+  </section>
+
+  <section>
+    <h2>实机截图：云效 Projex 来源卡片</h2>
+    <figure><img src="images/panel-projex-source.png" alt="云效 Projex 来源卡片">
+      <figcaption>授权、状态词表、项目空间、令牌文件、状态下拉、附件与回填设置。</figcaption></figure>
+  </section>
+
+  <section>
+    <h2>实机截图：提示词与技能</h2>
+    <figure><img src="images/panel-prompts.png" alt="提示词">
+      <figcaption>六个来源技能与团队提示词逐段可查看、可覆盖。</figcaption></figure>
+  </section>
+
+  <section>
+    <h2>安装与首次配置</h2>
+    <figure><img src="images/install.png" alt="安装流程">
+      <figcaption>安装 → 配置 stateDir → 刷新面板 → 逐个来源接入并验证。</figcaption></figure>
+  </section>
+
+  <section>
+    <h2>发布前材料</h2>
+    <p>收录申请草稿与目录 manifest 见 <code>docs/distribution/</code>；能力对照见
+    <code>docs/extensions/capability-matrix.md</code>。</p>
+  </section>
+</main>
+</body>
+</html>

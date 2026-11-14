@@ -10,7 +10,7 @@ import type { SourceKind } from './kind.ts'
 import type { SourceRegistry } from './registry.ts'
 
 export const kind = projexKind
-export const name = 'dsh-superagent-projex'
+export const name = 'dsh-superagent-multi-channel-projex'
 export const inject = ['orchestrator']
 
 /** Health entry this kind reports through; its instance prefix is added by the registry. */

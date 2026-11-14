@@ -1,11 +1,11 @@
 import { execFile } from 'node:child_process'
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, delimiter, dirname, sep } from 'node:path'
+import { join, delimiter, dirname, isAbsolute, sep } from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SubprocessRuntime, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
-import { Config, executable, machineOf, resolveDeployment, resolveFeishuBot, workerProbe, type Machine, type Probe } from '../src/deployment.ts'
+import { Config, defaultStateDir, executable, machineOf, resolveDeployment, resolveFeishuBot, workerProbe, type Machine, type Probe } from '../src/deployment.ts'
 import { withoutDirectory } from '../src/infra/environment.ts'
 import { gitEnv } from './fixtures/git.ts'
 
@@ -58,8 +58,11 @@ afterEach(() => { rmSync(dir, { recursive: true, force: true }) })
 vi.setConfig({ testTimeout: 30_000 })
 
 describe('configuration schema', () => {
-  it('requires only the state directory and reads the editable fields through references', () => {
-    expect(() => Config({})).toThrow('stateDir')
+  it('defaults the state directory and reads the editable fields through references', () => {
+    // An installation that names no directory still runs: it adopts an existing legacy directory when there is one, so a
+    // switch from the pre-2.3 entry keeps every setting and ticket, and otherwise uses this plugin's own directory.
+    expect(machineOf(Config({})).stateDir).toBe(defaultStateDir())
+    expect(isAbsolute(machineOf(Config({})).stateDir)).toBe(true)
     const read = machineOf(Config({ stateDir: join(dir, 'state') }))
     // Limits are volatile references that the loader updates in place and callers read when used.
     expect({ ...read, promptMaxChars: read.promptMaxChars.get(), admissionContextMaxPages: read.admissionContextMaxPages.get(),

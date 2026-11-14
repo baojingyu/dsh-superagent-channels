@@ -9,7 +9,8 @@ import { feishuKind } from '../src/sources/feishu.ts'
 import { githubKind } from '../src/sources/github.ts'
 import { decisionView, snapshot, threadSummary, ticketSummary, triggerView } from '../src/app/views/records.ts'
 import { basisFacts, ticketDetail } from '../src/app/views/tickets.ts'
-import { threadDetail } from '../src/app/views/threads.ts'
+import { threadDetail, search } from '../src/app/views/threads.ts'
+import { projexKind } from '../src/sources/work/projex/kind.ts'
 import { droppedReplies, sourcesStatus } from '../src/app/views/sources.ts'
 import { overview } from '../src/app/views/overview.ts'
 import { markdown, plain } from '../src/app/views/text.ts'
@@ -58,6 +59,24 @@ function views() {
   return { store, sources, links }
 }
 const at = new Date().toISOString()
+
+it('finds a work item by the serial people search for, and by its page address', () => {
+  const host = views()
+  host.sources.register(projexKind)
+  const url = 'https://devops.aliyun.com/projex/project/proj-1/workitem/ESFX-6228'
+  const trigger = { id: 'projex-open:ab12', source: 'projex', threads: [{ source: 'projex', id: 'ab12' }],
+    actor: { source: 'projex', id: 'acc-1' }, human: true, at, text: '登录失败', url,
+    channel: { source: 'projex', thread: 'projex:ab12', address: { project: 'proj-1', key: 'ab12', serial: 'ESFX-6228' } },
+    meta: { category: 'bug', identifier: 'ab12', serial: 'ESFX-6228', status: { id: 's1', name: '处理中' } } }
+  host.store.triggers.save(trigger)
+  host.store.threads.save({ key: 'projex:ab12', ref: { source: 'projex', id: 'ab12' }, createdAt: at, subscriptions: [],
+    correlated: [], pending: [], meta: {} })
+  const links = { entries: () => new Map<string, string>().entries() }
+  // The panel passes a bare serial through the Source's resolver, which turns it into a term the trigger store matches.
+  expect(search(host, 'ESFX-6228', links).items.map(row => row.id)).toContain(trigger.id)
+  // A pasted page address resolves to the same serial.
+  expect(search(host, url, links).items.map(row => row.id)).toContain(trigger.id)
+})
 /** A live ticket with no Assignment, as a follow-up's owner needs one. */
 const live = (id: string) => store.tickets.save({ id, title: id, decisionId: 'd', channels: [], undelivered: [], createdAt: at,
   updatedAt: at,

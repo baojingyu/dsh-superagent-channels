@@ -1,166 +1,164 @@
-# dsh-superagent-multi-channel · multi-channel edition
+# dsh-superagent multi-channel
 
-**English** · [简体中文](README.zh-CN.md)
+**A DSH plugin that wires Feishu, GitHub, WeChat, WeCom, DingTalk and Alibaba Cloud Yunxiao Projex into one
+assess → ticket → execute → reply loop.**
 
-A proactive agent for a software team, packaged as a [DeepSeek Harness](https://dsh.dev) (DSH)
-bundle. It listens to the places a team already talks and keeps its work items — a code host, a
-work-item tracker, four chat platforms — evaluates each incoming message under a Policy, turns the
-authorized ones into Tickets, and executes every Ticket in its own DSH Session.
+Version `2.4.0` · 102 test files / 1,624 passing · MIT · installs beside the official `dsh-superagent`
 
-The upstream project listens to one GitHub repository and optionally Feishu. **This edition keeps
-every upstream behaviour and adds the channels a team in mainland China actually runs on**: GitLab,
-Yunxiao Projex, WeChat, DingTalk, WeCom, plus many instances of one channel.
+> An extension of the official open-source superagent: the two official sources (Feishu, GitHub) stay as they are, and
+> WeChat, WeCom, DingTalk and Yunxiao Projex are **added** and aligned to the same capability surface (reception scope,
+> authorization list, thread context, worker reads, search, label refresh, reply and status write-back). See the
+> [capability matrix](docs/extensions/capability-matrix.md).
 
-This is an **independent repository**, not a pull-request fork: upstream states it does not merge
-outside contributions, so this edition is maintained on its own. See
-[REPOSITORY.md](REPOSITORY.md) for how the repository is managed, what provenance it keeps, and how
-to detach a copy from the prototype.
+![Architecture: one loop, six sources](docs/images/architecture.png)
 
-## Install
+---
 
-Published as its own package, `dsh-superagent-multi-channel`, so it installs next to the official superagent instead of replacing it.
-Search for that name in the DSH plugin market and install it; the panel then carries a `dsh-superagent-multi-channel` entry. Each
-release bumps `version` in `package.json` and adds a section to [CHANGELOG.md](CHANGELOG.md), and the market offers the upgrade.
+## In one sentence
 
-## What it adds
+Someone mentions the bot or messages it on any of six channels → the plugin reads the context under the policy and decides
+whether to take it → an **isolated executor session** works in its own directory → the result goes back to the **same
+thread**, and a work item's board status can follow along.
 
-| Upstream | This edition |
+## The life of one message
+
+![Lifecycle](docs/images/lifecycle.png)
+
+- **Trigger** — all six sources produce one `Trigger` shape (thread, sender, structured `@`, native id).
+- **Assess** — the policy names "who may originate work" and "what counts as addressed"; the model reads the thread and
+  answers accept / observe / refuse, recording the evidence strength.
+- **Ticket** — one ticket binds one source thread; later messages arrive as inputs for the executor.
+- **Execute** — the executor session sees only its ticket's scope, works in its own directory/branch, delivers with
+  `orchestrator_report`.
+- **Reply & write back** — the reply lands in the original thread (comment/message, idempotency-marked); a work item's status
+  can move to "in progress" and "done". Everything is in the local `stateDir`; a person can take over at any step.
+
+## Three real scenarios
+
+1. **A Yunxiao defect** — someone @-mentions the bot on a work item ("login 502 intermittently") → the assessment reads the
+   item and its comments → a ticket opens → the executor fixes it in an isolated directory → the result is a comment, and
+   the board moves from "in progress" to "to test".
+2. **A WeChat ops group** — "@bot can you check the expiring certificate?" → the reply goes only into that thread.
+3. **A WeCom direct message** — "change this copy" → the reply returns to the same conversation, split into ordered parts,
+   with a file delivered as a comment/link when needed.
+
+## What decides it becomes work?
+
+![Gates and assessment](docs/images/policy-flow.png)
+
+Four gates (enabled source → allowed list → structured mention → assessment). Failing any one only *observes* the message:
+no ticket, no reply, no remote change.
+
+## Feature checklist
+
+| Stage | What exists |
 | --- | --- |
-| only GitHub | **GitLab** (self-hosted): merge requests, notes, pipelines |
-| only Feishu | **WeChat** personal account: group `@` and direct messages, images, voice transcripts, **instant receipt and still-working notes**, **keyword listening and canned replies**, **mention the sender in a reply**, per-chat switches for images and voice; **a reply that follows the assessment** (a refusal says why), **a listener that re-attaches itself**, and **a cursor that survives a restart** |
-| no work items | **Yunxiao Projex**: requirement / bug / task, comments, paging |
-| — | **DingTalk** Stream and **WeCom** encrypted callback |
-| one instance per channel | **many instances per channel**, with config, health and cursors scoped per instance |
+| Receive | six sources normalised to one Trigger; groups/DMs; structured `@`; optional images; dedupe by platform id |
+| Authorize | per-source "who may originate work" + admission table (listed/unlisted × @/un-@/DM) |
+| Assess | rule switches, mode (off/observe/auto), deadline, model and effort; every decision records strength and evidence |
+| Ticket | one ticket per thread; inputs delivered any time; interruptible, supplementable, human-takeover |
+| Execute | isolated executor session and directory/branch; structured report; files returned |
+| Reply | back to the original thread; idempotent marker; optional work-item status write-back; visible retries |
+| Read originals | per-source worker resources, read-only |
+| Panel | overview/sources/triggers/assessment/execution/settings/prompts/deployment; prompts and six skills overridable |
+| Security | local state, 0600 secrets, reply-only, platform limits stated |
 
-Every Source plugin loads and is built as a separate entry (`lib/*-watch.js`), so the panel can list them all;
-its switch decides which ones run, and a Source that is off reports `sourceOff` and idles. Turning one on is a
-switch in the panel plus whatever setup that Source needs - never a profile edit.
+## Six sources, one panel
 
-Every capability of the WeChat channel, why it is shaped that way, and the two traps found on real hardware (one
-UI-automation client per machine; a bridge restart must never let the stored cursor swallow the chat) are recorded
-in [ADR-007](docs/extensions/ADR-007-weixin-capability-alignment.md).
+![Six sources](docs/images/sources.png)
 
-Full feature detail — every field, endpoint, idempotency rule, capability state and known gap — is
-in [EXTENSIONS.md](EXTENSIONS.md).
-
-## Yunxiao Projex: comments, backfill and images (1.0.6)
-
-For every work item a **live ticket follows**, the Projex Source reads its `/comments` every 60 s. A person's comment
-becomes a human Trigger on the item's thread (text = the comment, actor = its author); the agent's own comments carry
-`<!-- dsh-superagent:<id> -->` and are never re-ingested, and comments are de-duplicated by native id and time. On the
-**first sight** of a followed work item, `backfillComments` — a per-Source advanced setting, default **20**, `0` off —
-of the newest person comments are delivered oldest first; older comments are dropped. A per-item watermark
-(`KV.work.notes`) then limits delivery to newer comments, so a restart never repeats what was seen.
-
-Images embedded as `<img src="…fileIdentifier=…">` in a description or a comment are resolved through
-`GET …/workitems/{id}/files/{fileId}` (a short-lived signed URL), downloaded, de-duplicated by sha256 and archived under
-`<stateDir>/projex-images/<sha256>.<ext>` (mode `0600`). Only PNG/JPEG/WebP/GIF are accepted, with a 10 MiB default cap;
-a failed or oversized image is recorded in the Trigger text and never blocks the text Trigger. The Trigger text names
-each image as `projex-image:<sha256>.<ext>` plus its local path, so the assessment window (`orchestrator_eval_read`
-resource `image`) and an Executor's `read_image` can both read it. Images stay on the local state directory.
-
-## Status
-
-Measured on `main`, on both platforms this project is developed on:
-
-| Check | macOS arm64 / node 22.23.2 | Windows 11 / node 22.21.1 |
+| Source | Reception | Highlights |
 | --- | --- | --- |
-| `tsc --noEmit` | 0 | 0 |
-| `vitest run --maxWorkers=2` | 83 files, 1435 tests, 1421 passed, 14 skipped, 0 failed (last run **before** the WeChat work) | 97 files, 1549 tests, 1510 passed, 39 skipped, 0 failed (latest) |
-| `tsdown` | build complete, 8 entries: index + 7 watch plugins | same |
-| `LIVE=1 vitest run tests/live` | 13 passed + 1 skipped (before) | 14 passed + 1 skipped |
+| **Feishu** (official) | history polling | topic/reply chains, AppLink deep links, images, worker reads `feishu/<id>/…` |
+| **GitHub** (official) | notification polling | issue/PR context, `gh` for code, PR/issue links |
+| **WeChat** (added) | sidecar polling | structured `@`, voice transcripts, downloadable images, worker reads `weixin/<id>/message·thread·around`, post-reattach catch-up |
+| **WeCom** (added) | signed callback (plugin mounts `/wecom/<instance>`) | `@` judgement, inbound images, contact-list names, worker reads `wecom/<id>/message` |
+| **DingTalk** (added) | Stream (deployment injects the SDK connection) | staffId `@`, Markdown 5000, worker reads `dingtalk/<id>/message` |
+| **Yunxiao Projex** (added) | work-item polling | requirement/bug/task + comments, status write-back, attachment comments, worker reads `projex/<id>/item·comments` |
 
-The 21 extra Windows skips are recorded per file in [HANDOVER-WIN11.md](HANDOVER-WIN11.md) §2: the
-POSIX service manager and one Feishu stub that needs a live child process. Nothing was skipped to
-make a failure disappear.
+## Panel tour
 
-Verified against real systems, not only mocks: a real WeChat 4.x client through a real sidecar
-process (group and direct messages by push, group `@`, image download, idempotent send), the real
-`gitlab.com` API (merge-request mapping, a bogus token mapped to 401 without echoing it), and real
-WeCom / DingTalk / Yunxiao authentication failures surfaced as diagnosable errors.
+The plugin has its own sidebar entry, "Superagent multi-channel", beside the official one. **The screenshots below are real
+captures; project IDs, token paths, organisation IDs, names and chat names are masked.**
 
-## Quick start
+![Policy and assessment](docs/images/panel-policy.png)
+
+![Yunxiao Projex source card](docs/images/panel-projex-source.png)
+
+![Prompts](docs/images/panel-prompts.png)
+
+## Install and first run
+
+![Install flow](docs/images/install.png)
+
+1. **Install** the bundle from the plugin manager (directory, npm package or tarball), or from the market once listed.
+2. **Configure**: leave `stateDir` empty to adopt an existing `~/.dsh/state/superagent` (no migration); two superagent
+   installs each need their own directory.
+3. **Refresh** the web page and open "Superagent multi-channel".
+4. **Connect a source**: fill its card and use the card's Check / Read action before enabling it.
+
+More in [deployment](docs/006-deployment.md); per-channel steps in [EXTENSIONS.md](EXTENSIONS.md).
+
+## Security and boundaries
+
+![Security boundaries](docs/images/security.png)
+
+- **Reply only**: no broadcasts, no group invites, no friend requests.
+- **Secrets stay local**: tokens/keys live in 0600 files rather than settings; screenshots and logs never print them.
+- **Idempotency and dedupe**: comments carry a marker, callbacks dedupe by platform message id; WeCom and DingTalk have no
+  server-side idempotency key and say so in `facts`.
+- **No faked platform behaviour**: WeChat/WeCom/DingTalk have no message deep link, the two push backends have no history to
+  page, and DingTalk's stream needs an injected SDK connection. See the [capability matrix](docs/extensions/capability-matrix.md).
+
+## FAQ
+
+**Does it auto-reply to everyone?** No. Only threads the assessment accepted get a reply; a message from an unlisted person is
+observed at most.
+**Where does data go?** Everything stays in the local `stateDir`; data reaches a platform only when the plugin calls that
+platform's API to read or reply.
+**Can it run beside the official superagent?** Install both, but enable one at a time (a Host accepts one Source kind per id);
+each keeps its own `stateDir`.
+**Does upgrading lose data?** No. `stateDir` is unchanged and, since 2.3.0, the agent presets keep the shared ids so old
+sessions resume.
+**A source receives nothing?** See the troubleshooting table in [docs/008-cookbook.md](docs/008-cookbook.md): WeCom callback
+URL and token, DingTalk's injected stream connection, the WeChat bridge `/health`.
+
+## Documentation map
+
+| Document | What it covers |
+| --- | --- |
+| [docs/README.md](docs/README.md) | Reading order and the full map |
+| [docs/000-philosophy.md](docs/000-philosophy.md) | Why assess → ticket → execute |
+| [docs/001-domain.md](docs/001-domain.md) | Trigger / Thread / Ticket / Assignment |
+| [docs/002-authorization.md](docs/002-authorization.md) | Policy, allowed lists, addressed detection |
+| [docs/003-execution.md](docs/003-execution.md) | Executor sessions, directories, delivery |
+| [docs/004-prompts.md](docs/004-prompts.md) | Prompts and skills |
+| [docs/005-panel.md](docs/005-panel.md) | The panel page by page (with screenshots) |
+| [docs/006-deployment.md](docs/006-deployment.md) | Deployment, settings, upgrades, coexistence |
+| [docs/007-architecture.md](docs/007-architecture.md) | Architecture, module and test tables |
+| [docs/008-cookbook.md](docs/008-cookbook.md) | Recipes and troubleshooting |
+| [EXTENSIONS.md](EXTENSIONS.md) | Per-channel capability details |
+| [docs/extensions/capability-matrix.md](docs/extensions/capability-matrix.md) | Six-source comparison and platform limits |
+| [docs/extensions/](docs/extensions/) | ADR-005 … ADR-012 |
+
+## Develop and test
 
 ```bash
-npm install --ignore-scripts --legacy-peer-deps   # pnpm 11 stalls on ERR_PNPM_IGNORED_BUILDS here
-./node_modules/.bin/tsc --noEmit
-./node_modules/.bin/vitest run --maxWorkers=2     # use --maxWorkers=2: unlimited parallelism flakes timing-sensitive specs
-./node_modules/.bin/tsdown                        # produces lib/*-watch.js
+pnpm typecheck   # tsc --noEmit
+pnpm test        # vitest run --maxWorkers=2
+pnpm build       # tsdown, eight entries
 ```
 
-Then follow [SETUP.md](SETUP.md) to install the bundle into a profile, and turn a channel on in the panel
-(Settings → Source). Every Source is listed there already; the ones that are off are collapsed.
+Latest full regression (2026-11-14, 2.4.0): `tsc` 0; **102 files passed / 5 skipped, 1,624 passed / 41 skipped, 0 failed**;
+`tsdown` build complete.
 
-Two optional dependencies are not in `package.json` because the canonical lockfile is pnpm's and it
-cannot be regenerated on Windows: `@deepseek-ai/cordis-plugin-include` and
-`@deepseek-ai/dsh-http-proxy`. Install them by hand if `tests/environment.spec.ts` or
-`tests/bundle-patch.spec.ts` cannot resolve them.
+## License
 
-## WeChat, and why it has a sidecar
+MIT, with the upstream `dsh-superagent` notices kept. WeChat UI automation is a third-party tool without Tencent's
+authorization and may break at any time; use it within [ADR-005](docs/extensions/ADR-005-weixin-backend.md)'s boundary (reply
+only when mentioned, no broadcasts, no bulk friend requests, one account online at a time).
 
-The WeChat desktop client cannot be driven from Node, so it sits behind a loopback HTTP sidecar with
-a frozen contract (JSON events, a `0600` bearer token, loopback only). The Node side knows only the
-contract, which is what keeps the backend replaceable:
+---
 
-| Tier | Backend | When it applies |
-| --- | --- | --- |
-| L0 | `wxauto` / `wxauto4` / `wxautox4` (UI automation) | default; needs an interactive Windows desktop session |
-| L1 | a `wxhelper`-class hook | **ruled out**: it only targets WeChat 3.9.x and its message payload has no mention list, so it would not deliver `@` either (ADR-005 §7) |
-| L2 | a `WeChatPadPro`-class iPad protocol service | no Windows machine available |
-| L3 | a hosted API | everything else is down and the work cannot stop |
-
-`L0` is implemented and runs against a real client. It receives by **listening**
-(`AddListenChat` + `StartListening`), so a message arrives when it is sent instead of being scraped
-from whatever the window happens to have rendered.
-
-What a backend can prove is **published per instance**, so nobody has to guess:
-
-| Capability | L0 today | Meaning |
-| --- | --- | --- |
-| `mentions` | `markup` | group `@` is read from the client's own mention markup (`@name` + `U+2005`), not from a typed `@name`; a pasted separator can still forge it |
-| `members` | `observed` | only the senders seen so far, never the full roster |
-| `media` | per build | the paid build has `download()`; the free one does not |
-
-The honest gap: WeChat 4.x exposes **no structured mention list** — the message bubble is a flat
-accessibility leaf — so `ats` cannot be `structured` grade on this tier. That, and what would fix it,
-is recorded in [ADR-005 §7](docs/extensions/ADR-005-weixin-backend.md).
-
-Configuring a chat happens once, in the panel: the polling loop pushes the configured chats to
-`POST /listen` every round and the sidecar acts only on the difference, so adding or removing a group
-needs no restart. The chat and sender rows are pickers, because a `wxname_<hash>` id keeps the id
-patterns strict but is not something a person can type.
-
-## Layout
-
-| Path | What |
-| --- | --- |
-| `src/sources/{hosting,work,chat}/port.ts` | the three provider contracts: change requests, work items, chat |
-| `src/sources/instance.ts` | instance id vs channel id, and the compatibility rule |
-| `src/sources/{weixin,gitlab,projex,dingtalk,wecom}-watch.ts` | the five optional plugins |
-| `src/infra/{hosting-api,yunxiao-api,secret-file}.ts` | token-file HTTP clients, path allowlists, the owner-only rule |
-| `sidecar/wxauto-bridge/` | the WeChat sidecar and its frozen contract; the live test runs it |
-| `tests/live/*.live.spec.ts` | live suites, gated by `LIVE=1` |
-
-The bundle's own identifier stays `dsh-superagent`: it is what `cordis.patch.yml` inserts, what the profile's `stateDir`
-setting targets, and what `scripts/dsh-superagent` is named after. Renaming it would orphan every saved setting and
-Ticket, so the package, the repository and the panel entry carry the new name `dsh-superagent-multi-channel` while the
-internal identifier does not.
-
-## Documentation
-
-- [EXTENSIONS.md](EXTENSIONS.md) — the feature detail: what each channel adds, and how to add another
-- [REPOSITORY.md](REPOSITORY.md) — how this repository is managed, provenance, and how to detach a copy
-- [HANDOVER-WIN11.md](HANDOVER-WIN11.md) — running it on Windows: the measured baseline, the failures that had to be fixed, and the WeChat probe
-- [SETUP.md](SETUP.md) — installing the bundle into a profile
-- Decisions: [ADR-005 WeChat backend](docs/extensions/ADR-005-weixin-backend.md) · [ADR-006 health keys](docs/extensions/ADR-006-health-key-compatibility.md)
-- The upstream numbered guide still describes the agent itself: [000](docs/000-philosophy.md) · [001](docs/001-domain.md) · [002](docs/002-authorization.md) · [003](docs/003-execution.md) · [004](docs/004-prompts.md) · [005](docs/005-panel.md) · [006](docs/006-deployment.md) · [007](docs/007-architecture.md) · [008](docs/008-cookbook.md)
-
-## License and boundaries
-
-MIT, the same as the prototype this edition grew from; the upstream copyright notice is kept. See
-[REPOSITORY.md](REPOSITORY.md) for provenance.
-
-WeChat automation through UI automation is third-party tooling. It is not authorised by Tencent, it
-may be limited by the client or the platform at any time, and it must stay inside the boundaries
-recorded in ADR-005: reply only when addressed, never broadcast, never bulk-add contacts, one
-account signed in at a time.
+<sub>Screenshots are real captures with sensitive fields (project/organisation IDs, token paths, names, chat names, session
+titles) masked; the architecture and lifecycle images are diagrams drawn from the current implementation.</sub>

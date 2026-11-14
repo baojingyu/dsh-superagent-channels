@@ -1,36 +1,54 @@
-/** Thread context of one WeChat chat through the sidecar: its recent messages, and the images a message carries. */
+/** Thread context of one WeChat chat through the sidecar: its own message, a page of the room, its parent, or the page around it. */
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Trigger } from '../../../core/index.ts'
 import type { Commands } from '../../../infra/commands.ts'
 import type { ContextMessage, ContextPart, ContextPartName, ThreadContext } from '../../kind.ts'
 import type { BridgeClient } from './bridge.ts'
-import type { ChatMedia } from '../port.ts'
-import { imageIds, imageMarker, readWeixinImage, requireMessageImageCount, stripImageMarkers } from './media.ts'
+import type { ChatMedia, ChatEvent } from '../port.ts'
+import { imageIds, readWeixinImage, requireMessageImageCount } from './media.ts'
+import { renderMessageText, triggerMedia, weixinRef } from './read.ts'
 
 export { imageIds, imageMarker } from './media.ts'
 
-/** How many of a chat's recent messages one read returns when the caller gives no cursor. */
+/** How many of a chat's recent messages one read returns when the caller names no page size. */
 const RECENT_MESSAGES = 50
+/** How many pages a parent/around read walks before it gives up; bounded so a bad cursor never loops. */
+const SEARCH_PAGES = 5
 
-/**
- * A message's text with one `[image:<id>]` marker per image the backend named, so the model can ask for the bytes. Markers
- * already in the text are dropped first: the backend's media list is the only source of image IDs (IMG-4).
- */
-const messageText = (text: string, media: ChatMedia[] | undefined): string =>
-  [stripImageMarkers(text).trim(), ...(media ?? []).map(item => imageMarker(item.id))].filter(part => part !== '').join(' ')
-
-/** The images the backend named for the Trigger's own message; a Trigger whose message carried none has an empty list. */
-const triggerMedia = (trigger: Trigger): ChatMedia[] => Array.isArray(trigger.meta.media)
-  ? trigger.meta.media.filter((id): id is string => typeof id === 'string').map(id => ({ id, kind: 'image' as const }))
-  : []
+/** One backend event as a context message; an echo of the agent's own message is a bot message. */
+const contextMessage = (event: ChatEvent): ContextMessage => ({
+  id: event.nativeId,
+  from: event.sender.id,
+  at: event.at,
+  // WeChat keeps images out of the text, so the reader names them inline like Feishu does with its keys.
+  text: renderMessageText(event.text, event.media),
+  ...event.ownMessage === true ? { bot: true as const } : {},
+})
 
 /** Builds the client for the instance whose configuration the caller reads with. */
 export type WeixinClientFor = (config: Record<string, unknown>) => BridgeClient
+
+/** Walks at most `SEARCH_PAGES` pages looking for one message; nothing when the backend does not report it. */
+async function findMessage(bridge: BridgeClient, room: string, nativeId: string, pageSize: number): Promise<ContextMessage | undefined> {
+  let cursor: string | undefined
+  for (let page = 0; page < SEARCH_PAGES; page += 1) {
+    const result = await bridge.messages(room, cursor, pageSize)
+    const found = result.events.find(event => event.nativeId === nativeId)
+    if (found) return contextMessage(found)
+    if (!result.next) return undefined
+    cursor = result.next
+  }
+  return undefined
+}
 
 /**
  * Builds the weixin ThreadContext over a bridge client, or over a factory for one when the client can only be built once the
  * instance's configuration is known (the kind passes a factory). A factory leaves the client unknown until the first `read`,
  * so `image` answers only after the assessment has read the thread — the same order the assessment tool documents.
+ *
+ * The assessment reads `thread` (a page of the room), `parent` (the message it answers) and `root`; WeChat has no topic
+ * root, so `root` answers `no_root` rather than inventing an anchor. The message itself and the page around it are the
+ * worker-facing resources `weixin/<trigger-id>/message` and `/around`.
  */
 export function weixinThreadContext(client: BridgeClient | WeixinClientFor): ThreadContext<Record<string, unknown>> {
   let known: BridgeClient | undefined = typeof client === 'function' ? undefined : client
@@ -46,19 +64,21 @@ export function weixinThreadContext(client: BridgeClient | WeixinClientFor): Thr
     async read(_commands: Commands, trigger: Trigger, part: ContextPartName, cursor: string | undefined,
       config: Record<string, unknown>): Promise<ContextPart> {
       const bridge = resolve(config)
-      const room = String(trigger.meta.room ?? trigger.threads[0]?.id ?? '')
-      const page = await bridge.messages(room, cursor, RECENT_MESSAGES)
-      const messages: ContextMessage[] = page.events.map(event => ({
-        id: event.nativeId,
-        from: event.sender.id,
-        at: event.at,
-        // WeChat keeps images out of the text, so the reader names them inline like Feishu does with its keys: the model
-        // sees `[image:<id>]` and can hand that id back to `image`.
-        text: messageText(event.text, event.media),
-        // An echo of the agent's own message is a bot message: it can never authorize work on its own.
-        ...(event.ownMessage === true ? { bot: true as const } : {}),
-      }))
-      return { messages, ...(page.next ? { next: page.next } : {}), body: { room, part }, status: 'ok' }
+      const ref = weixinRef(trigger)
+      // A group reads by its room; a direct conversation has none and is keyed by the person (the Thread id) instead.
+      const room = ref?.room ?? String(trigger.threads[0]?.id ?? '')
+      const pageSize = typeof config.readPageSize === 'number' ? config.readPageSize : RECENT_MESSAGES
+      // A WeChat conversation is one stream: there is no topic root above the message, so no anchor is invented.
+      if (part === 'root') return { messages: [], body: { room, part }, status: 'no_root' }
+      if (!room) return { messages: [], body: { room, part }, status: 'no_room' }
+      if (part === 'parent') {
+        const parentId = typeof trigger.meta.parentId === 'string' ? trigger.meta.parentId : ''
+        if (!parentId) return { messages: [], body: { room, part }, status: 'no_parent' }
+        const found = await findMessage(bridge, room, parentId, pageSize)
+        return { messages: found ? [found] : [], body: { room, part }, status: found ? 'ok' : 'not_found' }
+      }
+      const page = await bridge.messages(room, cursor, pageSize)
+      return { messages: page.events.map(contextMessage), ...(page.next ? { next: page.next } : {}), body: { room, part }, status: 'ok' }
     },
     // The markers the reader appends are what `image` can download: one regular expression serves both sides. Filtering
     // them here would need the Trigger, which this signature does not carry; `image` is where a request would start, and
@@ -73,7 +93,7 @@ export function weixinThreadContext(client: BridgeClient | WeixinClientFor): Thr
       const id = message.id || nativeId(trigger)
       // Only an ID the backend named may start a download. The Trigger's own text is the raw message text, so `meta.media`
       // decides for it; any other message's text is what `read` rendered, whose markers all came from that message's media.
-      const media = id === nativeId(trigger)
+      const media: ChatMedia[] = id === nativeId(trigger)
         ? triggerMedia(trigger)
         : imageIds(message.text).map(mediaId => ({ id: mediaId, kind: 'image' as const }))
       if (!media.some(item => item.id === key)) throw new Error(`The image ${key} is not one of the images of message ${id}`)

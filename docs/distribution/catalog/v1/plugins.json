@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "1.0.0",
+  "generatedAt": "2026-11-14T00:00:00Z",
+  "revision": "2.4.0",
+  "items": [
+    {
+      "id": "dsh-superagent-multi-channel",
+      "name": "dsh-superagent-multi-channel",
+      "displayName": "dsh-superagent 多通道",
+      "summary": "把飞书、GitHub、微信、企业微信、钉钉、云效 Projex 接成同一套「评估 → 工单 → 执行 → 回复」闭环，与官方 superagent 并存安装。",
+      "description": "官方 superagent 只有飞书与 GitHub；本 bundle 新增微信、企业微信、钉钉、阿里云云效 Projex，并把六种来源对齐到同一能力面（接收范围、授权名单、会话上下文、worker 读原文、检索、名称刷新、回复与状态回写）。全部状态在本机 stateDir，令牌优先 0600 文件；只被动回复，不群发、不拉群、不加好友。平台限制公开写明：微信/企业微信/钉钉无消息深链，企业微信/钉钉无历史回补，钉钉 Stream 需部署注入 SDK 连接。",
+      "homepage": "https://github.com/baojingyu/dsh-superagent-multi-channel",
+      "latestVersion": "2.4.0",
+      "license": "MIT",
+      "categories": ["collaboration", "chat", "work-items"],
+      "keywords": ["dsh", "superagent", "wechat", "wecom", "dingtalk", "yunxiao", "projex", "feishu", "github", "agent"],
+      "repository": { "url": "https://github.com/baojingyu/dsh-superagent-multi-channel" },
+      "package": { "registry": "npm", "name": "dsh-superagent-multi-channel" },
+      "publisher": { "name": "baojingyu", "url": "https://github.com/baojingyu" },
+      "media": { "icon": { "url": "https://baojingyu.github.io/dsh-superagent-multi-channel/icon.svg", "alt": "dsh-superagent 多通道" } }
+    }
+  ],
+  "page": {}
+}

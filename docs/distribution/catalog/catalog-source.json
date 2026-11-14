@@ -1,0 +1,23 @@
+{
+  "manifestVersion": "1.0.0",
+  "providerId": "com.baojingyu.dsh-superagent-multi-channel",
+  "name": "dsh-superagent 多通道",
+  "description": "给 DSH 的 superagent 增加微信、企业微信、钉钉、阿里云云效 Projex，与官方飞书/GitHub 通道并存安装，统一为「评估 → 工单 → 执行 → 回复」闭环。",
+  "homepage": "https://github.com/baojingyu/dsh-superagent-multi-channel",
+  "attribution": {
+    "name": "dsh-superagent 多通道",
+    "url": "https://github.com/baojingyu/dsh-superagent-multi-channel",
+    "notice": "MIT；微信通道为第三方 UI 自动化，未获腾讯授权。"
+  },
+  "transport": {
+    "kind": "https-json",
+    "endpoint": "https://baojingyu.github.io/dsh-superagent-multi-channel/v1/plugins",
+    "method": "GET"
+  },
+  "query": {
+    "supported": ["q", "category", "cursor", "limit"],
+    "defaultLimit": 50,
+    "maxLimit": 50,
+    "sorts": []
+  }
+}

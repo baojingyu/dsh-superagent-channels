@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Superagent",
-    "description": "Watch one GitHub repository, turn authorized requests into Tickets, and execute each in its own DSH Session."
+    "title": "Superagent multi-channel",
+    "description": "Watch GitHub, GitLab, Feishu, WeChat, DingTalk, WeCom and Yunxiao Projex, turn authorized requests into Tickets, and execute each in its own DSH Session. Installs alongside the official superagent."
   }
 }

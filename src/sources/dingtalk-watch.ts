@@ -8,7 +8,7 @@ import type { ChatEvent } from './chat/port.ts'
 import { health, sourceContext, type SourceContext } from './host.ts'
 
 export const kind = dingtalkKind
-export const name = 'dsh-superagent-dingtalk'
+export const name = 'dsh-superagent-multi-channel-dingtalk'
 export const inject = ['orchestrator']
 
 /** The stream transport a deployment injects: an async iterable of raw DingTalk callbacks (its SDK lives outside this bundle). */

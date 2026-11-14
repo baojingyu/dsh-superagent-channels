@@ -59,6 +59,7 @@
 | `own` | bool | 是否本账号自己发的 |
 | `quoteId` | string | 引用回复的原消息 `nativeId`，无则为 `""` |
 | `media` | array | 可下载的图片，元素 `{id, kind:"image", mime?}`；无则 `[]` |
+| `historical` | bool（可选） | 补读回的历史消息（重挂后、首次监听时读回的最近若干条）。Node 侧把它交给评估当上下文，但不发回执、不触发自动回复 |
 
 - `media[].id` 形如 `<nativeId>#<index>`，`index` 从 `0` 起。
 - `media[].mime` 是**可选**字段：后端在列表阶段没确认类型时省略，真实类型以 `GET /media/<id>`

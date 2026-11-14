@@ -1,6 +1,7 @@
 /** Minimal Aliyun Yunxiao (Projex) OpenAPI client: token-file auth, organization whitelist, and path confinement. */
 import { readFileSync, statSync } from 'node:fs'
 import { requireOwnerOnly } from './secret-file.ts'
+import { renewAccessToken } from './yunxiao-oauth.ts'
 
 /** Response of one Yunxiao OpenAPI call; `body` is the decoded JSON (or raw text when the payload is not JSON). */
 export interface YunxiaoResult { status: number; body: any }
@@ -8,12 +9,17 @@ export interface YunxiaoResult { status: number; body: any }
 /** Query of a GET; array values repeat the parameter, and `undefined` values are dropped. */
 export type YunxiaoQuery = Record<string, string | number | boolean | readonly (string | number)[] | undefined>
 
-/** The two verbs the work domain needs; tests inject a fake implementation of this interface. */
+/** The verbs the work domain needs; tests inject a fake implementation of this interface. */
 export interface YunxiaoApi {
   get(path: string, query?: YunxiaoQuery): Promise<YunxiaoResult>
   post(path: string, body: unknown): Promise<YunxiaoResult>
   /** Update in place; Projex's write-back is a `PUT` on the work item. */
   put(path: string, body: unknown): Promise<YunxiaoResult>
+  /**
+   * Multipart upload; Projex takes one `file` part per call. Optional because a test double or a read-only host needs
+   * only the three verbs above, and a missing implementation must fail at the call site rather than be faked.
+   */
+  postForm?(path: string, form: FormData): Promise<YunxiaoResult>
 }
 
 /** Everything the client needs: where to call, whose token to read, and which organizations are allowed. */
@@ -25,6 +31,8 @@ export interface YunxiaoApiOptions {
   orgWhitelist: readonly string[]
   /** How long one call may take before it is aborted; 15s when omitted. */
   timeoutMs?: number
+  /** Whether a 401 may renew an OAuth access token in place; on unless the caller wants the 401 as it is. */
+  renew?: boolean
   /** Fetch implementation, injectable for tests. */
   fetchFn?: typeof fetch
 }
@@ -35,6 +43,16 @@ export class YunxiaoHttpError extends Error {
     super(message)
     this.name = 'YunxiaoHttpError'
   }
+}
+
+/**
+ * True when Yunxiao says the work item no longer exists - it is in the recycle bin. Projex answers a deleted item with
+ * HTTP 400 and `errorCode: InvaildData.Failed` (Yunxiao's own spelling) rather than 404, so a status or comment call on a
+ * deleted item is a vanished resource, not a failure to retry or report.
+ */
+export function isWorkItemGone(error: unknown): boolean {
+  return error instanceof YunxiaoHttpError && error.status === 400
+    && /回收站|recycle ?bin|InvaildData\.Failed/i.test(error.message)
 }
 
 const DEFAULT_BASE_URL = 'https://openapi-rdc.aliyuncs.com'
@@ -59,34 +77,49 @@ export function createYunxiaoApi(options: YunxiaoApiOptions): YunxiaoApi {
   const baseUrl = checkBaseUrl(options.baseUrl ?? DEFAULT_BASE_URL)
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const fetchFn = options.fetchFn ?? fetch
-  const send = async (method: 'GET' | 'POST' | 'PUT', path: string, query?: YunxiaoQuery, body?: unknown): Promise<YunxiaoResult> => {
+  const send = async (method: 'GET' | 'POST' | 'PUT', path: string, query?: YunxiaoQuery,
+    payload?: { json?: unknown; form?: FormData }): Promise<YunxiaoResult> => {
     if (!path.startsWith(API_PREFIX)) throw new Error(`Yunxiao path must start with ${API_PREFIX}`)
     // Refuse a path that could leave its organization before the URL is built, then again on the built URL's normalized path.
     checkPath(path, options.orgWhitelist)
-    const token = readToken(options.tokenFile)
     const url = buildUrl(baseUrl, path, query)
     checkPath(new URL(url).pathname, options.orgWhitelist)
-    let response: Response
-    try {
-      response = await fetchFn(url, { method,
-        headers: { 'x-yunxiao-token': token, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-        signal: AbortSignal.timeout(timeoutMs) })
-    } catch (error) {
-      throw new Error(redact(`Yunxiao request failed: ${messageOf(error)}`, token))
+    let response: Response | undefined
+    /** The token the last attempt sent, kept so a failure message can be redacted against it. */
+    let sentToken = ''
+    // A token from the OAuth flow lives 24 hours; a 401 renews it once from the refresh token beside it, then retries.
+    for (let attempt = 0; ; attempt += 1) {
+      const token = readToken(options.tokenFile)
+      sentToken = token
+      // A multipart body carries its own boundary, so the header is left to fetch; a JSON body is the only other form.
+      const headers: Record<string, string> = { 'x-yunxiao-token': token }
+      let body: BodyInit | undefined
+      if (payload?.form) body = payload.form
+      else if (payload?.json !== undefined) { headers['content-type'] = 'application/json'; body = JSON.stringify(payload.json) }
+      try {
+        response = await fetchFn(url, { method, headers, ...(body === undefined ? {} : { body }),
+          signal: AbortSignal.timeout(timeoutMs) })
+      } catch (error) {
+        throw new Error(redact(`Yunxiao request failed: ${messageOf(error)}`, token))
+      }
+      if (response.status === 401 && attempt === 0 && options.renew !== false
+        && await renewAccessToken(options.tokenFile, fetchFn, timeoutMs)) continue
+      break
     }
+    if (!response) throw new Error('Yunxiao request produced no response')
     const text = await response.text()
     const parsed = parseBody(text)
     if (!response.ok) {
       throw new YunxiaoHttpError(response.status,
-        redact(`Yunxiao request failed with HTTP ${response.status}: ${summaryOf(parsed)}`, token))
+        redact(`Yunxiao request failed with HTTP ${response.status}: ${summaryOf(parsed)}`, sentToken))
     }
     return { status: response.status, body: parsed }
   }
   return {
     get: (path, query) => send('GET', path, query),
-    post: (path, body) => send('POST', path, undefined, body),
-    put: (path, body) => send('PUT', path, undefined, body),
+    post: (path, body) => send('POST', path, undefined, { json: body }),
+    put: (path, body) => send('PUT', path, undefined, { json: body }),
+    postForm: (path, form) => send('POST', path, undefined, { form }),
   }
 }
 

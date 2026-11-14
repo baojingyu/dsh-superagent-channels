@@ -2,26 +2,26 @@
 # profile supplies the `dsh-superagent` entry's stateDir (see docs/006-deployment.md and examples/profile.cordis.patch.yml); the plugin
 # refuses to start without stateDir.
 - insert:
-    - id: dsh-superagent
+    - id: dsh-superagent-multi-channel
       name: dsh-superagent-multi-channel
-    - id: dsh-superagent-github
+    - id: dsh-superagent-multi-channel-github
       name: dsh-superagent-multi-channel/github-watch
     # Every Source is registered, so the panel can list it and its switch decides whether it runs. A Source with no
     # configuration reports `sourceOff` and idles, which is what "off" means; editing this file is not how a Source is
     # turned on. Each of these still needs its own setup before it can read anything: Feishu a bot CLI, Weixin the
     # wxauto-bridge sidecar and its token file, GitLab a project and token file, Projex a project space and organization
     # ID, DingTalk app credentials plus an injected stream transport, WeCom a public reverse-proxied callback route.
-    - id: dsh-superagent-feishu
+    - id: dsh-superagent-multi-channel-feishu
       name: dsh-superagent-multi-channel/feishu-watch
-    - id: dsh-superagent-weixin
+    - id: dsh-superagent-multi-channel-weixin
       name: dsh-superagent-multi-channel/weixin-watch
-    - id: dsh-superagent-gitlab
+    - id: dsh-superagent-multi-channel-gitlab
       name: dsh-superagent-multi-channel/gitlab-watch
-    - id: dsh-superagent-projex
+    - id: dsh-superagent-multi-channel-projex
       name: dsh-superagent-multi-channel/projex-watch
-    - id: dsh-superagent-dingtalk
+    - id: dsh-superagent-multi-channel-dingtalk
       name: dsh-superagent-multi-channel/dingtalk-watch
-    - id: dsh-superagent-wecom
+    - id: dsh-superagent-multi-channel-wecom
       name: dsh-superagent-multi-channel/wecom-watch
     # The agent preset of every Executor Session (WORKER_PRESET in src/app/sessions.ts); the main Session has its own, below.
     # It is DSH's `standard` preset with only what a worker needs, and a shell whose foreground command moves to a background job
@@ -30,11 +30,11 @@
     # and forked subagents, which would run under this preset; spawned subagents run under `standard`, whose shell moves a
     # command to a background job only after 60 seconds, as a subagent's jobs are killed when it ends. A preset row has no
     # setting that hides it from the preset picker, so its name and description say whom it is for.
-    - id: dsh-superagent-worker-preset
+    - id: dsh-superagent-multi-channel-worker-preset
       name: '@deepseek-ai/dsh-agent-preset'
       config:
         id: dsh-superagent-worker
-        name: dsh-superagent 执行器
+        name: DSH Superagent 多通道 执行器
         description: dsh-superagent 的执行器 Session 专用，不供手动选择。前台命令超 5 秒转入后台，只含执行工作所需的工具。
         order: 90
         plugins:
@@ -135,11 +135,11 @@
     # only what the main Session uses: no subagents, web, file search or writes, todo list, questions to a person, presenting,
     # plan mode, plugin manager, scheduling, goals or workflows. No persona: the main Session's prompt is complete, so it has
     # no other section.
-    - id: dsh-superagent-router-preset
+    - id: dsh-superagent-multi-channel-router-preset
       name: '@deepseek-ai/dsh-agent-preset'
       config:
         id: dsh-superagent-router
-        name: dsh-superagent 主 Session
+        name: DSH Superagent 多通道 主 Session
         description: dsh-superagent 的主 Session 专用，不供手动选择。前台命令和任务等待超 5 秒转入后台，只含路由所需的工具。
         order: 91
         plugins:

@@ -17,9 +17,9 @@ import { en, zh } from './locales.ts'
 import type { T } from './text.ts'
 
 type ClientContext = Context & { sessions: ISessions }
-const NS = 'dshSuperagent'
-const PANEL_ID = 'dsh-superagent' as MainPanelId
-const ENTRY = 'dsh-superagent'
+const NS = 'dshSuperagentMultiChannel'
+const PANEL_ID = 'dsh-superagent-multi-channel' as MainPanelId
+const ENTRY = 'dsh-superagent-multi-channel'
 
 function HammerIcon({ size }: SidebarPanelIconOwnerProps) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>

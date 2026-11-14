@@ -51,4 +51,28 @@ describe.skipIf(!LIVE || !ORG || !PROJECT || !TOKEN_FILE)('Projex live contract'
     }
     expect(true).toBe(true)
   })
+
+  it('reads the project roster, and every item it reads has a status that names an id', async () => {
+    // The member list is what the Policy sync fills; a status id is what the write-back sends. Both are read here so a
+    // route that moved shows up as a failing contract rather than as an empty picker in the panel.
+    const members = await adapter.listMembers!(commands, PROJECT)
+    for (const member of members) expect(member.id, 'a member id').not.toBe('')
+    const page = await adapter.listWorkItems(commands, PROJECT, '', ['requirement', 'bug', 'task'])
+    for (const item of page.items.slice(0, 20)) {
+      expect(item.status.id, `status id of ${item.serial}`).not.toBe('')
+    }
+    // The Policy compares `allowed[].id` with the assignee, so at least one assignee must appear in the roster when both
+    // sides have entries; this is the assumption ADR-009 records, and it fails loudly here if Yunxiao ever differs.
+    const assignees = page.items.flatMap(item => item.assignee ? [item.assignee.id] : [])
+    if (members.length && assignees.length) expect(members.map(member => member.id)).toEqual(expect.arrayContaining([assignees[0]!]))
+  })
+
+  it('reads the workflow status list a write-back status name resolves against', async () => {
+    const statuses = await adapter.listStatuses!(commands, PROJECT, ['requirement', 'bug', 'task'])
+    expect(statuses.length).toBeGreaterThan(0)
+    for (const status of statuses) {
+      expect(status.id, `status id of ${status.name}`).not.toBe('')
+      expect(status.name.length).toBeGreaterThan(0)
+    }
+  })
 })

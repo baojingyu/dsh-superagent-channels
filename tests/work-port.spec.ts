@@ -72,8 +72,9 @@ describe('workKind configuration', () => {
 })
 
 describe('workKind channel', () => {
-  it('declares marker-idempotent Markdown comments with a limit far above chat', () => {
-    expect(workKind(adapter).channel!.capabilities).toEqual({ idempotency: 'marker', markdown: true, maxChars: 60000 })
+  it('declares marker-idempotent Markdown comments with a limit far above chat, and the file size it accepts', () => {
+    expect(workKind(adapter).channel!.capabilities).toEqual({ idempotency: 'marker', markdown: true, maxChars: 60000,
+      files: { maxBytes: 10 * 1024 * 1024 } })
   })
   it('throws instead of silently succeeding when no outbound provider is configured', async () => {
     const kind = workKind(adapter)
@@ -97,6 +98,55 @@ describe('workKind channel', () => {
     expect(workKind(adapter).channel!.link({ project: 'proj-1', key: 'AB-12', serial: 'AB-12' }, {})).toEqual({
       url: 'https://projex.example/proj-1/workitems/AB-12', label: { zh: '工作项 AB-12', en: 'Work item AB-12' },
     })
+  })
+})
+
+describe('workKind attachments', () => {
+  /** An adapter whose comment writer records the text it posts, with a file uploader that names what it took. */
+  function recording(): { adapter: WorkAdapter; texts: string[]; uploads: string[]; attached: string[][] } {
+    const texts: string[] = []
+    const uploads: string[] = []
+    const attached: string[][] = []
+    return { texts, uploads, attached, adapter: { ...adapter,
+      uploadFile: async (_commands, _item, file) => { uploads.push(file.name)
+        return { name: file.name, html: `<img alt="${file.name}"/>`, markdown: `[${file.name}](https://x.test/${file.name})` } },
+      postNote: async (_commands, _item, text, _marker, attachments) => {
+        texts.push(text); attached.push((attachments ?? []).map(attachment => attachment.markdown)); return 'sent' } } }
+  }
+  it('uploads the files the operator allowed and hands them to the comment as attachments', async () => {
+    const { adapter: recorder, texts, uploads, attached } = recording()
+    const kind = workKind(recorder, { provider: true })
+    const message: OutboundMessage = { ...reply('r8'), files: [{ name: 'shot.png', data: 'QUJD' }] }
+    await expect(kind.channel!.send(host({ project: 'proj-1', sendFiles: true }), message)).resolves.toBe('sent')
+    expect(uploads).toEqual(['shot.png'])
+    expect(texts[0]).toContain('AB-12 已交付')
+    expect(attached).toEqual([['[shot.png](https://x.test/shot.png)']])
+  })
+  it('drops files when the operator left file sending off', async () => {
+    const { adapter: recorder, texts, uploads, attached } = recording()
+    const kind = workKind(recorder, { provider: true })
+    const message: OutboundMessage = { ...reply('r9'), files: [{ name: 'shot.png', data: 'QUJD' }] }
+    await kind.channel!.send(host({ project: 'proj-1' }), message)
+    expect(uploads).toEqual([])
+    expect(attached).toEqual([[]])
+    expect(texts[0]).not.toContain('shot.png')
+  })
+  it('names a file over the cap in the comment instead of failing the delivery', async () => {
+    const { adapter: recorder, texts, uploads, attached } = recording()
+    const kind = workKind(recorder, { provider: true })
+    // 14 MiB of base64 is about 10.5 MiB decoded, over the channel's 10 MiB cap.
+    const big = 'A'.repeat(14 * 1024 * 1024)
+    const message: OutboundMessage = { ...reply('r10'), files: [{ name: 'big.bin', data: big }] }
+    await expect(kind.channel!.send(host({ project: 'proj-1', sendFiles: true }), message)).resolves.toBe('sent')
+    expect(uploads).toEqual([])
+    expect(attached).toEqual([[]])
+    expect(texts[0]).toContain('big.bin 未发送')
+  })
+  it('refuses files at a host that can take none, rather than dropping them silently', async () => {
+    const kind = workKind({ ...adapter, postNote: async () => 'sent' }, { provider: true })
+    const message: OutboundMessage = { ...reply('r11'), files: [{ name: 'shot.png', data: 'QUJD' }] }
+    await expect(kind.channel!.send(host({ project: 'proj-1', sendFiles: true }), message))
+      .rejects.toThrow(/cannot attach files/)
   })
 })
 

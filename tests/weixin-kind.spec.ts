@@ -26,13 +26,14 @@ describe('weixinKind schema and fields', () => {
     expect(weixinKind.schema.parse({ tokenFile: '/tmp/weixin.token', selfWxid: 'wxid_self' }))
       .toEqual({ baseUrl: 'http://127.0.0.1:8787', tokenFile: '/tmp/weixin.token', selfWxid: 'wxid_self', rooms: [], directMessages: true, atOnly: true, pollSeconds: 5,
         timeoutSeconds: 30, keywords: [], autoReplies: [], acknowledge: false, ackText: '收到，正在处理，请稍等。',
-        progressAfterSeconds: 180, sendFiles: false, mentionBack: true, voice: true, images: true, bridgeTask: 'DSH-WeChat-Bridge',
-        bridgeLauncher: '' })
+        progressAfterSeconds: 180, sendFiles: false, readPageSize: 50, mentionBack: true, voice: true, images: true,
+        bridgeTask: 'DSH-WeChat-Bridge', bridgeLauncher: '' })
     // The default is deliberately generous: listing chats walks the client's contact pages (~10 s here), so a tight
     // timeout would be reported as "the bridge did not answer" while it is still working.
     expect(weixinKind.fields.map(field => field.key))
       .toEqual(['baseUrl', 'tokenFile', 'selfWxid', 'rooms', 'directMessages', 'atOnly', 'keywords', 'autoReplies', 'sendFiles', 'acknowledge',
-        'ackText', 'progressAfterSeconds', 'mentionBack', 'voice', 'images', 'bridgeLauncher', 'bridgeTask', 'pollSeconds', 'timeoutSeconds'])
+        'ackText', 'progressAfterSeconds', 'mentionBack', 'voice', 'images', 'bridgeLauncher', 'bridgeTask', 'pollSeconds',
+        'readPageSize', 'timeoutSeconds'])
     expect(weixinKind.kind).toBe('weixin')
     expect(weixinKind.health).toEqual(['weixin'])
   })
@@ -229,11 +230,14 @@ describe('weixinKind environment and facts', () => {
   it('exposes the trigger chat and sender only for weixin triggers', () => {
     const environment = weixinKind.environment!
     const values = (input: unknown): Record<string, string> => environment.values(input as never)
-    expect(environment.variables.map(variable => variable.key)).toEqual(['DSH_SUPERAGENT_WEIXIN_ROOM', 'DSH_SUPERAGENT_WEIXIN_SENDER'])
+    expect(environment.variables.map(variable => variable.key)).toEqual(['DSH_SUPERAGENT_WEIXIN_ROOM', 'DSH_SUPERAGENT_WEIXIN_SENDER',
+      'DSH_SUPERAGENT_WEIXIN_BRIDGE', 'DSH_SUPERAGENT_WEIXIN_TOKEN_FILE'])
     expect(values({ deployment: undefined, config, trigger: { source: 'weixin', meta: { room: 'room-1', senderId: 'wxid_alice' }, actor: { source: 'weixin', id: 'wxid_alice' } } }))
-      .toEqual({ DSH_SUPERAGENT_WEIXIN_ROOM: 'room-1', DSH_SUPERAGENT_WEIXIN_SENDER: 'wxid_alice' })
+      .toEqual({ DSH_SUPERAGENT_WEIXIN_ROOM: 'room-1', DSH_SUPERAGENT_WEIXIN_SENDER: 'wxid_alice',
+        DSH_SUPERAGENT_WEIXIN_BRIDGE: 'http://127.0.0.1:8787', DSH_SUPERAGENT_WEIXIN_TOKEN_FILE: '/tmp/weixin.token' })
     expect(values({ deployment: undefined, config, trigger: { source: 'github', meta: {}, actor: { source: 'github', id: 'octocat' } } }))
-      .toEqual({ DSH_SUPERAGENT_WEIXIN_ROOM: '', DSH_SUPERAGENT_WEIXIN_SENDER: '' })
+      .toEqual({ DSH_SUPERAGENT_WEIXIN_ROOM: '', DSH_SUPERAGENT_WEIXIN_SENDER: '', DSH_SUPERAGENT_WEIXIN_BRIDGE: '',
+        DSH_SUPERAGENT_WEIXIN_TOKEN_FILE: '' })
   })
 
   it('reports the account facts from the bridge status, and Not connected when there is none', () => {

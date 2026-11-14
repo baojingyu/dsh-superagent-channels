@@ -1,7 +1,10 @@
 /** DingTalk Source kind: the shared chat factory plus DingTalk's structured-`@` reception and at-least-once replies. */
 import { z } from 'zod'
+import type { Trigger } from '../../../core/index.ts'
+import type { Commands } from '../../../infra/commands.ts'
 import type { FieldSpec, SourceKind } from '../../kind.ts'
 import type { ChatAdapter } from '../port.ts'
+import type { ContextMessage, ContextPart, ContextPartName, ThreadContext } from '../../kind.ts'
 import { chatKind, mentionRows, type ChatKindMeta } from '../kind.ts'
 import { sendMessage } from './adapter.ts'
 
@@ -84,6 +87,23 @@ type DingTalkScopeResult =
   | { listened: true; observed: boolean; row?: string }
   | { listened: false; reason: string; observed?: boolean; row?: string }
 
+/** The DingTalk ThreadContext: a stream callback carries one message and no history, so the parts say exactly that. */
+function dingtalkThreadContext(): ThreadContext<DingTalkKindConfig> {
+  const nativeId = (trigger: Trigger): string => String(trigger.meta.nativeId ?? '')
+  return {
+    messageId: nativeId,
+    async read(_commands: Commands, trigger: Trigger, part: ContextPartName, _cursor: string | undefined,
+      _config: Record<string, unknown>): Promise<ContextPart> {
+      const room = String(trigger.meta.conversationId ?? trigger.threads[0]?.id ?? '')
+      if (part === 'root') return { messages: [], body: { room, part }, status: 'no_root' }
+      if (part === 'parent') return { messages: [], body: { room, part }, status: 'no_parent' }
+      const own: ContextMessage = { id: nativeId(trigger), from: trigger.actor.id, at: trigger.at, text: trigger.text,
+        ...trigger.human === false ? { bot: true as const } : {} }
+      return { messages: [own], body: { room, part, history: false }, status: 'ok' }
+    },
+  }
+}
+
 /**
  * Builds the DingTalk SourceKind from the shared chat factory (identity, health, Policy `allowed` list, channel wiring, find,
  * repliesTo), overriding the reception rule: DingTalk robots are only reachable when mentioned, so a group message is judged
@@ -94,6 +114,8 @@ export function createDingTalkKind(adapter: ChatAdapter<DingTalkKindConfig>, hoo
   const base = chatKind(adapter, Meta)
   return {
     ...base,
+    // The assessment reads the callback's own message; a stream keeps no history to page, which the statuses say.
+    threadContext: dingtalkThreadContext(),
     // The table names the rows this kind's `scope` reports, so every cell a person sets is one the gate actually reads.
     policy: { ...base.policy!, rows: stored => mentionRows((stored as { atOnly?: boolean }).atOnly !== false) },
     // Delivery is at-least-once: the body marker is only written, never read back, so a retried message can arrive twice.

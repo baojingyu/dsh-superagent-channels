@@ -130,7 +130,7 @@ export const feishuKind: SourceKind<FeishuConfig> = {
 /** Returns the Feishu Source's settings, falling back to schema defaults while the Feishu plugin is disabled. */
 export const feishuSettings = (sources: SourceRegistry): FeishuConfig => sources.instance<FeishuConfig>(SOURCE)?.config ?? FeishuConfigSchema.parse({})
 
-export const name = 'dsh-superagent-feishu'
+export const name = 'dsh-superagent-multi-channel-feishu'
 export const inject = ['orchestrator']
 export function apply(ctx: Context): void {
   ctx.effect(() => ctx.orchestrator.sources.register(feishuKind), 'feishu: source kind')

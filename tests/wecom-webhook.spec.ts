@@ -35,7 +35,7 @@ function signed(fields: { from: string; text: string; msgId: string; chatId?: st
   }
 }
 
-it('parses a text callback into a ChatEvent and returns null for every other message type', () => {
+it('parses a text callback and an image callback into a ChatEvent, and returns null for the rest', () => {
   const direct = parseXml(`<xml><ToUserName><![CDATA[${CORP}]]></ToUserName><FromUserName><![CDATA[zhangsan]]></FromUserName>
     <CreateTime>1348831860</CreateTime><MsgType><![CDATA[text]]></MsgType><Content><![CDATA[你好 &amp; hello]]></Content>
     <MsgId>1234567890123456</MsgId><AgentID>100001</AgentID></xml>`)
@@ -44,6 +44,11 @@ it('parses a text callback into a ChatEvent and returns null for every other mes
   const group = parseXml(`<xml><FromUserName><![CDATA[zhangsan]]></FromUserName><ChatId><![CDATA[wrOgQhDgAAMYQiS5ol9G7gK9JV]]></ChatId>
     <MsgType>text</MsgType><Content>hi</Content><MsgId>42</MsgId></xml>`)
   expect(group).toMatchObject({ nativeId: '42', chatId: 'wrOgQhDgAAMYQiS5ol9G7gK9JV', direct: false, threadRoot: 'wrOgQhDgAAMYQiS5ol9G7gK9JV', text: 'hi' })
+  // An image callback names its bytes by MediaId and carries no text; the media API downloads them later.
+  const image = parseXml(`<xml><FromUserName><![CDATA[u]]></FromUserName><CreateTime>1</CreateTime><MsgType><![CDATA[image]]></MsgType>
+    <MediaId><![CDATA[MEDIA-1]]></MediaId><MsgId>7</MsgId></xml>`)
+  expect(image).toMatchObject({ nativeId: '7', text: '', media: [{ id: 'MEDIA-1', kind: 'image' }] })
+  // An image without a MediaId has no bytes to name, and an event or voice note is not carried at all.
   expect(parseXml(`<xml><MsgType><![CDATA[image]]></MsgType><MsgId>1</MsgId><FromUserName>u</FromUserName></xml>`)).toBeNull()
   expect(parseXml(`<xml><MsgType>event</MsgType><Event>enter_agent</Event></xml>`)).toBeNull()
 })
@@ -114,6 +119,23 @@ describe('WeCom sender', () => {
     }) as unknown as typeof fetch
     expect(await createWecomSender({ fetchFn }).sendMessage({ corpId: 'c', corpSecret: 's', agentId: 1 }, { chatid: 'wr1' }, 'hi')).toBe('sent')
     expect(bodies).toEqual([{ chatid: 'wr1', msgtype: 'text', agentid: 1, text: { content: 'hi' } }])
+  })
+})
+
+describe('WeCom users', () => {
+  it('lists a department\'s users for the Policy pickers, and names a JSON error', async () => {
+    const fetchFn = (async (input: string | URL | Request) => {
+      const url = String(input)
+      if (url.includes('/cgi-bin/gettoken')) return new Response(JSON.stringify({ access_token: 'tok-1', expires_in: 7200 }), { status: 200 })
+      expect(url).toContain('/cgi-bin/user/simplelist')
+      expect(url).toContain('department_id=7')
+      return new Response(JSON.stringify({ errcode: 0, userlist: [{ userid: 'zhangsan', name: '张三' }, { userid: 'lisi' }] }), { status: 200 })
+    }) as unknown as typeof fetch
+    expect(await createWecomSender({ fetchFn }).users({ corpId: 'ww1', corpSecret: 's', agentId: 1 }, '7'))
+      .toEqual([{ id: 'zhangsan', name: '张三' }, { id: 'lisi' }])
+    const refused = (async () => new Response(JSON.stringify({ errcode: 60011, errmsg: 'no privilege' }), { status: 200 })) as unknown as typeof fetch
+    await expect(createWecomSender({ fetchFn: refused }).users({ corpId: 'ww1', corpSecret: 's', agentId: 1 }, '1'))
+      .rejects.toThrow(/errcode 60011.*no privilege/)
   })
 })
 

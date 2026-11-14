@@ -250,8 +250,16 @@ export function SourceField({ field, value, saved, fact, onChange, labels, refre
   labels: Record<string, string>
   refreshLabels?: () => Promise<string[]>
 }) {
-  const { t, navigate } = usePanel()
+  const { t, navigate, notify } = usePanel()
   const label = localized(t, field.label), hint = localized(t, field.hint)
+  // A text field that picks from resolved labels may also offer to reread them (the Projex status vocabulary).
+  const refresh = useAction(async () => {
+    if (!refreshLabels) return
+    try {
+      const added = await refreshLabels()
+      notify(added.length ? t('labelsAdded', { names: added.join(t('listSeparator')) }) : t('labelsCurrent'))
+    } catch (failure) { notify(t('labelsFailed', { error: errorText(failure) })) }
+  })
   switch (field.type) {
     case 'switch': return <SwitchRow label={label} hint={hint} checked={value === true} onChange={onChange} />
     case 'select': return <Field label={label} hint={hint}>
@@ -262,7 +270,14 @@ export function SourceField({ field, value, saved, fact, onChange, labels, refre
       <Input type="number" min={field.min} max={field.max} required value={String(value ?? '')}
         onChange={event => onChange(event.target.value === '' ? '' : Number(event.target.value))} />
     </Field>
-    case 'text': return <Field label={label} hint={hint} note={localized(t, fact)}>
+    // A text field that picks from labels may also reread them; the refresh sits in the field's note so the control keeps
+    // the id `Field` injects, which is what a label and the panel's field lookup bind to.
+    case 'text': return <Field label={label} hint={hint}
+      note={field.choose && refreshLabels
+        ? <>{localized(t, fact)}{' '}<Button variant="ghost" size="sm" className={refresh.busy ? 'dt-busy' : undefined}
+          icon={<Icon name="refresh" />} disabled={refresh.busy} aria-busy={refresh.busy}
+          aria-label={localized(t, field.choose)} onClick={() => { void refresh.run() }} /></>
+        : localized(t, fact)}>
       {field.choose && Object.keys(labels).length
         ? <select className="dt-select" value={String(value ?? '')} onChange={event => onChange(event.target.value)}>
           <option value="">{localized(t, field.choose)}</option>

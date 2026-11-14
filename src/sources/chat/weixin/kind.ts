@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { z } from 'zod'
-import type { OutboundMessage } from '../../../core/index.ts'
+import { key, type OutboundMessage } from '../../../core/index.ts'
 import { KV } from '../../../kv.ts'
 import type { SourceHost } from '../../host.ts'
 import type { ChannelHost, FieldSpec, Localized, SourceChannel, SourceKind, SourcePolicyPart } from '../../kind.ts'
@@ -14,6 +14,15 @@ import { weixinThreadContext } from './thread.ts'
 /** Stable kind ID; one kind, several interchangeable backends behind the sidecar. */
 export const SOURCE = 'weixin'
 const WXID_PATTERN = /^[A-Za-z0-9_-]+$/
+
+/**
+ * Builds the real bridge client for a stored configuration. Resources (`weixin/<trigger-id>/…`) and the panel's label
+ * refresh read through it; tests inject a fake instead of reaching a sidecar.
+ */
+export function weixinBridge(config: Record<string, unknown>): BridgeClient {
+  const parsed = WeixinConfigSchema.parse(config)
+  return createBridgeClient({ baseUrl: parsed.baseUrl, tokenFile: parsed.tokenFile, timeoutMs: parsed.timeoutSeconds * 1000 })
+}
 
 /** Chats the Source receives; `id` is the stable chatroom ID, never the display name. */
 const RoomsSchema = z.array(z.object({
@@ -76,6 +85,8 @@ export const WeixinConfigSchema = z.object({
   ackText: z.string().trim().min(1).max(200).default('收到，正在处理，请稍等。'),
   /** Seconds between "still working" notes while the bot has said nothing; 0 turns them off. */
   progressAfterSeconds: z.number().int().min(0).max(3600).default(180),
+  /** Messages per page when an agent reads this conversation; the sidecar's own ceiling is 50. */
+  readPageSize: z.number().int().min(1).max(50).default(50),
   /** Fixed replies sent from the polling loop when a message names one; the agent still sees the message. */
   autoReplies: z.array(z.object({
     any: z.string().trim().min(1).max(50),
@@ -236,6 +247,8 @@ const Fields: FieldSpec[] = [
     hint: { zh: '本机跑 wxauto-bridge 的 Windows 计划任务名。插件不自己拉起进程，只用「启动桥 / 停止桥」按钮让这个任务启停；因为桥必须跑在已登录的桌面会话里，且要活过 DSH 重启。', en: 'The Windows scheduled task that runs wxauto-bridge on this machine. The plugin never spawns it; the Start/Stop buttons ask this task to run or end it, because the bridge must live in the signed-in desktop session and outlive a DSH restart.' } },
   { key: 'pollSeconds', type: 'number', advanced: true, min: 5, max: 3600, label: { zh: '轮询间隔 / 秒', en: 'Poll interval / s' },
     hint: { zh: '轮询传输向桥询问新消息的间隔。', en: 'How often the polling transport asks the bridge for new messages.' } },
+  { key: 'readPageSize', type: 'number', advanced: true, min: 1, max: 50, label: { zh: '每页消息数', en: 'Messages per page' },
+    hint: { zh: '智能体读取会话和群历史时每页的消息数；桥的上限是 50。', en: 'Messages per page when agents read this conversation and its history; the bridge caps a page at 50.' } },
   { key: 'timeoutSeconds', type: 'number', advanced: true, min: 5, max: 300, label: { zh: '桥请求超时 / 秒', en: 'Bridge request timeout / s' },
     hint: { zh: '单个桥请求最多等多久。有些端点要驱动客户端界面（例如列会话会翻联系人群组，忙时约 10 秒），这个值太小会被误报成「桥没有响应」。', en: 'How long one bridge request may take. Some endpoints drive the client UI - listing chats walks the contact pages and takes about 10 s on a busy account - so too small a value is reported as "the bridge did not answer".' } },
 ]
@@ -413,6 +426,10 @@ export function createWeixinKind(hooks: WeixinKindHooks = {}): SourceKind<Weixin
     schema: WeixinConfigSchema,
     fields: Fields,
     health: ['weixin'],
+    // A platform message ID is what a person can paste from the client; the panel's search turns it into a term.
+    find: query => ({ threads: [], terms: [...new Set(query.split(/\s+/).filter(word => /^[A-Za-z0-9_-]{6,}$/.test(word)))] }),
+    // A message's Trigger is named after the message, so the one it answers is named after its parent.
+    repliesTo: trigger => typeof trigger.meta.parentId === 'string' ? key(SOURCE, trigger.meta.parentId) : undefined,
     // Reception is decided on the structured `ats` list, never by matching `@nickname` in the text. An ambient group message
     // is filtered but still observed, so it remains Thread-context material; `reason` is what Intake records for the filter.
     // A backend that reports it cannot produce `ats` at all can never prove a group message addresses the agent. Recording
@@ -450,10 +467,14 @@ export function createWeixinKind(hooks: WeixinKindHooks = {}): SourceKind<Weixin
       variables: [
         { key: 'DSH_SUPERAGENT_WEIXIN_ROOM', description: { zh: '接下工单的微信群 chatroomId；工单不是从微信来的时为空', en: 'chatroomId of the WeChat group that started the ticket; empty when the ticket did not start on WeChat' } },
         { key: 'DSH_SUPERAGENT_WEIXIN_SENDER', description: { zh: '发起工单的微信用户 wxid；工单不是从微信来的时为空', en: 'wxid of the WeChat user who started the ticket; empty when the ticket did not start on WeChat' } },
+        { key: 'DSH_SUPERAGENT_WEIXIN_BRIDGE', description: { zh: '桥的 loopback 地址，配合 token 文件用 GET /media/<id> 取消息图片；工单不是从微信来的时为空', en: 'loopback address of the bridge, for GET /media/<id> with the token file; empty when the ticket did not start on WeChat' } },
+        { key: 'DSH_SUPERAGENT_WEIXIN_TOKEN_FILE', description: { zh: '桥 bearer token 的文件路径（0600）；下载图片时读它，工单不是从微信来的时为空', en: 'path of the bridge bearer token file (0600), read when downloading an image; empty when the ticket did not start on WeChat' } },
       ],
-      values: ({ trigger }) => ({
+      values: ({ trigger, config }) => ({
         DSH_SUPERAGENT_WEIXIN_ROOM: trigger?.source === SOURCE ? String(trigger.meta.room ?? '') : '',
         DSH_SUPERAGENT_WEIXIN_SENDER: trigger?.source === SOURCE ? String(trigger.meta.senderId ?? trigger.actor.id) : '',
+        DSH_SUPERAGENT_WEIXIN_BRIDGE: trigger?.source === SOURCE ? String((config as WeixinConfig).baseUrl ?? '') : '',
+        DSH_SUPERAGENT_WEIXIN_TOKEN_FILE: trigger?.source === SOURCE ? String((config as WeixinConfig).tokenFile ?? '') : '',
       }),
     },
     // `facts` is synchronous: it reports the status the polling loop last recorded, and "Not connected" until there is one.

@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Superagent",
-    "description": "监听单个 GitHub 仓库，把获授权的请求转为 Ticket，并在各自的 DSH 会话中执行。"
+    "title": "Superagent 多通道",
+    "description": "监听 GitHub、GitLab、飞书、微信、钉钉、企业微信与云效 Projex，把获授权的请求变成工单，每个工单在自己的 DSH Session 里执行。可与官方 superagent 并存安装。"
   }
 }

@@ -4,6 +4,8 @@ import { KV } from '../../kv.ts'
 import type { SourceContext } from '../host.ts'
 import type { WorkAdapter, WorkItem, WorkNote } from './port.ts'
 import { appendImageMarkers, archiveWorkImages } from './images.ts'
+import { reflectWorkTickets } from './feedback.ts'
+import { isWorkItemGone } from '../../infra/yunxiao-api.ts'
 
 /** Categories polled when neither the caller nor the instance configuration names any. */
 export const DEFAULT_WORK_CATEGORIES: readonly string[] = ['requirement', 'bug', 'task']
@@ -29,7 +31,9 @@ export interface WorkPollResult {
 }
 
 /** The parts of a work config this stream reads; the instance schema supplies both keys. */
-interface WorkStreamConfig extends Record<string, unknown> { project?: string; categories?: readonly string[]; backfillComments?: number }
+interface WorkStreamConfig extends Record<string, unknown> { project?: string; categories?: readonly string[]; backfillComments?: number
+  /** Status write-back, off unless the operator turned it on and named the statuses. */
+  writeBack?: boolean; statusOnStart?: string; statusOnDone?: string }
 
 /**
  * The Trigger of one work item. Its ID is derived from native fields (`identifier` + `updatedAt`), so redelivering the
@@ -55,11 +59,16 @@ export function workTrigger(item: WorkItem, instance: string, project: string): 
 const DEFAULT_BACKFILL_COMMENTS = 20
 
 /** The target a comment belongs to: the work item and the instance/project its thread already lives under. */
-export interface NoteTarget { instance: string; project: string; key: string; serial: string }
+export interface NoteTarget { instance: string; project: string; key: string; serial: string
+  /** Category of the item the comment sits on, so a comment falls in the same admission row as its item. */
+  category?: string }
 
 /**
  * The Trigger of one work-item comment. Its ID is derived from the native comment id + creation time, so re-reading the
  * same comment is the same event while a later comment is a new one — the same determinism workTrigger has.
+ *
+ * The item's category travels with the comment so the Policy's admission table decides a comment exactly as it decides
+ * its item: a comment whose item falls in a row the operator switched off must not slip through on the table's defaults.
  */
 export function noteTrigger(note: WorkNote, target: NoteTarget): Trigger {
   return {
@@ -72,7 +81,8 @@ export function noteTrigger(note: WorkNote, target: NoteTarget): Trigger {
     text: note.body,
     channel: { source: target.instance, thread: `${target.instance}:${target.key}`,
       address: { project: target.project, key: target.key, serial: target.serial } },
-    meta: { identifier: target.key, serial: target.serial, kind: 'comment', commentId: note.id },
+    meta: { identifier: target.key, serial: target.serial, kind: 'comment', commentId: note.id,
+      ...target.category ? { category: target.category } : {} },
   }
 }
 
@@ -112,15 +122,20 @@ export async function pollWorkItems(ctx: SourceContext, adapter: WorkAdapter, op
   const started = new Date().toISOString()
   let received = 0
   const errors: string[] = []
+  const observed: Record<string, string> = {}
   for (const category of categories) {
     if (signal?.aborted) break
     try {
-      received += await pollCategory(ctx, adapter, options.instance, project, since, category, signal)
+      const result = await pollCategory(ctx, adapter, options.instance, project, since, category, signal)
+      received += result.received
+      Object.assign(observed, result.statuses)
     } catch (error) {
       if (signal?.aborted) break
       errors.push(`${category}: ${String(error)}`)
     }
   }
+  // The statuses read this round are the vocabulary a configured status name resolves against.
+  if (!signal?.aborted) rememberStatuses(ctx, options.instance, observed)
   if (!signal?.aborted && errors.length === 0) ctx.state.set(KV.work.cursor(options.instance), started)
   if (signal?.aborted) return { received, errors }
   // Yunxiao comments do not move an item's gmtModified, so they are read per followed work item after the item scan.
@@ -129,14 +144,21 @@ export async function pollWorkItems(ctx: SourceContext, adapter: WorkAdapter, op
   const notes = await observeNotes(ctx, adapter, options.instance, project, started, backfill, signal)
   received += notes.received
   errors.push(...notes.errors)
+  // The board follows the ticket: an item a live ticket works on carries the start status, and its end status once that ticket
+  // ended. A write-back failure is reported and never stops the scan, which is what actually finds people's requests.
+  const reflected = await reflectWorkTickets(ctx, adapter, { instance: options.instance, project,
+    statuses: config?.writeBack ? { ...config.statusOnStart ? { start: config.statusOnStart } : {},
+      ...config.statusOnDone ? { done: config.statusOnDone } : {} } : {}, ...signal ? { signal } : {} })
+  errors.push(...reflected.errors)
   return { received, errors }
 }
 
 /** Lists one category's items and hands every unseen one to the engine. */
 async function pollCategory(ctx: SourceContext, adapter: WorkAdapter, instance: string, project: string, since: string,
-  category: string, signal?: AbortSignal): Promise<number> {
+  category: string, signal?: AbortSignal): Promise<{ received: number; statuses: Record<string, string> }> {
   const page = await adapter.listWorkItems(ctx.commands, project, since, [category], signal)
   let received = 0
+  const statuses: Record<string, string> = {}
   for (const listed of page.items) {
     if (signal?.aborted) break
     // A list endpoint may omit the body (Projex's search returns `description: ''`) while the detail endpoint has it.
@@ -148,6 +170,7 @@ async function pollCategory(ctx: SourceContext, adapter: WorkAdapter, instance: 
         /* An unreadable detail keeps the listed item: the title still makes a usable request. */
       }
     }
+    if (item.status.name) statuses[item.status.name] = item.status.id
     item = await withArchivedImages(ctx, adapter, project, item, signal)
     const trigger = workTrigger(item, instance, project)
     // The Engine would also answer 'duplicate'; the local check keeps a repeated page from re-entering the queue.
@@ -155,7 +178,19 @@ async function pollCategory(ctx: SourceContext, adapter: WorkAdapter, instance: 
     await ctx.receive(trigger)
     received += 1
   }
-  return received
+  return { received, statuses }
+}
+
+/** How many distinct status names one instance remembers; a project has a handful, so this is far above what it needs. */
+const MAX_STATUSES = 200
+
+/** Records the status names seen this round, newest last, so a configured status can be written by name. */
+function rememberStatuses(ctx: SourceContext, instance: string, observed: Record<string, string>): void {
+  const names = Object.keys(observed)
+  if (!names.length) return
+  const known: Record<string, string> = { ...ctx.state.get(KV.work.statuses(instance)) ?? {}, ...observed }
+  const entries = Object.entries(known)
+  ctx.state.set(KV.work.statuses(instance), Object.fromEntries(entries.slice(-MAX_STATUSES)))
 }
 
 /** Archives an item's embedded images and appends their markers (or failures) to its body text. */
@@ -183,18 +218,24 @@ async function observeNotes(ctx: SourceContext, adapter: WorkAdapter, instance: 
   const openIds = new Set((ctx.tickets?.open?.() ?? []).map(ticket => ticket.id))
   for (const thread of ctx.threads?.subscribed?.(instance) ?? []) {
     if (signal?.aborted) break
+    // A work item in the recycle bin is gone; its Thread stays but is never read again.
+    if (thread.meta.gone === true) continue
     if (!thread.subscriptions.some(id => openIds.has(id))) continue
     const itemKey = thread.ref.id
     if (!itemKey) continue
-    const address = ctx.triggers.latest(thread.key)?.channel?.address
+    const latest = ctx.triggers.latest(thread.key)
+    const address = latest?.channel?.address
     const itemProject = address?.project ?? project
     const serial = address?.serial ?? itemKey
+    // The item's category, read from the newest Trigger on its thread, puts the comment in the same admission row as the
+    // item, so a category the operator switched off is not silently evaluated on the table's defaults.
+    const category = typeof latest?.meta.category === 'string' ? latest.meta.category : undefined
     try {
       const { notes } = await adapter.listNotes(ctx.commands, itemProject, itemKey, undefined)
       const cursor = ctx.state.get(KV.work.notes(instance, itemKey))
       for (const picked of notesToDeliver(notes, cursor, backfill)) {
         const note = await withArchivedNoteImages(ctx, adapter, itemProject, itemKey, picked, signal)
-        const trigger = noteTrigger(note, { instance, project: itemProject, key: itemKey, serial })
+        const trigger = noteTrigger(note, { instance, project: itemProject, key: itemKey, serial, ...category ? { category } : {} })
         if (ctx.triggers.get(trigger.id)) continue
         await ctx.receive(trigger)
         received += 1
@@ -202,6 +243,8 @@ async function observeNotes(ctx: SourceContext, adapter: WorkAdapter, instance: 
       if (!signal?.aborted) ctx.state.set(KV.work.notes(instance, itemKey), started)
     } catch (error) {
       if (signal?.aborted) break
+      // The operator deleted the item: mark the Thread gone and report nothing, because nothing failed here.
+      if (isWorkItemGone(error)) { ctx.threads?.patch(thread.key, { gone: true }); continue }
       errors.push(`${itemKey}: ${String(error)}`)
     }
   }

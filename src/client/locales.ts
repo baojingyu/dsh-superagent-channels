@@ -98,7 +98,7 @@ const TEXT = {
   sourceOff: ['已关闭', 'Off'],
   executorWaitingSetup: ['执行器等待部署检查', 'Executor waiting for the deployment check'],
   // Header, search, and tabs
-  panel: ['dsh-superagent-multi-channel', 'dsh-superagent-multi-channel'],
+  panel: ['Superagent 多通道', 'Superagent multi-channel'],
   openMaster: ['打开主 Session', 'Open main Session'],
   pagesLabel: ['dsh-superagent 页面', 'dsh-superagent pages'],
   searchPlaceholder: ['搜索工单、线程、触发或链接', 'Search Tickets, Threads, Triggers or links'],
@@ -462,6 +462,10 @@ const TEXT = {
   'promptPart.runtime/policy/none': ['策略（没有启用的规则时）', 'Policy (when no rule is enabled)'],
   'promptPart.skill/feishu': ['飞书技能', 'Feishu skill'],
   'promptPart.skill/github': ['GitHub 技能', 'GitHub skill'],
+  'promptPart.skill/weixin': ['微信技能', 'WeChat skill'],
+  'promptPart.skill/projex': ['云效 Projex 技能', 'Yunxiao Projex skill'],
+  'promptPart.skill/wecom': ['企业微信技能', 'WeCom skill'],
+  'promptPart.skill/dingtalk': ['钉钉技能', 'DingTalk skill'],
   'promptPart.runtime/environment': ['执行环境', 'Execution environment'],
   promptViewEdit: ['编辑', 'Edit'],
   promptViewFull: ['完整提示词', 'Full prompt'],
@@ -770,5 +774,5 @@ export const GLOSSARY_VALUES = {
 } as const
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
-  interface LocaleNamespaceMap { dshSuperagent: DshSuperagentKey }
+  interface LocaleNamespaceMap { dshSuperagent: DshSuperagentKey; dshSuperagentMultiChannel: DshSuperagentKey }
 }

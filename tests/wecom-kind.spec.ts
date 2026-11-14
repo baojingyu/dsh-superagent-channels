@@ -52,7 +52,8 @@ describe('WeCom kind', () => {
 
   it('lists one field per schema key', () => {
     expect(wecomKind.fields.map(field => field.key).sort())
-      .toEqual(['agentId', 'atOnly', 'corpId', 'corpSecret', 'encodingAesKeyFile', 'pollSeconds', 'tokenFile'])
+      .toEqual(['agentId', 'atOnly', 'corpId', 'corpSecret', 'departmentId', 'encodingAesKey', 'encodingAesKeyFile',
+        'pollSeconds', 'token', 'tokenFile'])
   })
 
   it('listens to a message that mentions the application and only observes one that does not', () => {
@@ -86,5 +87,18 @@ describe('WeCom kind', () => {
     expect(wecomKind.policy!.schema.parse({ allowed: [{ id: 'zhangsan', name: '张三' }] }))
       .toEqual({ allowed: [{ id: 'zhangsan', name: '张三' }] })
     expect(() => wecomKind.policy!.schema.parse({ allowed: [{ id: 'zhangsan' }, { id: 'zhangsan' }] })).toThrow()
+  })
+
+  it('refreshes the Policy names from the department user list, writing id -> name labels', async () => {
+    const store = new Map<string, unknown>()
+    const kind = createWecomKind(undefined as never, async () => ({ bytes: new Uint8Array(), mime: 'image/png' }),
+      async (_config, departmentId) => { expect(departmentId).toBe('7'); return [{ id: 'zhangsan', name: '张三' }, { id: 'lisi' }] })
+    const stub = {
+      sources: { instances: () => [{ id: 'wecom-ops', kind: 'wecom', enabled: true, config: { ...CONFIG, departmentId: '7' } }] },
+      context: () => ({ config: () => ({ ...CONFIG, departmentId: '7' }),
+        state: { get: (key: string) => store.get(key), set: (key: string, value: unknown) => { store.set(key, value) }, keys: () => [] } }),
+    } as never
+    await expect(kind.refreshLabels!(stub)).resolves.toEqual({ zhangsan: '张三' })
+    expect(store.get('source-labels:wecom-ops')).toEqual({ zhangsan: '张三' })
   })
 })

@@ -49,6 +49,12 @@ export interface WorkItemPage { items: WorkItem[]; next?: string }
 /** One page of comments on a work item. */
 export interface WorkNotePage { notes: WorkNote[]; next?: string }
 
+/** One uploaded file as a comment shows it: HTML for a RICHTEXT body, Markdown for a MARKDOWN one. */
+export interface WorkAttachment { name: string; html: string; markdown: string }
+
+/** One status a project's work-item workflow offers; `name` is what a person reads on the board. */
+export interface WorkflowStatus { id: string; name: string; nameEn?: string }
+
 /**
  * Adapter of a work host (Projex, GitLab Issues, or GitHub Issues).
  * Reads are listed and paged; the only write the work kind needs is a comment carrying an idempotency marker.
@@ -63,10 +69,21 @@ export interface WorkAdapter<C extends Record<string, unknown> = Record<string, 
   readWorkItem(commands: Commands, project: string, key: string, signal?: AbortSignal): Promise<WorkItem>
   /** Comments of one item; `cursor` omits the first page. */
   listNotes(commands: Commands, project: string, key: string, cursor: string | undefined): Promise<WorkNotePage>
-  /** Posts a comment carrying `marker`; returns `'gone'` when the item no longer accepts comments. */
-  postNote(commands: Commands, item: WorkItem, text: string, marker: string): Promise<'sent' | 'gone'>
+  /** Posts a comment carrying `marker`; `attachments` are files already uploaded for this comment. */
+  postNote(commands: Commands, item: WorkItem, text: string, marker: string, attachments?: readonly WorkAttachment[]): Promise<'sent' | 'gone'>
   /** Reads one embedded image's host metadata (name, suffix, size, short-lived URL); absent when the host has no files API. */
   readImageFile?(commands: Commands, project: string, key: string, image: WorkImageRef, signal?: AbortSignal): Promise<WorkImageFile>
+  /**
+   * The people who belong to the project, used to fill the Policy's member list instead of typing account ids by hand.
+   * Absent when the host exposes no roster this adapter can read.
+   */
+  listMembers?(commands: Commands, project: string, signal?: AbortSignal): Promise<Person[]>
+  /** The project's own status vocabulary, so a write-back status can be chosen by name instead of guessed. */
+  listStatuses?(commands: Commands, project: string, categories: readonly string[], signal?: AbortSignal): Promise<WorkflowStatus[]>
+  /**
+   * Uploads one file to the item and returns how a comment should show it. Absent when the host cannot take attachments.
+   */
+  uploadFile?(commands: Commands, item: WorkItem, file: { name: string; data: string }, signal?: AbortSignal): Promise<WorkAttachment>
   /** Optional status write-back; absent means the host stays read-only for this kind. */
   setStatus?(commands: Commands, item: WorkItem, stage: string, signal?: AbortSignal): Promise<void>
   /** Web page of one item, used by the channel's link. */

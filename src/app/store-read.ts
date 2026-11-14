@@ -53,7 +53,10 @@ export function storeReads(db: DatabaseSync) {
   },
   search: (query: string, limit = 20): Trigger[] => {
     const pattern = `%${query.replace(/[\\%_]/g, match => `\\${match}`)}%`
-    return db.prepare("SELECT value FROM trigger WHERE id = ? OR json_extract(value, '$.url') LIKE ? ESCAPE '\\' OR json_extract(value, '$.meta.messageId') = ? OR json_extract(value, '$.text') LIKE ? ESCAPE '\\' ORDER BY at DESC LIMIT ?").all(query, `${query.replace(/[\\%_]/g, match => `\\${match}`)}%`, query, pattern, limit).map(row => JSON.parse(String(row.value)) as Trigger)
+    // `meta.serial` is the human number of a work item (`ESFX-6228`), and it is what people type into the search box;
+    // `meta.messageId` is its chat counterpart, matched the same exact way.
+    return db.prepare("SELECT value FROM trigger WHERE id = ? OR json_extract(value, '$.url') LIKE ? ESCAPE '\\' OR json_extract(value, '$.meta.messageId') = ? OR json_extract(value, '$.meta.serial') = ? OR json_extract(value, '$.text') LIKE ? ESCAPE '\\' ORDER BY at DESC LIMIT ?")
+      .all(query, `${query.replace(/[\\%_]/g, match => `\\${match}`)}%`, query, query, pattern, limit).map(row => JSON.parse(String(row.value)) as Trigger)
   },
   recentDecisions: (offset = 0, limit = 50): Decision[] => db.prepare('SELECT value FROM decision ORDER BY rowid DESC LIMIT ? OFFSET ?').all(limit, offset).map(row => JSON.parse(String(row.value)) as Decision),
   /** Decisions matching `kinds` whose triggers arrived at or after `since`, aligned with `flow` window counts. */

@@ -22,6 +22,9 @@ import { IM_WORDS, NOTE_WORDS, checkedImText } from '../src/infra/text.ts'
 import { SettingsSchema } from '../src/policy.ts'
 import { feishuKind, feishuTrigger } from '../src/sources/feishu.ts'
 import { githubKind } from '../src/sources/github.ts'
+import { weixinKind } from '../src/sources/chat/weixin/kind.ts'
+import { projexKind } from '../src/sources/work/projex/kind.ts'
+import { wecomKind } from '../src/sources/chat/wecom/kind.ts'
 import { testMachine } from './fixtures/deployment.ts'
 
 type Role = 'orchestrator' | 'worker'
@@ -308,7 +311,11 @@ function failures(): Map<string, string> {
   for (const name of ['decision', 'purpose', 'state']) expect(options.has(name), `${name} has options`).toBe(true)
   const tools = { orchestrator: new Set(toolsOf('orchestrator').keys()), worker: new Set(toolsOf('worker').keys()) }
   const registered = (token: string) => tools.orchestrator.has(token) || tools.worker.has(token)
-  const variables = new Set(host.runtime.ticketEnvironment(host.runtime.store.tickets.get(sessions.a)!).map(variable => variable.key))
+  // Every Source skill ships in every Session, so a variable a skill names only has to be one some kind declares.
+  const declared = [feishuKind, githubKind, weixinKind, projexKind, wecomKind]
+    .flatMap(kind => kind.environment?.variables.map(variable => variable.key) ?? [])
+  const variables = new Set([...declared,
+    ...host.runtime.ticketEnvironment(host.runtime.store.tickets.get(sessions.a)!).map(variable => variable.key)])
   for (const { where, owner, role, text } of surfaces) {
     const fail = (problem: string) => found.set(`${where}: ${problem}`, owner)
     for (const [token] of text.matchAll(/\borchestrator_[a-z_]+/g)) if (!registered(token)) fail(`${token} is not a tool`)
