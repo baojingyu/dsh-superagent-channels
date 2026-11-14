@@ -16,6 +16,8 @@
 - [x] GitHub Pages 已开启（main /docs）；目录 manifest：
       https://baojingyu.github.io/dsh-superagent-multi-channel/distribution/catalog/catalog-source.json
       endpoint：https://baojingyu.github.io/dsh-superagent-multi-channel/distribution/catalog/v1/plugins
+      （manifest 实测 `application/json`；endpoint 实测 `application/octet-stream`，若 Host 严格校验 content-type，改托管
+      Cloudflare/Vercel 或走路径 B）
 
 ## 阻塞项
 
