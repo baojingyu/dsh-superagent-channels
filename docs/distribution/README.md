@@ -4,18 +4,25 @@
 
 ## 已完成
 
-- [x] 开源：`main` 已推送（commit `5f2ade3`），tag `v2.4.0` 已推送
-- [x] 仓库：https://github.com/baojingyu/dsh-superagent-multi-channel
-- [x] 包名 `dsh-superagent-multi-channel`（未占用，`npm view` 404）；`npm publish --dry-run` 72 files / 1.1 MB
+- [x] 开源：`main` 已推送（commit `5f2ade3`、`15565ac`），tag `v2.4.0` 已推送
+- [x] 仓库：https://github.com/baojingyu/dsh-superagent-multi-channel （PUBLIC）
+- [x] Release v2.4.0 与可直接安装的 tarball：
+      https://github.com/baojingyu/dsh-superagent-multi-channel/releases/download/v2.4.0/dsh-superagent-multi-channel-2.4.0.tgz
+- [x] GitHub topics 已加 `dsh-plugin`、`deepseek-harness` 等（dshfind / 1024Store 按 topic 扫描）
+- [x] **dsh-desktop Issue #1650**：https://github.com/anywhere-labs/dsh-desktop/issues/1650
+- [x] **dshfind Issue #80**：https://github.com/hikariming/dshfind/issues/80
+- [x] `npm publish --dry-run` 通过：72 files / 1.1 MB
 
 ## 阻塞项
 
-- [ ] **npm 登录**：`npm whoami` 返回 `ENEEDAUTH`。请在本机执行 `npm login`（账号 `baojingyu` 或你指定的 npm 账号）后我立即
-      `npm publish`；或用有 publish 权限的 token 配置到本机 npm（不必发我）。
-- [ ] **Community Market 托管**：manifest 的 `transport.endpoint` 必须是 HTTPS 且路径以 `/v1/plugins` 结尾（无 `.json`）。
-      GitHub Pages 对无扩展名文件按 `application/octet-stream` 返回，Host 的 `getJson` 可能拒绝；需要部署到能设
-      `content-type: application/json` 的静态主机（Cloudflare Pages / Vercel / 自有反代均可），或改用路径 B 受审 adapter。
-      这步在发送前单独确认。
+- [ ] **npm 登录**：`npm whoami` 仍返回 `ENEEDAUTH`，`npm publish` 未执行。请在本机执行 `npm login`（账号 `baojingyu`
+      或你指定的 npm 账号），然后我 `npm publish`；或用有 publish 权限的 token 配到本机 npm（不必发我）。
+      在 npm 发布前，dshfind 的「npm 包与仓库对得上」这一条不满足，Issue #80 里已注明首发中。
+- [ ] **deepseek1024**：站点没有公开提交表单，按 GitHub 仓库/topic 自动索引（14k+ 插件）；仓库已加 `dsh-plugin` topic，
+      预期被扫入。若你有站点联系人/表单，请给我入口，我补发。
+- [ ] **Community Market 托管**：`transport.endpoint` 必须是 HTTPS 且路径以 `/v1/plugins` 结尾（无 `.json`），并返回 JSON
+      content-type；GitHub Pages 对无扩展名文件按 `application/octet-stream` 返回，可能被 Host 拒绝。发送前需部署到可设
+      content-type 的静态主机（Cloudflare Pages / Vercel / 自有反代），或改走路径 B（受审 adapter）。已在 Issue #1650 说明。
 
 ## 发布前清单（Lead 已核对）
 
