@@ -33,7 +33,7 @@ this bundle's additions. ✅ present · ➖ not applicable to the platform · �
   backfill and no `/thread` pages. WeChat reads history through its sidecar; Feishu through the history API; Projex through the
   work-item APIs.
 - **DingTalk transport**: the WebSocket client is the `dingtalk-stream` SDK, which this bundle deliberately does not vendor.
-  A deployment injects `connect()` (see `src/sources/wecom…` no - see `src/sources/dingtalk-watch.ts`); without it the kind is
+  A deployment injects `connect()` (see `src/sources/dingtalk-watch.ts`); without it the kind is
   registered but nothing listens, and health says so. Everything downstream of the stream (Trigger, ThreadContext, worker
   read, reply, policy) is aligned.
 - **WeCom / DingTalk member sync**: a self-built app cannot enumerate a chat's members; WeCom fills Policy *names* from a

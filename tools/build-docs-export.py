@@ -65,7 +65,7 @@ EN_DOCS = [
 INLINE_LINK = re.compile(r'\[([^\]]+)\]\(([^)]+)\)')
 INLINE_CODE = re.compile(r'`([^`]+)`')
 INLINE_BOLD = re.compile(r'\*\*([^*]+)\*\*')
-HTML_TAG = re.compile(r'<[^>]+>')
+HTML_TAG = re.compile(r'</?(?:sub|sup|br|p|span|a|em|strong|img)\b[^>]*>', re.IGNORECASE)
 
 
 def set_run_font(run, name='微软雅黑', size=10.5, bold=False, color=None, mono=False):

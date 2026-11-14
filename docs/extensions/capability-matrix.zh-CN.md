@@ -29,7 +29,7 @@
 
 - 微信、企业微信与钉钉**没有深链**：三者都不暴露按消息的 URL；面板只报出来源。
 - 企业微信与钉钉**没有历史**：两者都以推送方式投递（回调 / 流），且不提供回读端点，所以没有回填、也没有 `/thread` 分页。微信通过它的 sidecar 读取历史；飞书通过历史 API；Projex 通过工作项 API。
-- **钉钉传输**：WebSocket 客户端是 `dingtalk-stream` SDK，本 bundle 有意不内置它。部署时注入 `connect()`（见 `src/sources/wecom…` 不——见 `src/sources/dingtalk-watch.ts`）；没有它，kind 会被注册但没有任何东西在监听，健康状态会说明这一点。流下游的一切（触发、ThreadContext、worker 读取、回复、策略）都已对齐。
+- **钉钉传输**：WebSocket 客户端是 `dingtalk-stream` SDK，本 bundle 有意不内置它。部署时注入 `connect()`（见 `src/sources/dingtalk-watch.ts`）；没有它，kind 会被注册但没有任何东西在监听，健康状态会说明这一点。流下游的一切（触发、ThreadContext、worker 读取、回复、策略）都已对齐。
 - **企业微信 / 钉钉成员同步**：自建应用无法枚举一个会话的成员；企业微信从它被允许读取的一个部门填充策略里的*名字*，而两者都拒绝把一份可见用户列表当作会话名册。
 - **企业微信 / 钉钉 / 微信图片**：微信与企业微信投递图片时带一个部署方可下载的媒体 id；钉钉的流事件携带文本，所以不声称有图片。
 

@@ -78,6 +78,35 @@ no ticket, no reply, no remote change.
 | **DingTalk** (added) | Stream (deployment injects the SDK connection) | staffId `@`, Markdown 5000, worker reads `dingtalk/<id>/message` |
 | **Yunxiao Projex** (added) | work-item polling | requirement/bug/task + comments, status write-back, attachment comments, worker reads `projex/<id>/item·comments` |
 
+## Capability comparison (against Feishu and GitHub)
+
+Feishu and GitHub are the two Sources the upstream superagent ships; the other four are this bundle's additions. ✅ present · ➖ not applicable · ❌ impossible on the backend (stated, never faked).
+
+| Capability | Feishu (official) | GitHub (official) | WeChat | WeCom | DingTalk | Yunxiao Projex |
+| --- | --- | --- | --- | --- | --- | --- |
+| Receive messages | ✅ poll history + events | ✅ poll notifications | ✅ sidecar poll | ✅ signed callback (plugin mounts `/wecom/<instance>`) | ✅ stream (needs a `connect` injected; no SDK shipped) | ✅ poll work items/comments |
+| Assess / decide / execute / reply loop | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Structured `@` judgement | ✅ open_id | ➖ | ✅ `ats` (markup fallback, strength in facts) | ✅ `mentionsAgent` | ✅ `ats` staffId | ➖ |
+| Direct messages | ✅ | ➖ | ✅ | ✅ | ✅ | ➖ |
+| Outbound text | ✅ markdown | ✅ comment | ✅ + mention-back | ✅ plain 2048 | ✅ markdown 5000 | ✅ RICHTEXT/Markdown comment |
+| Outbound files | ➖ (CLI) | ➖ | ✅ `sendFiles` | ❌ API text only | ➖ (webhook) | ✅ attachments |
+| Idempotent send | ✅ keyed | ✅ marker | ✅ keyed | ❌ none (stated) | ❌ none (stated) | ✅ marker |
+| Thread context for the assessment | ✅ thread/root/parent | ✅ PR/issue | ✅ thread/parent; `root`→`no_root` | ✅ thread; `root`/`parent`→`no_*` | ✅ thread; `root`/`parent`→`no_*` | ✅ item body + comments |
+| Worker reads of the original | ✅ `feishu/<t>/…` | ✅ `github/<t>/…` | ✅ `weixin/<t>/…` | ✅ `wecom/<t>/message` | ✅ `dingtalk/<t>/message` | ✅ `projex/<t>/item`, `/comments` |
+| Inbound images for the assessment | ✅ | ➖ | ✅ `[image:<id>]`, `/media` | ✅ `MediaId`, `/cgi-bin/media/get` | ➖ (text stream) | ✅ item/comment images archived |
+| Panel search | ✅ message id | ✅ issue/PR number | ✅ native id | ✅ decimal `MsgId` | ✅ `msgId` | ✅ serial or page URL |
+| Reply→parent mapping | ✅ | ✅ | ✅ (quote id) | ➖ no quote in callback | ➖ | ➖ |
+| Display-name refresh | ✅ chat names | ✅ repo names | ✅ rooms/members | ✅ department users (`refreshLabels`) | ❌ needs contact permission API, not offered | ✅ status vocabulary |
+| Member/roster sync into Policy | ✅ chat members | ✅ collaborators | ✅ group members | ❌ group members unreadable; user list only fills names | ❌ same | ✅ project members |
+| Health entries | `feishu` + `history` | `github` | `weixin` | `wecom` | `dingtalk` | `projex` |
+| History backfill | ✅ chat history | ✅ notifications | ✅ post re-attach catch-up (marked `historical`) | ❌ callback only | ❌ stream only | ✅ first-sight comments |
+| Message deep link | ✅ AppLink | ✅ issue/PR URL | ❌ | ❌ | ❌ | ✅ item page |
+| Multiple instances | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+**Platform limits, not bugs**: WeChat/WeCom/DingTalk have no per-message deep link; WeCom and DingTalk have no history to backfill (callback/stream only); DingTalk needs an injected `connect()` (`src/sources/dingtalk-watch.ts`); WeCom/DingTalk cannot enumerate chat members; DingTalk stream events carry text, so no image is claimed.
+
+> Full background and the "why" live in the [capability matrix](docs/extensions/capability-matrix.md).
+
 ## Panel tour
 
 The plugin has its own sidebar entry, "Superagent multi-channel", beside the official one. **The screenshots below are real

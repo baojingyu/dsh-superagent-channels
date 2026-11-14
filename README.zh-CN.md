@@ -67,6 +67,35 @@
 | **钉钉**（新增） | Stream（部署注入 SDK 连接） | staffId 结构化 @、Markdown 5000、worker 读 `dingtalk/<id>/message` |
 | **云效 Projex**（新增） | 工作项轮询 | 需求/缺陷/任务+评论、状态回写、附件评论、worker 读 `projex/<id>/item·comments` |
 
+## 能力对照（与飞书 / GitHub 逐项）
+
+飞书与 GitHub 是上游 superagent 自带的两个来源；另外四个是本 bundle 新增。✅ 具备 · ➖ 该平台不适用 · ❌ 后端不可能（如实说明，绝不伪造）。
+
+| 能力 | 飞书（官方） | GitHub（官方） | 微信 | 企业微信 | 钉钉 | 云效 Projex |
+| --- | --- | --- | --- | --- | --- | --- |
+| 接收消息 | ✅ 轮询历史 + 事件 | ✅ 轮询通知 | ✅ sidecar 轮询 | ✅ 签名回调（插件挂载 `/wecom/<instance>`） | ✅ 流（需注入 `connect`；未随附 SDK） | ✅ 轮询工作项/评论 |
+| 评估 / 判定 / 执行 / 回复循环 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 结构化 `@` 判定 | ✅ open_id | ➖ | ✅ `ats`（markup 回退，强度见 facts） | ✅ `mentionsAgent` | ✅ `ats` staffId | ➖ |
+| 单聊 | ✅ | ➖ | ✅ | ✅ | ✅ | ➖ |
+| 出站文本 | ✅ markdown | ✅ 评论 | ✅ + 回复时 @ 回去 | ✅ 纯文本 2048 | ✅ markdown 5000 | ✅ RICHTEXT/Markdown 评论 |
+| 出站文件 | ➖（CLI） | ➖ | ✅ `sendFiles` | ❌ API 仅文本 | ➖（webhook） | ✅ 附件 |
+| 幂等发送 | ✅ 带键 | ✅ 标记 | ✅ 带键 | ❌ 无（已说明） | ❌ 无（已说明） | ✅ 标记 |
+| 供评估使用的线程上下文 | ✅ thread/root/parent | ✅ PR/issue | ✅ thread/parent；`root`→`no_root` | ✅ thread；`root`/`parent`→`no_*` | ✅ thread；`root`/`parent`→`no_*` | ✅ 工作项正文 + 评论 |
+| worker 读取原文 | ✅ `feishu/<t>/…` | ✅ `github/<t>/…` | ✅ `weixin/<t>/…` | ✅ `wecom/<t>/message` | ✅ `dingtalk/<t>/message` | ✅ `projex/<t>/item`、`/comments` |
+| 供评估使用的入站图片 | ✅ | ➖ | ✅ `[image:<id>]`、`/media` | ✅ `MediaId`、`/cgi-bin/media/get` | ➖（文本流） | ✅ 工作项/评论图片已归档 |
+| 面板检索 | ✅ 消息 id | ✅ issue/PR 编号 | ✅ 原生 id | ✅ 十进制 `MsgId` | ✅ `msgId` | ✅ 流水号或页面 URL |
+| 回复→父消息映射 | ✅ | ✅ | ✅（引用 id） | ➖ 回调不带引用 | ➖ | ➖ |
+| 显示名刷新 | ✅ 会话名 | ✅ 仓库名 | ✅ 房间/成员 | ✅ 部门用户（`refreshLabels`） | ❌ 需要通讯录权限 API，未提供 | ✅ 状态词表 |
+| 成员/名册同步进策略 | ✅ 会话成员 | ✅ 协作者 | ✅ 群成员 | ❌ 群成员不可读；用户列表只填名字 | ❌ 同上 | ✅ 项目成员 |
+| 健康条目 | `feishu` + `history` | `github` | `weixin` | `wecom` | `dingtalk` | `projex` |
+| 历史回填 | ✅ 会话历史 | ✅ 通知 | ✅ 重挂后追赶（标记 `historical`） | ❌ 仅回调 | ❌ 仅流 | ✅ 首见评论 |
+| 消息深链 | ✅ AppLink | ✅ issue/PR URL | ❌ | ❌ | ❌ | ✅ 工作项页面 |
+| 多实例 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+**平台限制（不是 bug）**：微信/企业微信/钉钉没有消息深链；企业微信、钉钉没有历史回补（仅回调 / 流）；钉钉 Stream 需要部署注入 `connect()`（`src/sources/dingtalk-watch.ts`）；企业微信 / 钉钉无法枚举群成员；钉钉流事件只带文本，不声称图片。
+
+> 完整背景与「为什么」见 [能力矩阵](docs/extensions/capability-matrix.zh-CN.md)。
+
 ## 面板导览
 
 插件在侧边栏有独立入口「Superagent 多通道」，与官方入口互不覆盖。**以下截图为实机截图，项目 ID、令牌路径、组织 ID、姓名、群名等敏感信息均已打码。**
