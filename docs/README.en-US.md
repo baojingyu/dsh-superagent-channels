@@ -24,6 +24,7 @@ This directory describes what `dsh-superagent multi-channel` (2.4.0, reviewed 20
 | — | [extensions/](extensions/) (each ADR has `.en-US.md` and `.zh-CN.md`) | same files, Chinese variants |
 | — | [gallery.en.html](gallery.en.html) | [gallery.html](gallery.html) |
 | — | [distribution/README.en-US.md](distribution/README.en-US.md) | [distribution/README.md](distribution/README.md) |
+| — | [research/wechat-transport-research.en-US.md](research/wechat-transport-research.en-US.md) | [research/wechat-transport-research.zh-CN.md](research/wechat-transport-research.zh-CN.md) |
 
 ## At a glance
 

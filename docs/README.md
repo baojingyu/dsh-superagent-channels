@@ -25,6 +25,7 @@
 | — | [extensions/](extensions/)（每个 ADR 有 `.zh-CN.md` / `.en-US.md` 两份） | same files, English variants |
 | — | [gallery.html](gallery.html) | [gallery.en.html](gallery.en.html) |
 | — | [distribution/README.md](distribution/README.md) | [distribution/README.en-US.md](distribution/README.en-US.md) |
+| — | [research/wechat-transport-research.zh-CN.md](research/wechat-transport-research.zh-CN.md) | [research/wechat-transport-research.en-US.md](research/wechat-transport-research.en-US.md) |
 
 ## 一页看懂
 
