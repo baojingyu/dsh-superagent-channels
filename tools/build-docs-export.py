@@ -9,7 +9,8 @@ from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
-ROOT = r'C:\Users\Administrator\Documents\deepseek-harness\default-workspace\dsh-superagent-channels'
+from pathlib import Path
+ROOT = str(Path(__file__).resolve().parents[1])
 OUT_DIR = os.path.join(ROOT, 'docs', 'export')
 os.makedirs(OUT_DIR, exist_ok=True)
 
