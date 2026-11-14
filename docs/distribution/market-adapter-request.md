@@ -1,5 +1,7 @@
 # Community Market 路径 B（受审 adapter）备选申请
 
+> 语言：[中文](market-adapter-request.md) · [English](market-adapter-request.en-US.md)
+
 仅当条目规模增长、需要服务端筛选时才需要。当前一条目用[路径 A](catalog/README.md)即可。按
 [catalog-adapter-guide.zh.md](https://github.com/anywhere-labs/dsh-desktop/blob/master/dsh-community-market/docs/catalog-adapter-guide.zh.md)
 的「路径 B」准备以下材料发给 Market 团队：

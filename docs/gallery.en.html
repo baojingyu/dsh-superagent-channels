@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>dsh-superagent multi-channel · Documentation Preview</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: "Microsoft YaHei", system-ui, sans-serif; margin: 0; background: #f6f7f9; color: #1d2027; }
+  main { max-width: 1180px; margin: 0 auto; padding: 40px 24px 80px; }
+  h1 { font-size: 32px; margin: 0 0 6px; }
+  .lead { color: #5b6270; margin: 0 0 28px; }
+  section { background: #fff; border: 1px solid #e3e6ec; border-radius: 16px; padding: 22px; margin: 20px 0; }
+  h2 { font-size: 20px; margin: 0 0 10px; }
+  p { line-height: 1.75; color: #343a45; }
+  figure { margin: 18px 0 0; }
+  img { width: 100%; border: 1px solid #e3e6ec; border-radius: 12px; display: block; }
+  figcaption { color: #6b7280; font-size: 13px; margin-top: 8px; }
+  .note { background: #fff8e6; border-color: #f0d9a8; }
+  code { background: #eef0f4; padding: 1px 6px; border-radius: 6px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>dsh-superagent multi-channel · Documentation Preview</h1>
+  <p style="color:#5b6270;font-size:14px;margin:0 0 12px;">Language: <a href="gallery.html">中文</a> · <a href="gallery.en.html">English</a></p>
+  <p class="lead">Version 2.4.0 · Six Sources (Feishu / GitHub / WeChat / WeCom / DingTalk / Yunxiao Projex) · A collection of real screenshots and diagrams</p>
+
+  <section class="note">
+    <h2>Screenshot notes</h2>
+    <p>Items with the <code>panel-</code> prefix are <strong>real screenshots</strong>; sensitive information such as project/organization IDs, token paths, names, group names, and Session titles is redacted;
+    the rest are <strong>diagrams</strong> drawn to the current implementation. Before publishing, double-check for any sensitive information left out.</p>
+  </section>
+
+  <section>
+    <h2>One image: one pipeline, six Sources</h2>
+    <figure><img src="images/architecture.png" alt="Architecture">
+      <figcaption>Source adapters → Assessment → Ticket / Executor → Reply and write-back; the Panel and local state.</figcaption></figure>
+  </section>
+
+  <section>
+    <h2>The life of a message</h2>
+    <figure><img src="images/lifecycle.png" alt="Lifecycle">
+      <figcaption>Trigger → Assessment → Accept → Execution → Report → Reply; a human can take over at any step.</figcaption></figure>
+  </section>
+
+  <section>
+    <h2>Why does it become work?</h2>
+    <figure><img src="images/policy-flow.png" alt="Admission and Assessment">
+      <figcaption>Four gates: an enabled Source → the allowlist → structured addressing → Assessment; if any gate fails, it is observe-only.</figcaption></figure>
+  </section>
+
+  <section>
+    <h2>Six Sources, one Panel</h2>
+    <figure><img src="images/sources.png" alt="Source overview">
+      <figcaption>How the two official Sources and four added Sources receive messages, and their capability differences.</figcaption></figure>
+  </section>
+
+  <section>
+    <h2>Security and data boundaries</h2>
+    <figure><img src="images/security.png" alt="Security boundaries">
+      <figcaption>Local state, 0600 credentials, passive replies only, network entry points, and reverse-proxy boundaries.</figcaption></figure>
+  </section>
+
+  <section>
+    <h2>Real screenshot: Assessment and Policy</h2>
+    <figure><img src="images/panel-policy.png" alt="Assessment and Policy">
+      <figcaption>Lists and admission tables configured per Source; red boxes are explanatory annotations, names/group names redacted.</figcaption></figure>
+  </section>
+
+  <section>
+    <h2>Real screenshot: Yunxiao Projex Source card</h2>
+    <figure><img src="images/panel-projex-source.png" alt="Yunxiao Projex Source card">
+      <figcaption>Authorization, status vocabulary, project space, token file, status dropdown, attachments, and backfill settings.</figcaption></figure>
+  </section>
+
+  <section>
+    <h2>Real screenshot: Prompts and Skills</h2>
+    <figure><img src="images/panel-prompts.png" alt="Prompts">
+      <figcaption>Six Source Skills and team Prompts can be viewed and overridden section by section.</figcaption></figure>
+  </section>
+
+  <section>
+    <h2>Installation and first-time configuration</h2>
+    <figure><img src="images/install.png" alt="Installation flow">
+      <figcaption>Install → configure stateDir → refresh the Panel → connect and verify each Source.</figcaption></figure>
+  </section>
+
+  <section>
+    <h2>Pre-release materials</h2>
+    <p>Listing-application drafts and the catalog manifest are in <code>docs/distribution/</code>; the capability comparison is in
+    <code>docs/extensions/capability-matrix.md</code>.</p>
+  </section>
+</main>
+</body>
+</html>

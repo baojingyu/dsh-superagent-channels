@@ -1,5 +1,7 @@
 # ADR-012: Aligning WeCom with Feishu
 
+> Language: [English](ADR-012-wecom-feishu-alignment.md) · [中文](ADR-012-wecom-feishu-alignment.zh-CN.md)
+
 Status: accepted (2026-11-14) · Scope: `src/sources/chat/wecom/**`, `src/sources/wecom-watch.ts`, `src/app/resources.ts`,
 `skills/dsh-superagent-wecom/**`
 

@@ -1,5 +1,7 @@
 # ADR-010: Yunxiao sign-in, the real status vocabulary, RICHTEXT attachments, and an independent plugin identity
 
+> Language: [English](ADR-010-yunxiao-signin-status-and-identity.md) · [中文](ADR-010-yunxiao-signin-status-and-identity.zh-CN.md)
+
 Status: accepted (2026-11-14) · Scope: `src/infra/yunxiao-oauth.ts`, `src/infra/yunxiao-api.ts`,
 `src/sources/work/**`, `cordis.patch.yml`, `src/client/**`, `package.json`, `locale/**`
 

@@ -23,6 +23,9 @@ the panel can find a message and follow a reply.
   400 `InvaildData.Failed`; `isWorkItemGone` recognises it, so the Thread is marked `gone` and never read again, the phase is
   remembered as settled, and the operator's deletion is no longer reported as a poll error. Before, one deleted item would
   repeat the same 400 on every round.
+- **Every document now exists in both Chinese and English.** `README`/`EXTENSIONS` pairs, `docs/000`–`008`, every ADR, the
+  capability matrix, the distribution/submission material and the screenshot gallery all have a Chinese and an English file,
+  each linked from the other; `docs/README.md` and `docs/README.en-US.md` list both variants in one table.
 - **All six sources read the same way.** The four added sources now match the two official ones on the read model:
   `projex/<trigger-id>/item` and `/comments` (paged, the agent's own comment marked), `dingtalk/<trigger-id>/message` with a
   DingTalk ThreadContext (`thread` = the callback message, `no_root`, `no_parent`), WeCom `refreshLabels` over a department's

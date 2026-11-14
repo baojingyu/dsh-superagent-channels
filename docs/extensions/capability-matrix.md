@@ -1,5 +1,7 @@
 # Capability matrix: the four added sources against Feishu and GitHub
 
+> Language: [English](capability-matrix.md) · [中文](capability-matrix.zh-CN.md)
+
 Reference for what "aligned" means. Feishu and GitHub are the two sources the upstream superagent ships; the other four are
 this bundle's additions. ✅ present · ➖ not applicable to the platform · ❌ impossible on the backend (stated, never faked).
 

@@ -1,5 +1,7 @@
 # ADR-008 微信出站附件：桥已经能发，模型还不能用它发
 
+> 语言：[中文](ADR-008-outbound-attachments.md) · [English](ADR-008-outbound-attachments.en-US.md)
+
 - **状态**：Accepted 并按方案 A 实施（2026-11-08；桥层真机验证，核心层见 §6）
 - **决策范围**：`OutboundMessage` 是否引入附件、由谁决定发什么文件、以及目录/大小护栏
 - **关联**：ADR-007（微信能力对齐，其「出站图片/文件」一项指向本文）

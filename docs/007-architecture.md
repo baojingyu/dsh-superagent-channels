@@ -1,5 +1,7 @@
 # 007 Architecture
 
+> Language: [English](007-architecture.md) · [中文](007-architecture.zh-CN.md)
+
 This is the developer guide to the implementation. It maps the concepts in [001 Domain model](001-domain.md) through [006 Deployment](006-deployment.md) to classes, interfaces and files. Start with the runtime and Engine, then use the module and test tables as a code index.
 
 ## Core classes and glue

@@ -1,5 +1,7 @@
 # Community Market 目录接入（路径 A：静态 HTTPS JSON）
 
+> 语言：[中文](README.md) · [English](README.en-US.md)
+
 这份目录按 [catalog-adapter-guide.zh.md](../market-adapter-request.md) 的**路径 A** 准备：同一 origin 上发布两份匿名 HTTPS JSON，
 用户只登记 manifest URL，无需改动 Market 代码。
 

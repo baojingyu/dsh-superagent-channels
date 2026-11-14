@@ -1,5 +1,7 @@
 # 给 dsh-desktop 的 Issue（开源后发送）
 
+> 语言：[中文](dsh-desktop-issue.md) · [English](dsh-desktop-issue.en-US.md)
+
 **标题**：`[插件收录] dsh-superagent 多通道：为 superagent 增加微信 / 企业微信 / 钉钉 / 云效 Projex`
 
 **正文（Markdown，可直接粘贴）**

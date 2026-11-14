@@ -1,5 +1,7 @@
 # 001 Domain model
 
+> Language: [English](001-domain.md) · [中文](001-domain.zh-CN.md)
+
 This document names the concepts of dsh-superagent and the rules each one keeps. The code, the tools the agents call, the panel and the other documents use these terms and no others. Following [000 Philosophy](000-philosophy.md), the model holds only concepts the work needs, and a business need becomes an attribute of one of them.
 
 ## Flow

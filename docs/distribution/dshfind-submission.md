@@ -1,5 +1,7 @@
 # 给 dshfind 的收录申请（开源后发送）
 
+> 语言：[中文](dshfind-submission.md) · [English](dshfind-submission.en-US.md)
+
 dshfind 的插件超市由站点与其 GitHub 仓库（https://github.com/hikariming/dshfind）维护。先在其仓库的 Issue/PR 或站点提供的提交入口
 提交以下信息；若站点没有公开提交入口，用下面的「通用申请」发给站点维护者。
 

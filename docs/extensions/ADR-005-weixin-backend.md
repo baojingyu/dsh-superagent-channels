@@ -1,5 +1,7 @@
 # ADR-005 微信个人号群消息的后端选型与切换策略
 
+> 语言：[中文](ADR-005-weixin-backend.md) · [English](ADR-005-weixin-backend.en-US.md)
+
 - **状态**：Accepted（2026-11-06，方案 owner 已确认）
 - **决策范围**：`src/sources/chat/weixin/*` 的后端形态、主备策略、部署前提
 - **关联**：设计文档 §6.7、§6.7.9、§6.7.10；本文不重复背景，只固化决定

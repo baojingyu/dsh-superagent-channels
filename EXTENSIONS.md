@@ -1,5 +1,7 @@
 # Extensions: the multi-channel layer
 
+> Language: [English](EXTENSIONS.md) · [中文](EXTENSIONS.zh-CN.md)
+
 **English** · [简体中文](EXTENSIONS.zh-CN.md)
 
 This repository is a downstream distribution of a research prototype built on

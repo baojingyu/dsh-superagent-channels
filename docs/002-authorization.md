@@ -1,5 +1,7 @@
 # 002 Authorization
 
+> Language: [English](002-authorization.md) · [中文](002-authorization.zh-CN.md)
+
 Authorization determines who may start work and what that work may include. This document builds on [001 Domain model](001-domain.md).
 
 The host enforces allowed lists, rules and Mandates. Messages, comments and quoted documents are inputs to a decision; they cannot change those permissions.

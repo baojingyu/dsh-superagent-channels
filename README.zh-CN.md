@@ -1,5 +1,7 @@
 # dsh-superagent 多通道
 
+> 语言：[中文](README.zh-CN.md) · [English](README.md)
+
 **把飞书、GitHub、微信、企业微信、钉钉、阿里云云效 Projex 接成同一套「评估 → 工单 → 执行 → 回复」闭环的 DSH 插件。**
 
 版本 `2.4.0` · 测试 102 文件 / 1624 通过 · 许可 MIT · 与官方 `dsh-superagent` 并存安装
@@ -119,19 +121,19 @@
 
 | 文档 | 内容 |
 | --- | --- |
-| [docs/README.md](docs/README.md) | 文档总览与阅读顺序 |
-| [docs/000-philosophy.md](docs/000-philosophy.md) | 设计哲学：为什么是「评估→工单→执行」 |
-| [docs/001-domain.md](docs/001-domain.md) | 领域模型：Trigger / Thread / Ticket / Assignment |
-| [docs/002-authorization.md](docs/002-authorization.md) | 授权与准入：策略、名单、点名判定 |
-| [docs/003-execution.md](docs/003-execution.md) | 执行：执行器会话、目录隔离、交付 |
-| [docs/004-prompts.md](docs/004-prompts.md) | 提示词与技能 |
+| [docs/README.md](docs/README.md) | 文档总览与阅读顺序（[English](docs/README.en-US.md)） |
+| [docs/000-philosophy.zh-CN.md](docs/000-philosophy.zh-CN.md) | 设计哲学：为什么是「评估→工单→执行」 |
+| [docs/001-domain.zh-CN.md](docs/001-domain.zh-CN.md) | 领域模型：Trigger / Thread / Ticket / Assignment |
+| [docs/002-authorization.zh-CN.md](docs/002-authorization.zh-CN.md) | 授权与准入：策略、名单、点名判定 |
+| [docs/003-execution.zh-CN.md](docs/003-execution.zh-CN.md) | 执行：执行器会话、目录隔离、交付 |
+| [docs/004-prompts.zh-CN.md](docs/004-prompts.zh-CN.md) | 提示词与技能 |
 | [docs/005-panel.md](docs/005-panel.md) | 面板逐页说明（含截图） |
-| [docs/006-deployment.md](docs/006-deployment.md) | 部署、配置项、升级与并存 |
-| [docs/007-architecture.md](docs/007-architecture.md) | 架构与模块/测试清单 |
+| [docs/006-deployment.zh-CN.md](docs/006-deployment.zh-CN.md) | 部署、配置项、升级与并存 |
+| [docs/007-architecture.zh-CN.md](docs/007-architecture.zh-CN.md) | 架构与模块/测试清单 |
 | [docs/008-cookbook.md](docs/008-cookbook.md) | 常见做法与排障 |
-| [EXTENSIONS.zh-CN.md](EXTENSIONS.zh-CN.md) | 逐通道功能点（中文） |
-| [docs/extensions/capability-matrix.md](docs/extensions/capability-matrix.md) | 六来源能力对照与平台限制 |
-| [docs/extensions/](docs/extensions/) | ADR-005 … ADR-012 |
+| [docs/extensions/capability-matrix.zh-CN.md](docs/extensions/capability-matrix.zh-CN.md) | 六来源能力对照与平台限制 |
+| [docs/extensions/](docs/extensions/) | ADR-005 … ADR-012（每篇中英两份） |
+| [docs/gallery.html](docs/gallery.html) | 图文预览（[English](docs/gallery.en.html)） |
 
 ## 开发与测试
 

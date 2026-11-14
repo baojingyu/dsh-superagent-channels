@@ -1,5 +1,7 @@
 # ADR-011: Aligning WeChat with Feishu
 
+> Language: [English](ADR-011-weixin-feishu-alignment.md) · [中文](ADR-011-weixin-feishu-alignment.zh-CN.md)
+
 Status: accepted (2026-11-14) · Scope: `src/sources/chat/weixin/**`, `src/app/resources.ts`, `src/app/prompts.ts`,
 `src/app/skill-files.ts`, `skills/dsh-superagent-weixin/**`
 

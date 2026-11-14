@@ -5,6 +5,8 @@ import { describe, expect, it } from 'vitest'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const NUMBERED = /^(\d{3})-[a-z0-9-]+\.md$/
+/** A translated companion of a numbered document: same number, language suffix, never a separate entry in the sequence. */
+const TRANSLATED = /^(\d{3})-[a-z0-9-]+\.(?:zh-CN|en-US)\.md$/
 const numbered = readdirSync(join(ROOT, 'docs')).filter(name => NUMBERED.test(name)).sort()
 const entries = ['README.md', 'SETUP.md']
 const documents = [...entries, ...readdirSync(join(ROOT, 'docs')).filter(name => name.endsWith('.md')).map(name => `docs/${name}`)]
@@ -45,8 +47,13 @@ describe('documentation', () => {
     const violations = numbered.flatMap(name => links(join(ROOT, 'docs', name)).flatMap(target => {
       const linked = resolve(ROOT, 'docs', target)
       if (!linked.endsWith('.md')) return []
-      const number = NUMBERED.exec(basename(linked))?.[1]
-      return dirname(linked) === join(ROOT, 'docs') && number !== undefined && number < name.slice(0, 3) ? [] : [`${name} → ${target}`]
+      const targetName = basename(linked)
+      const number = NUMBERED.exec(targetName)?.[1] ?? TRANSLATED.exec(targetName)?.[1]
+      const own = Number(name.slice(0, 3))
+      // A numbered document may link to an earlier numbered document, to itself (the language switcher), or to its own
+      // or an earlier translated companion.
+      const allowed = dirname(linked) === join(ROOT, 'docs') && number !== undefined && Number(number) <= own
+      return allowed ? [] : [`${name} → ${target}`]
     }))
     expect(violations).toEqual([])
   })

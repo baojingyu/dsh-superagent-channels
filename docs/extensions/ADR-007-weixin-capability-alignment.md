@@ -1,5 +1,7 @@
 # ADR-007 微信渠道能力对齐：SiverWXBot 的功能面 vs 本仓库
 
+> 语言：[中文](ADR-007-weixin-capability-alignment.md) · [English](ADR-007-weixin-capability-alignment.en-US.md)
+
 - **状态**：Accepted，三期均已实施（2026-11-08）：P1 `7b4e316`、P2 `c4350a8`、P3 本提交
 - **决策范围**：微信来源（`src/sources/chat/weixin/`）的面板字段、sidecar 出站能力、按关键词分流的归属
 - **关联**：ADR-005（L0 后端与 @ 判据）、ADR-006（健康条目键）、`sidecar/wxauto-bridge/contract.md`

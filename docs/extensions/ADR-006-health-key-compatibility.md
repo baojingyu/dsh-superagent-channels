@@ -1,5 +1,7 @@
 # ADR-006 健康条目的键兼容：默认实例保留裸名
 
+> 语言：[中文](ADR-006-health-key-compatibility.md) · [English](ADR-006-health-key-compatibility.en-US.md)
+
 - **状态**：Accepted（2026-11-06，P0 实施中确认）
 - **决策范围**：`SourceRegistry.healthEntries` / `sourceContextOf` / `views/sources.ts` 里健康条目的 key 形态
 - **关联**：设计文档 §6.6、§4.3；P0 落地工单 §1.5；实施任务 t3

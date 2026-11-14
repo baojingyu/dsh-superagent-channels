@@ -1,5 +1,7 @@
 # 扩展：多通道层
 
+> 语言：[中文](EXTENSIONS.zh-CN.md) · [English](EXTENSIONS.md)
+
 [English](EXTENSIONS.md) · **简体中文**
 
 本仓库是一个基于 [DeepSeek Harness](https://dsh.dev) 的研究原型的**下游发行版**（见

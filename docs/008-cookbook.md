@@ -1,5 +1,7 @@
 # 常见做法与排障
 
+> 语言：[中文](008-cookbook.md) · [English](008-cookbook.en-US.md)
+
 ## 只让白名单里的人能发起工作
 
 1. 面板 → 评估 → 在各来源上选中来源（钉钉 / 飞书 / GitHub / GitLab / 云效 Projex / 企业微信 / 微信）。

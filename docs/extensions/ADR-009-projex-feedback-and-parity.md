@@ -1,5 +1,7 @@
 # ADR-009: Projex feedback, attachments, member sync and search — the routes we could reach
 
+> Language: [English](ADR-009-projex-feedback-and-parity.md) · [中文](ADR-009-projex-feedback-and-parity.zh-CN.md)
+
 Status: accepted (2026-11-13) · Scope: `src/sources/work/**`, `src/infra/yunxiao-api.ts`, `src/app/store-read.ts`
 
 ## Context
