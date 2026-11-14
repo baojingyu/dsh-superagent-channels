@@ -15,9 +15,11 @@
 
 ## 阻塞项
 
-- [ ] **npm 登录**：`npm whoami` 仍返回 `ENEEDAUTH`，`npm publish` 未执行。请在本机执行 `npm login`（账号 `baojingyu`
-      或你指定的 npm 账号），然后我 `npm publish`；或用有 publish 权限的 token 配到本机 npm（不必发我）。
-      在 npm 发布前，dshfind 的「npm 包与仓库对得上」这一条不满足，Issue #80 里已注明首发中。
+- [ ] **npm 登录/2FA**：已登录 `juelianyu`；两次 access token 都能读（`npm whoami` 正常）但 `npm publish` 均报
+      `403 Two-factor authentication or granular access token with bypass 2fa enabled is required`。需要：
+      ① npmjs → Access Tokens → 生成 **Granular Access Token** 并勾选 **Bypass 2FA**、权限 Read and write；或
+      ② 提供当前 **6 位 OTP 数字**（不是 token）；或 ③ 在本机终端执行 `npm publish --access public`。
+      发布前 dshfind 的「npm 包与仓库对得上」不满足，Issue #80 已注明首发中。
 - [ ] **deepseek1024**：站点没有公开提交表单，按 GitHub 仓库/topic 自动索引（14k+ 插件）；仓库已加 `dsh-plugin` topic，
       预期被扫入。若你有站点联系人/表单，请给我入口，我补发。
 - [ ] **Community Market 托管**：`transport.endpoint` 必须是 HTTPS 且路径以 `/v1/plugins` 结尾（无 `.json`），并返回 JSON

@@ -4,10 +4,27 @@
   "license": "MIT",
   "version": "2.4.0",
   "description": "Extra chat and work channels for DSH as a standalone bundle: WeChat, Feishu, DingTalk, WeCom, GitLab, Yunxiao Projex and GitHub. A Source receives a request, a Policy decides whether it becomes work, and each Ticket runs in its own DSH Session. Installs alongside the official superagent under its own name.",
-  "repository": { "type": "git", "url": "https://github.com/baojingyu/dsh-superagent-multi-channel.git" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/baojingyu/dsh-superagent-multi-channel.git"
+  },
   "homepage": "https://github.com/baojingyu/dsh-superagent-multi-channel#readme",
-  "bugs": { "url": "https://github.com/baojingyu/dsh-superagent-multi-channel/issues" },
-  "keywords": ["dsh", "deepseek-harness", "superagent", "plugin", "bundle", "wechat", "feishu", "dingtalk", "wecom", "yunxiao", "projex", "github", "gitlab", "agent"],
+  "bugs": {
+    "url": "https://github.com/baojingyu/dsh-superagent-multi-channel/issues"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "dsh-bundle",
+    "superagent",
+    "channels",
+    "wechat",
+    "feishu",
+    "dingtalk",
+    "wecom",
+    "gitlab",
+    "projex"
+  ],
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
@@ -136,19 +153,6 @@
     "@types/react-dom": "18.3.7",
     "@deepseek-ai/dsh-subprocess": "0.2.1-alpha.2"
   },
-  "keywords": [
-    "dsh",
-    "dsh-plugin",
-    "dsh-bundle",
-    "superagent",
-    "channels",
-    "wechat",
-    "feishu",
-    "dingtalk",
-    "wecom",
-    "gitlab",
-    "projex"
-  ],
   "publishConfig": {
     "access": "public"
   }
