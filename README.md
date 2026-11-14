@@ -128,20 +128,20 @@ URL and token, DingTalk's injected stream connection, the WeChat bridge `/health
 ## Documentation map
 
 | Document | What it covers |
-| --- | --- |
-| [docs/README.en-US.md](docs/README.en-US.md) | Reading order and the full map (中文：[docs/README.md](docs/README.md)) |
-| [docs/000-philosophy.md](docs/000-philosophy.md) | Why assess → ticket → execute |
-| [docs/001-domain.md](docs/001-domain.md) | Trigger / Thread / Ticket / Assignment |
-| [docs/002-authorization.md](docs/002-authorization.md) | Policy, allowed lists, addressed detection |
-| [docs/003-execution.md](docs/003-execution.md) | Executor sessions, directories, delivery |
-| [docs/004-prompts.md](docs/004-prompts.md) | Prompts and skills |
-| [docs/005-panel.en-US.md](docs/005-panel.en-US.md) | The panel page by page (with screenshots) |
-| [docs/006-deployment.md](docs/006-deployment.md) | Deployment, settings, upgrades, coexistence |
-| [docs/007-architecture.md](docs/007-architecture.md) | Architecture, module and test tables |
-| [docs/008-cookbook.en-US.md](docs/008-cookbook.en-US.md) | Recipes and troubleshooting |
-| [docs/extensions/capability-matrix.md](docs/extensions/capability-matrix.md) | Six-source comparison and platform limits |
-| [docs/extensions/](docs/extensions/) | ADR-005 … ADR-012 (each in English and Chinese) |
-| [docs/gallery.en.html](docs/gallery.en.html) | Illustrated preview (中文：[docs/gallery.html](docs/gallery.html)) |
+| --- | --- | --- |
+| [docs/README.en-US.md](docs/README.en-US.md) | Reading order and the full map (中文：[docs/README.md](docs/README.md)) | 46 lines · start here |
+| [docs/000-philosophy.md](docs/000-philosophy.md) | Why assess → ticket → execute | 35 lines · everyone, ~10 min |
+| [docs/001-domain.md](docs/001-domain.md) | Trigger / Thread / Ticket / Assignment | 114 lines · developers, integrators |
+| [docs/002-authorization.md](docs/002-authorization.md) | Policy, allowed lists, addressed detection | 157 lines · admins, security review |
+| [docs/003-execution.md](docs/003-execution.md) | Executor sessions, directories, delivery | 205 lines · developers, operators |
+| [docs/004-prompts.md](docs/004-prompts.md) | Prompts and skills | 98 lines · prompt maintainers |
+| [docs/005-panel.en-US.md](docs/005-panel.en-US.md) | The panel page by page (with screenshots) | 60 lines · everyday users |
+| [docs/006-deployment.md](docs/006-deployment.md) | Deployment, settings, upgrades, coexistence | 298 lines · deployers, operators |
+| [docs/007-architecture.md](docs/007-architecture.md) | Architecture, module and test tables | 713 lines · maintainers, contributors (as an index) |
+| [docs/008-cookbook.en-US.md](docs/008-cookbook.en-US.md) | Recipes and troubleshooting | 51 lines · on-call, troubleshooting |
+| [docs/extensions/capability-matrix.md](docs/extensions/capability-matrix.md) | Six-source comparison and platform limits | 42 lines · selection, review |
+| [docs/extensions/](docs/extensions/) | ADR-005 … ADR-012 (each in English and Chinese) | 40–356 lines each · decision history |
+| [docs/gallery.en.html](docs/gallery.en.html) | Illustrated preview (中文：[docs/gallery.html](docs/gallery.html)) | image pages · demo, review |
 
 ## Develop and test
 

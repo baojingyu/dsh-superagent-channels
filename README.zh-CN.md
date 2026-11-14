@@ -120,20 +120,20 @@
 ## 文档地图
 
 | 文档 | 内容 |
-| --- | --- |
-| [docs/README.md](docs/README.md) | 文档总览与阅读顺序（[English](docs/README.en-US.md)） |
-| [docs/000-philosophy.zh-CN.md](docs/000-philosophy.zh-CN.md) | 设计哲学：为什么是「评估→工单→执行」 |
-| [docs/001-domain.zh-CN.md](docs/001-domain.zh-CN.md) | 领域模型：Trigger / Thread / Ticket / Assignment |
-| [docs/002-authorization.zh-CN.md](docs/002-authorization.zh-CN.md) | 授权与准入：策略、名单、点名判定 |
-| [docs/003-execution.zh-CN.md](docs/003-execution.zh-CN.md) | 执行：执行器会话、目录隔离、交付 |
-| [docs/004-prompts.zh-CN.md](docs/004-prompts.zh-CN.md) | 提示词与技能 |
-| [docs/005-panel.md](docs/005-panel.md) | 面板逐页说明（含截图） |
-| [docs/006-deployment.zh-CN.md](docs/006-deployment.zh-CN.md) | 部署、配置项、升级与并存 |
-| [docs/007-architecture.zh-CN.md](docs/007-architecture.zh-CN.md) | 架构与模块/测试清单 |
-| [docs/008-cookbook.md](docs/008-cookbook.md) | 常见做法与排障 |
-| [docs/extensions/capability-matrix.zh-CN.md](docs/extensions/capability-matrix.zh-CN.md) | 六来源能力对照与平台限制 |
-| [docs/extensions/](docs/extensions/) | ADR-005 … ADR-012（每篇中英两份） |
-| [docs/gallery.html](docs/gallery.html) | 图文预览（[English](docs/gallery.en.html)） |
+| --- | --- | --- |
+| [docs/README.md](docs/README.md) | 文档总览与阅读顺序（[English](docs/README.en-US.md)） | 46 行 · 第一次读 |
+| [docs/000-philosophy.zh-CN.md](docs/000-philosophy.zh-CN.md) | 设计哲学：为什么是「评估→工单→执行」 | 35 行 · 所有人，约 10 分钟 |
+| [docs/001-domain.zh-CN.md](docs/001-domain.zh-CN.md) | 领域模型：Trigger / Thread / Ticket / Assignment | 114 行 · 开发者、集成者 |
+| [docs/002-authorization.zh-CN.md](docs/002-authorization.zh-CN.md) | 授权与准入：策略、名单、点名判定 | 157 行 · 管理员、安全评审 |
+| [docs/003-execution.zh-CN.md](docs/003-execution.zh-CN.md) | 执行：执行器会话、目录隔离、交付 | 205 行 · 开发者、运维 |
+| [docs/004-prompts.zh-CN.md](docs/004-prompts.zh-CN.md) | 提示词与技能 | 98 行 · 提示词维护者 |
+| [docs/005-panel.md](docs/005-panel.md) | 面板逐页说明（含截图） | 60 行 · 日常使用者 |
+| [docs/006-deployment.zh-CN.md](docs/006-deployment.zh-CN.md) | 部署、配置项、升级与并存 | 298 行 · 部署者、运维 |
+| [docs/007-architecture.zh-CN.md](docs/007-architecture.zh-CN.md) | 架构与模块/测试清单 | 713 行 · 维护者、贡献者（当索引用） |
+| [docs/008-cookbook.md](docs/008-cookbook.md) | 常见做法与排障 | 51 行 · 值班、排障 |
+| [docs/extensions/capability-matrix.zh-CN.md](docs/extensions/capability-matrix.zh-CN.md) | 六来源能力对照与平台限制 | 42 行 · 选型、评审 |
+| [docs/extensions/](docs/extensions/) | ADR-005 … ADR-012（每篇中英两份） | 40–356 行/篇 · 决策回溯 |
+| [docs/gallery.html](docs/gallery.html) | 图文预览（[English](docs/gallery.en.html)） | 图片页 · 演示、评审 |
 
 ## 开发与测试
 
